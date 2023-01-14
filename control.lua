@@ -5,6 +5,8 @@
 -- })
 require "utilities"
 require "chunksearcher"
+require "harvester"
+
 local autocncharvestertesting = settings.startup["Auto-cncharvester-testing"].value
 
 script.on_init(function()
@@ -28,32 +30,36 @@ end
 end ]]
 
 function On_Load()
-	for _, cncharvester in pairs(global.cncharvesters) do
-		-- Allow it to re-set its metatable.
-		cncharvester.Onload(cncharvester)
-	end
 	for _, refinery in pairs(global.refineries) do
 		-- Allow it to re-set its metatable.
 		Refinery.Onload(refinery)
 	end
+	for _, harvester in pairs(global.cncharvesters) do
+		-- Allow it to re-set its metatable.
+		cncharvester.Onload(harvester)
+	end
 end
+script.on_load(On_Load)
 
 function On_Built(event)
 	local ent = event.created_entity or event.entity
-	if not (entity and entity.valid) then return end
-	if ent.name == "cncharvester" then
-		table.insert(global.cncharvesters, cncharvester.New(ent))
+	if not (ent and ent.valid) then return end
+	if ent.name == "cncharvester" or ent.name == "cncharvester-type2" then
+		global.cncharvesters[ent.unit_number] = cncharvester.New(ent)
 	elseif ent.name == "refinery" then
-		table.insert(global.refineries, Refinery.New(ent))
+		global.refineries[ent.unit_number] = Refinery.New(ent)
 	end
+end
+if autocncharvestertesting then
+	script.on_event(defines.events.on_built_entity, On_Built)
 end
 
 function On_Removed(event)
 	local ent = event.entity
-	if ent.name == "cncharvester" then
-		for i, cncharvester in pairs(global.cncharvesters) do
-			if cncharvester.vehicle == ent then
-				cncharvester:Delete()
+	if ent.name == "cncharvester" or ent.name == "cncharvester-type2" then
+		for i, harvester in pairs(global.cncharvesters) do
+			if harvester.vehicle == ent then
+				harvester:Delete()
 				table.remove(global.cncharvesters, i)
 				return
 			end
@@ -84,7 +90,7 @@ end
 )
 
 local timer = 0
-function On_Tick()
+function On_Tick_Driving_Players()
 	-- Create a table to store the names of the cncharvester vehicles
 	local cncharvester_names = {'cncharvester', 'cncharvester-ai', 'cncharvester-type2', 'cncharvester-type2-ai'}
 	
@@ -100,7 +106,7 @@ function On_Tick()
 				end
 				local ore = surface.find_entities_filtered {
 					type = "resource",
-					area = getBoundingBox(vehicle.position, bounding_box_size)
+					area = GetBoundingBox(vehicle.position, bounding_box_size)
 				}
 				
 				-- Increment the timer and reset it if it reaches 10
@@ -129,7 +135,7 @@ function On_Tick()
 				-- find refinery's within a 4x4 square centered around the vehicle
 				local refineries = surface.find_entities_filtered {
 					name = "refinery",
-					area = getBoundingBox(vehicle.position, 5)
+					area = GetBoundingBox(vehicle.position, 5)
 				}
 				if #refineries > 0 then -- if the returned table has at least one entry
 					-- I think this is the correct inventory...I might be wrong
@@ -154,11 +160,14 @@ function On_Tick()
 	end
 end
 
-script.on_nth_tick(60, On_Tick)
+script.on_nth_tick(60, On_Tick_Driving_Players)
 
-function getBoundingBox(position, radius)
-	return {
-		{position.x - radius, position.y - radius},
-		{position.x + radius, position.y + radius}
-	}
+if autocncharvestertesting then
+	script.on_nth_tick(1, function() 
+		if global.cncharvesters then
+			for _, harvester in pairs(global.cncharvesters) do
+				harvester:Tick()
+			end
+		end
+	end)
 end

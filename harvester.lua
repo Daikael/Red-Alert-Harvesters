@@ -1,9 +1,9 @@
 require "utilities"
 require "harvesterstats"
 require "refinery"
-local autocncharvestertesting = settings.startup["Auto-cncharvester-testing"].value
+require "specialOres"
 
-States = {
+local States = {
 	Animating = 0,
 	FindingOre = 1,
 	MiningOre = 2,
@@ -16,7 +16,7 @@ States = {
 	Refueling = 9,
 }
 
-StateUsesEnergy = {
+local StateUsesEnergy = {
 	[States.Animating] = true,
 	[States.FindingOre] = false,
 	[States.MiningOre] = true,
@@ -29,7 +29,7 @@ StateUsesEnergy = {
 	[States.Refueling] = false,
 }
 
-if autocncharvestertesting then cncharvester = {
+cncharvester = {
 	New = function(entity)
 		local self = {
 			vehicle = entity,
@@ -67,32 +67,41 @@ if autocncharvestertesting then cncharvester = {
 		setmetatable(self, {__index=cncharvester})
 		
 		-- Add a driver.
+		--[[ entity name "player" unknown
 		self.driver = game.surfaces.nauvis.create_entity{name="player", force=self.vehicle.force, position=self.vehicle.position}
 		self.vehicle.passenger = self.driver
+		]]--
 		self:SetIsFilled(false)
 		
+		--[[ unknown animation "cncharvester-anim"
 		self.animEntity = game.surfaces.nauvis.create_entity{name = "cncharvester-anim", force=self.vehicle.force, position=self.vehicle.position}
 		-- Get rid of the flashing "no fuel" icon.
 		self.animEntity.get_inventory(defines.inventory.fuel).insert({name = "coal", count = 1})
+		]]--
 		
+		--[[ table cncharvesterAnimator is missing in repository
 		self.animationState = cncharvesterAnimator.New(self)
-		
 		self.animationState:SetOrientation(self.vehicle.orientation)
+		]]--
 	
 		return self
 	end,
 
 	Delete = function(self)
 		-- Remove the driver
+		--[[
 		if self.driver and self.driver.valid then
 			self.vehicle.passenger = nil
 			self.driver.destroy()
 			self.driver = nil
 		end
+		]]--
+		--[[
 		if self.animEntity and self.animEntity.valid then
 			self.animEntity.destroy()
 			self.animEntity = nil
 		end
+		]]--
 		if self.vehicle and self.vehicle.valid then
 			self.vehicle.destroy()
 			self.vehicle = nil
@@ -104,12 +113,16 @@ if autocncharvestertesting then cncharvester = {
 	
 	Onload = function(self)
 		setmetatable(self, {__index=cncharvester})
+		--[[ unknown table cncharvesterAnimator 
 		cncharvesterAnimator.Onload(self.animationState)
+		]]--
 	end,
 	
 	Tick = function(self)
 		-- Kick any players that entered.
+		--[[
 		self.animEntity.passenger = nil
+		]]--
 		
 		if StateUsesEnergy[self.state] then
 			if not self:CheckFuel() then
@@ -125,7 +138,9 @@ if autocncharvestertesting then cncharvester = {
 	ErrorDump = function(self)
 		game.player.print("self.currentOrientation = " .. self.currentOrientation)
 		game.player.print("self.state = " .. self.state)
-		self.animationState:ErrorDump()
+		if self.animationState then
+			self.animationState:ErrorDump()
+		end
 	end,
 	
 	FloatingText = function(self, text, color)
@@ -139,7 +154,12 @@ if autocncharvestertesting then cncharvester = {
 		end
 		
 		-- If we're running out of fuel, head for a refuel.
-		if not self.refueling and not (self.state == States.Animating) and self.vehicle.get_inventory(defines.inventory.fuel).get_item_count() < 5 then
+		if 
+			not self.refueling
+			and not (self.state == States.Animating)
+			and self.vehicle.valid
+			and self.vehicle.get_inventory(defines.inventory.fuel).get_item_count() < 5 
+		then
 			self:FloatingText("Heading for refuel", {g = 0.8})
 			self.state = States.FindingRefuelRefinery
 			self.refueling = true
@@ -178,23 +198,30 @@ if autocncharvestertesting then cncharvester = {
 	RefuelFromInventory = function(self, inventory)
 		local fuelName = false
 		local fuelCount = 0
+		local vehicleFuelInventory = self.vehicle.get_inventory(defines.inventory.fuel)
+
+		if vehicleFuelInventory.is_full() then
+			-- We're already full, so refueling was successful.
+			return true
+		end
+
 		-- Find out which fuel we're currently using.
-		for itemName, count in pairs(self.vehicle.get_inventory(defines.inventory.fuel).get_contents()) do
+		for itemName, count in pairs(vehicleFuelInventory.get_contents()) do
 			if count == game.item_prototypes[itemName].stack_size then
-				-- We're already full, so refueling was successful.
 				return true
 			end
 			fuelName = itemName
 			fuelCount = count
 			break
 		end
-		-- If the fuel slot is currently empty.
-		if not fuelName then
+		-- If the fuel slot is currently empty or that fuel is not available.
+		if not fuelName or inventory.get_item_count(fuelName) == 0 then
 			-- Check if we have fuel in the back
 			for itemName, count in pairs(inventory.get_contents()) do
 				-- Is this item a fuel?
 				if game.item_prototypes[itemName].fuel_value > 0 then
 					fuelName = itemName
+					fuelCount = vehicleFuelInventory.get_item_count(fuelName)
 					break
 				end
 			end
@@ -205,8 +232,15 @@ if autocncharvestertesting then cncharvester = {
 			local fuelCountInBack = inventory.get_item_count(fuelName)
 			-- We need at least one, obviously.
 			if fuelCountInBack > 0 then
+				local fuelStackSize = game.item_prototypes[fuelName].stack_size
+				local amountToCompleteStack = fuelStackSize - fuelCount % fuelStackSize
+				local amountForRemainingStacks = vehicleFuelInventory.count_empty_stacks() * fuelStackSize
+
 				-- Transfer it.
-				local stack = {name = fuelName, count = math.min(fuelCountInBack, game.item_prototypes[fuelName].stack_size - fuelCount)}
+				local stack = {
+					name = fuelName,
+					count = math.min(fuelCountInBack, amountToCompleteStack + amountForRemainingStacks)
+				}
 				self.vehicle.get_inventory(defines.inventory.fuel).insert(stack)
 				inventory.remove(stack)
 				
@@ -231,9 +265,9 @@ if autocncharvestertesting then cncharvester = {
 	
 	SetTargetPosition = function(self, position, onArrivalCallback)
 		self.targetPosition = position
-		local dPos = vector.subtract(position, self.vehicle.position)
-		self.targetDistance = vector.length(dPos)
-		self.targetHeading = vector.div(dPos, self.targetDistance) -- Normalized(dPos)
+		local dPos = Vector.subtract(position, self.vehicle.position)
+		self.targetDistance = Vector.length(dPos)
+		self.targetHeading = Vector.div(dPos, self.targetDistance) -- Normalized(dPos)
 		if self.targetDistance > Stats.MovementSpeed then
 			self.targetOrientation = DeltaposToOrientation(dPos)
 		end
@@ -249,7 +283,7 @@ if autocncharvestertesting then cncharvester = {
 	FindRandomOreInRadius = function(self, radius)
 		if radius ~= lastOreRadius then
 			self.lastOreRadius = lastOreRadius
-			self.oresInRadius = game.player.surface.find_entities_filtered{type = "resource", area = GetBoundingBox(self.vehicle.position, radius)}
+			self.oresInRadius = self.vehicle.surface.find_entities_filtered{type = "resource", area = GetBoundingBox(self.vehicle.position, radius)}
 		end
 		
 		if #self.oresInRadius < 1 then
@@ -278,7 +312,7 @@ if autocncharvestertesting then cncharvester = {
 	
 
 	FindOresInRadius = function(self, radius)
-		local results = game.player.surface.find_entities_filtered{type = "resource", area = GetBoundingBox(self.vehicle.position, radius)}
+		local results = self.vehicle.surface.find_entities_filtered{type = "resource", area = GetBoundingBox(self.vehicle.position, radius)}
 		local ores = {}
 		--for i = #results, 1, -1 do
 			--local ore = results[i]
@@ -300,7 +334,7 @@ if autocncharvestertesting then cncharvester = {
 		return ores
 	end,
 
-	  function PlayAnimation(self, animation)
+	PlayAnimation = function(self, animation)
 		if States.MiningOre == false then
 		  return
 		end
@@ -318,14 +352,16 @@ if autocncharvestertesting then cncharvester = {
 		  -- when the animation is finished, set the state back to the old state
 		  self.state = self.oldState
 		end)
-	  end
+	end,
 	  
 	StateFunctions = {
 		--------------------------------------------------++--------------------------------------------------
 		--											   Animating											--
 		--------------------------------------------------++--------------------------------------------------
 		[States.Animating] = function(self)
-			self.animationState:Tick()
+			if self.animationState then
+				self.animationState:Tick()
+			end
 		end,
 		--------------------------------------------------++--------------------------------------------------
 		--											  FindingOre											--
@@ -415,14 +451,16 @@ if autocncharvestertesting then cncharvester = {
 			end
 			self.scoopsMined = self.scoopsMined + 1
 			
+			--[[ Animations does not exist 
 			self:PlayAnimation(Animations.ScoopOre)
+			]]--
 		end,
 		--------------------------------------------------++--------------------------------------------------
 		--											FindingRefinery											--
 		--------------------------------------------------++--------------------------------------------------
 		[States.FindingRefinery] = function(self)
 			--self:FloatingText("FindingRefinery")
-			local refinery = Refinery.NearestUnoccupied(self.vehicle.position)
+			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
 					self:FloatingText("Cannot find unoccupied empty refinery", {r = 0.8})
@@ -430,10 +468,10 @@ if autocncharvestertesting then cncharvester = {
 				return
 			end
 			
-			self.targetRefinery = refinery
+			self.targetRefinery = refinery.entity.unit_number
 		
 			-- Move towards an approach position.
-			self:SetTargetPosition(vector.add(refinery.entity.position, Stats.RefineryApproachOffset), function(self) self.state = States.ApproachedRefinery end)
+			self:SetTargetPosition(Vector.add(refinery.entity.position, Stats.RefineryApproachOffset), function(self) self.state = States.ApproachedRefinery end)
 			
 			--self.nextState = States.ApproachedRefinery
 			self.state = States.MovingToLocation
@@ -444,13 +482,14 @@ if autocncharvestertesting then cncharvester = {
 		[States.ApproachedRefinery] = function(self)
 			--self:FloatingText("ApproachedRefinery")
 			-- Check if it's still there.
-			if self.targetRefinery.entity.valid and not self.targetRefinery:IsFull()then
+			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
+			if targetRefinery.entity.valid and not targetRefinery:IsFull()then
 				-- Wait until the refinery is free if it isn't currently.
-				if not self.targetRefinery:IsOccupied() then
-					self.targetRefinery:Reserve()
+				if not targetRefinery:IsOccupied() then
+					targetRefinery:Reserve()
 					self.reservedRefinery = true
 					-- Move onto the pad.
-					self:SetTargetPosition(vector.add(self.targetRefinery.entity.position, Stats.RefineryDumpOffset), function(self) self.state = States.DroppingOre end)
+					self:SetTargetPosition(Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset), function(self) self.state = States.DroppingOre end)
 					--self.nextState = States.DroppingOre
 					self.state = States.MovingToLocation
 				end
@@ -466,12 +505,13 @@ if autocncharvestertesting then cncharvester = {
 			--self:FloatingText("DroppingOre")
 			local inv = self.vehicle.get_inventory(2)
 			-- If the refinery is still there and we can dump the complete contents of our cargo hold.
-			if self.targetRefinery.entity.valid then
-				if Refinery.GetAvailableSlots(self.targetRefinery) > Stats.cncharvesterCargoSlots then
+			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
+			if targetRefinery.entity.valid then
+				if targetRefinery:GetAvailableSlots() > Stats.cncharvesterCargoSlots then
 					for itemname, count in pairs(inv.get_contents()) do
 						local stack = {name = itemname, count = count}
 						-- Dump our inventory into the refinery.
-						self.targetRefinery.chest.insert(stack)
+						targetRefinery.entity.insert(stack)
 						inv.remove(stack)
 					end
 				else
@@ -487,16 +527,18 @@ if autocncharvestertesting then cncharvester = {
 			self:SetIsFilled(false)
 			self.searchRadius = Stats.DefaultSearchRadius
 			
-			if self.targetRefinery:HasFuel() then
+			if targetRefinery:HasFuel() then
 				self.state = States.Refueling
 			else
 				self.state = States.FindingOre
-				self.targetRefinery:UnReserve()
+				targetRefinery:UnReserve()
 				self.reservedRefinery = false
 			end
 			
 			
+			--[[ Animations does not exist 
 			self:PlayAnimation(Animations.DumpOre)
+			--]]
 		end,
 		--------------------------------------------------++--------------------------------------------------
 		--										  MovingToLocation											--
@@ -513,14 +555,16 @@ if autocncharvestertesting then cncharvester = {
 				end
 				-- Rotate up to RotationSpeed.
 				self.vehicle.orientation = self.vehicle.orientation + math.max(math.min((self.targetOrientation - self.vehicle.orientation), Stats.RotationSpeed), -Stats.RotationSpeed)
-				self.animationState:SetOrientation(self.vehicle.orientation)
+				if self.animationState then
+					self.animationState:SetOrientation(self.vehicle.orientation)
+				end
 				return
 			end
 			-- We're rotated correctly, so move towards the target.
 			
-			dPos = vector.subtract(self.targetPosition, self.vehicle.position)
-			self.targetDistance = vector.length(dPos)
-			self.targetHeading = vector.div(dPos, self.targetDistance) -- vector.normalized(dPos)
+			dPos = Vector.subtract(self.targetPosition, self.vehicle.position)
+			self.targetDistance = Vector.length(dPos)
+			self.targetHeading = Vector.div(dPos, self.targetDistance) -- Vector.normalized(dPos)
 			
 			if self.targetDistance < Stats.MovementSpeed then
 				self.vehicle.teleport(self.targetPosition)
@@ -528,8 +572,10 @@ if autocncharvestertesting then cncharvester = {
 				self.onArrivalCallback(self)
 				return
 			end
-			self.vehicle.teleport(vector.add(self.vehicle.position, vector.mul(self.targetHeading, Stats.MovementSpeed)))
+			self.vehicle.teleport(Vector.add(self.vehicle.position, Vector.mul(self.targetHeading, Stats.MovementSpeed)))
+			--[[
 			self.animEntity.teleport(self.vehicle.position)
+			]]--
 			self.targetDistance = self.targetDistance - Stats.MovementSpeed
 		end,
 		--------------------------------------------------++--------------------------------------------------
@@ -537,7 +583,7 @@ if autocncharvestertesting then cncharvester = {
 		--------------------------------------------------++--------------------------------------------------
 		[States.FindingRefuelRefinery] = function(self)
 			--if game.tick % 17 == 0 then self:FloatingText("FindingRefuelRefinery") end
-			local refinery = Refinery.NearestWithFuel(self.vehicle.position)
+			local refinery = Refinery.NearestWithFuel(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
 					self:FloatingText("Cannot find refinery with fuel", {r = 0.8})
@@ -545,10 +591,13 @@ if autocncharvestertesting then cncharvester = {
 				return
 			end
 			
-			self.targetRefinery = refinery
+			self.targetRefinery = refinery.entity.unit_number
 		
 			-- Move towards an approach position.
-			self:SetTargetPosition(vector.add(refinery.entity.position, Stats.RefineryApproachOffset), function(self) self.state = States.ApproachedForRefuel end)
+			self:SetTargetPosition(
+				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset), 
+				function(self) self.state = States.ApproachedForRefuel end
+			)
 			
 			--self.nextState = States.ApproachedForRefuel
 			self.state = States.MovingToLocation
@@ -559,13 +608,14 @@ if autocncharvestertesting then cncharvester = {
 		[States.ApproachedForRefuel] = function(self)
 			--if game.tick % 17 == 0 then self:FloatingText("ApproachedForRefuel") end
 			-- Check if it's still there and if it still has fuel.
-			if self.targetRefinery.entity.valid and Refinery.HasFuel(self.targetRefinery) then
+			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
+			if targetRefinery.entity.valid and targetRefinery:HasFuel() then
 				-- Wait until the refinery is free if it isn't currently.
-				if not Refinery.IsOccupied(self.targetRefinery) then
-					self.targetRefinery:Reserve()
+				if not targetRefinery:IsOccupied() then
+					targetRefinery:Reserve()
 					self.reservedRefinery = true
 					-- Move onto the pad.
-					self:SetTargetPosition(vector.add(self.targetRefinery.entity.position, Stats.RefineryDumpOffset), function(self) self.state = States.Refueling end)
+					self:SetTargetPosition(Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset), function(self) self.state = States.Refueling end)
 					--self.nextState = States.Refueling
 					self.state = States.MovingToLocation
 				end
@@ -579,13 +629,14 @@ if autocncharvestertesting then cncharvester = {
 		--------------------------------------------------++--------------------------------------------------
 		[States.Refueling] = function(self)
 			--self:FloatingText("Refueling")
-			if self:RefuelFromInventory(self.targetRefinery.chest.get_inventory(defines.inventory.chest)) then
+			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
+			if self:RefuelFromInventory(targetRefinery.entity.get_inventory(defines.inventory.chest)) then
 				self.refueling = false
 				if self.vehicle.get_inventory(2).get_item_count() > 0 then
 					self.state = States.DroppingOre
 				else
 					self.state = States.FindingOre
-					self.targetRefinery:UnReserve()
+					targetRefinery:UnReserve()
 					self.reservedRefinery = false
 				end
 				
@@ -596,4 +647,3 @@ if autocncharvestertesting then cncharvester = {
 		end,
 	}
 }
-end

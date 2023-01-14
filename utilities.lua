@@ -56,7 +56,10 @@ function DeltaposToOrientation(dPos)
 end
 
 function GetBoundingBox(position, radius)
-	return {{position.x - radius, position.y - radius}, {position.x + radius, position.y + radius}}
+	return {
+		{position.x - radius, position.y - radius},
+		{position.x + radius, position.y + radius}
+	}
 end
 
 function FindNearestEntity(baseEntity, entList)

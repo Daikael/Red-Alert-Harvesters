@@ -36,41 +36,55 @@ Refinery = {
 	--										   Static functions											--
 	--------------------------------------------------++--------------------------------------------------
 	-- Static functions.
+	GetByUnitNumber = function(unitNumber) 
+		return global.refineries[unitNumber]
+	end,
+
 	NearestUnoccupied = function(position)
-		return Refinery.NearestWithCondition(position, function(refinery) return not refinery:IsOccupied() and not refinery:IsFull() end)
+		return Refinery.NearestWithCondition(
+			position, 
+			function(refinery) return refinery and not refinery:IsOccupied() and not refinery:IsFull() end
+		)
 	end,
 	
-	NearestWithFuel = function(position)
-		local refinery = Refinery.NearestWithCondition(position, function(refinery) return not refinery:IsOccupied() and refinery:HasFuel() end)
+	NearestWithFuel = function(entity)
+		local refinery = Refinery.NearestWithCondition(
+			entity, 
+			function(refinery) return refinery and not refinery:IsOccupied() and refinery:HasFuel() end
+		)
 		-- If we cannot find an unoccupied refinery, simply head for the nearest with fuel.
 		if not refinery then
-			refinery = Refinery.NearestWithCondition(position, function(refinery) return refinery:HasFuel() end)
+			refinery = Refinery.NearestWithCondition(
+				entity, 
+				function(refinery) return refinery and refinery:HasFuel() end
+			)
 		end
 		return refinery
 	end,
 	
-	Nearest = function(position)
-		return Refinery.NearestWithCondition(position, function(refinery) return true end)
+	Nearest = function(entity)
+		return Refinery.NearestWithCondition(entity, function(refinery) return true end)
 	end,
 	
-	NearestWithCondition = function(position, conditionFunc)
-		if #global.refineries < 1 then
-			return false
-		end
+	NearestWithCondition = function(entity, conditionFunc)
+		local refineryEntities = entity.surface.find_entities_filtered {
+			name="refinery"
+		}
 		local closestRefinery = false
 		local minDistSq = math.huge
-		for _, refinery in pairs(global.refineries) do
+		for _, refineryEntity in pairs(refineryEntities) do
+			local refinery = global.refineries[refineryEntity.unit_number]
 			if conditionFunc(refinery) then
-				local dPos = vector.subtract(position, refinery.entity.position)
-				local distSq = vector.lengthsq(dPos)
+				local dPos = Vector.subtract(entity.position, refineryEntity.position)
+				local distSq = Vector.lengthsq(dPos)
 				
 				if distSq < minDistSq then
 					closestRefinery = refinery
 					minDistSq = distSq
 				end
+			else
 			end
 		end
-		
 		return closestRefinery
 	end,
 	
@@ -82,8 +96,10 @@ Refinery = {
 	New = function(entity)
 		local self = {
 			entity = entity,
+			--[[
 			chest = false,
 			inventory = false,
+			--]]
 
 			-- Make sure not all refineries check for belts in the same tick.
 			tickOffset = game.tick % 240,
@@ -93,10 +109,6 @@ Refinery = {
 			reserved = false,
 		}
 		setmetatable(self, {__index=Refinery})
-		
-		-- It's placed by placing "refinery", so place the "refinery-chest".
-		self.chest = game.surfaces.nauvis.create_entity({name="refinery-chest", force=self.entity.force, position=self.entity.position})
-		self.inventory = self.chest.get_inventory(defines.inventory.chest)
 
 		return self
 	end,
@@ -104,9 +116,6 @@ Refinery = {
 	Delete = function(self)
 		if self.entity and self.entity.valid then
 			self.entity.destroy()
-		end
-		if self.chest and self.chest.valid then
-			self.chest.destroy()
 		end
 	end,
 	
@@ -119,7 +128,7 @@ Refinery = {
 			self:CheckForBelts()
 		end
 
-		if self.hasBelts and self.inventory.get_item_count() > 0 then
+		if self.hasBelts and self.entity.inventory.get_item_count() > 0 then
 			self:DropOnBelts()
 		end
 	end,
@@ -149,21 +158,18 @@ Refinery = {
 	
 	IsOccupied = function(self)
 		return self.reserved
--- 		local results = game.findentitiesfiltered{name = "cncharvester", area = GetBoundingBox(vector.add(self.entity.position, Stats.RefineryDumpOffset), 1)}
+-- 		local results = game.findentitiesfiltered{name = "cncharvester", area = GetBoundingBox(Vector.add(self.entity.position, Stats.RefineryDumpOffset), 1)}
 -- 		return #results > 0
 	end,
 
 	GetAvailableSlots = function(self)
 		if self:IsFull() then return 0 end
-		local inv = self.chest.get_inventory(defines.inventory.chest)
-
-		local totalSlots = inv.getbar()
-		local slotsTaken = GetOccupiedSlots(inv)
-		return math.max(0, totalSlots - slotsTaken)
+		local inv = self.entity.get_inventory(defines.inventory.chest)
+		return math.max(0, inv.count_empty_stacks())
 	end,
 
 	HasFuel = function(self)
-		for itemName, count in pairs(self.chest.get_inventory(defines.inventory.chest).get_contents()) do
+		for itemName, count in pairs(self.entity.get_inventory(defines.inventory.chest).get_contents()) do
 			-- Is this item a fuel?
 			if game.item_prototypes[itemName].fuel_value > 0 then
 				self:FloatingText("Fuel -----")
@@ -176,14 +182,14 @@ Refinery = {
 	
 	-- Returns whether or not there is a free slot in the refinery.
 	IsFull = function(self)
-		return not self.chest.get_inventory(defines.inventory.chest).can_insert({name = "refinery", count = 1})
+		return self.entity.get_inventory(defines.inventory.chest).is_full()
 	end,
 
 	CheckForBelts = function(self)
 		self.hasBelts = false
 		self.belts = {N = {}, E = {}, S = {}, W = {}}
 		for dir, area in pairs(beltAreas) do
-			local results = game.player.surface.find_entities_filtered{type = "transport-belt", area = {vector.add(self.entity.position, area[1]), vector.add(self.entity.position, area[2])}}
+			local results = game.player.surface.find_entities_filtered{type = "transport-belt", area = {Vector.add(self.entity.position, area[1]), Vector.add(self.entity.position, area[2])}}
 			for _, belt in pairs(results) do
 				if belt.direction == beltDirections[dir] then
 					table.insert(self.belts[dir], belt)
@@ -207,7 +213,7 @@ Refinery = {
 
 	DropOnBelt = function(self, belt, dir)
 		local dropped = 0
-		for itemName, itemCount in pairs(self.inventory.get_contents()) do
+		for itemName, itemCount in pairs(self.entity.inventory.get_contents()) do
 			-- If it contains fuel.
 			local count = itemCount
 			if game.item_prototypes[itemName].fuel_value > 0 then
@@ -220,20 +226,20 @@ Refinery = {
 			if count > 1 then
 				dropped = 2
 				for _, offset in pairs(dropOffsets[dir]) do
-					local possiblePos = game.get_surface(1).find_non_colliding_position("item-on-ground", vector.add(belt.position, offset), 0.01, 0.01)
+					local possiblePos = game.get_surface(1).find_non_colliding_position("item-on-ground", Vector.add(belt.position, offset), 0.01, 0.01)
 					if possiblePos then
 						game.surfaces.nauvis.create_entity{position = possiblePos, name = "item-on-ground", stack=stack}
-						self.inventory.remove(stack)
+						self.entity.inventory.remove(stack)
 					end
 				end
 			-- Otherwise drop one. The next item loop will drop on the other side.
 			elseif count == 1 then
 				dropped = dropped + 1
 				local offset = dropOffsets[dir][dropped]
-				local possiblePos = game.get_surface(1).find_non_colliding_position("item-on-ground", vector.add(belt.position, offset), 0.01, 0.01)
+				local possiblePos = game.get_surface(1).find_non_colliding_position("item-on-ground", Vector.add(belt.position, offset), 0.01, 0.01)
 				if possiblePos then
 					game.surfaces.nauvis.create_entity{position = possiblePos, name = "item-on-ground", stack=stack}
-					self.inventory.remove(stack)
+					self.entity.inventory.remove(stack)
 				end
 			end
 
