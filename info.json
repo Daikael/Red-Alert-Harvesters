@@ -1,15 +1,15 @@
 {
   "name": "Red-Alert-Harvester",
-  "version": "1.0.13",
+  "version": "2.0.0",
   "title": "C&C Harvesters",
   "author": "Daikael",
   "contact": "https://mods.factorio.com/mod/Red-Alert-Harvester",
   "homepage": "https://forums.factorio.com/viewtopic.php?f=190&t=88754&p=509990#p509990",
   "description": "Resource harvesting Ore trucks, tiberium harvesters, and refineries from Red Alert and Tiberium Dawn.",
   "dependencies": [
-    "base >= 1.1.35",
-    "? Factorio-Tiberium >= 1.0.5",
+    "base >= 2.0.0",
+    "? Factorio-Tiberium >= 2.0.0",
     "? informatron"
   ],
-  "factorio_version": "1.1"
+  "factorio_version": "2.0"
 }

@@ -47,7 +47,6 @@ data:extend (
 				buffer_capacity = "7MJ",
 				usage_priority = "tertiary"
 			},
-			power = "0.4kW",
 			categories = {"armor"}
 		}
 	}

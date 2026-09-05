@@ -1,4 +1,21 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.0.0
+Date: 2026-09-05
+  Changes:
+    - Ported to public Factorio 2.0 stable (factorio_version 2.0, not 2.1).
+    - Recipes now use typed ingredients/results required by 2.0.
+    - Harvester cars use energy_source instead of the removed burner field.
+    - Runtime storage renamed from global to storage; prototype lookups use the prototypes table.
+    - Inventory transfers preserve quality (get_contents is now an array).
+    - Drive-and-harvest only runs on Ore Truck / Tiberium harvester vehicles.
+    - Automatic harvesting (startup setting) no longer depends on missing animation assets or a hidden refinery chest.
+    - Optional Factorio-Tiberium dependency accepts 2.0 releases.
+  Bugfixes:
+    - Built/mined events now register correctly when automatic harvesting is enabled.
+    - Fixed On_Built checking an undefined entity variable.
+    - Replaced removed flying-text entities with render text / local flying text.
+    - Equipment items use place_as_equipment_result (2.0 rename).
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 2022-12-??
   Changes:

@@ -3,32 +3,36 @@ data:extend(
 	{
 		type = "recipe",
 		name = "cncharvester",
-		enabled = "false",
+		enabled = false,
 		ingredients =
 		{
-			{"engine-unit", 8},
-			{"iron-plate", 20},
-			{"steel-plate", 5},
-			{"iron-chest",	1},
-			{"steel-chest", 1}
+			{type = "item", name = "engine-unit", amount = 8},
+			{type = "item", name = "iron-plate", amount = 20},
+			{type = "item", name = "steel-plate", amount = 5},
+			{type = "item", name = "iron-chest", amount = 1},
+			{type = "item", name = "steel-chest", amount = 1}
 		},
-		result = "cncharvester",
-		result_count = 1
+		results =
+		{
+			{type = "item", name = "cncharvester", amount = 1}
+		}
 	},
 	{
 		type = "recipe",
 		name = "cncharvester-type2",
-		enabled = "false",
+		enabled = false,
 		ingredients =
 		{
-			{"cncharvester", 1},
-			{"engine-unit", 10},
-			{"iron-plate", 100},
-			{"steel-plate", 25},
-			{"steel-chest", 2}
+			{type = "item", name = "cncharvester", amount = 1},
+			{type = "item", name = "engine-unit", amount = 10},
+			{type = "item", name = "iron-plate", amount = 100},
+			{type = "item", name = "steel-plate", amount = 25},
+			{type = "item", name = "steel-chest", amount = 2}
 		},
-		result = "cncharvester-type2",
-		result_count = 1
+		results =
+		{
+			{type = "item", name = "cncharvester-type2", amount = 1}
+		}
 	}
 	--[[{
 		type = "recipe",
@@ -36,10 +40,13 @@ data:extend(
 		enabled = false,
 		ingredients =
 		{
-			{"engine-unit", 1},
-			{"radar", 1}
+			{type = "item", name = "engine-unit", amount = 1},
+			{type = "item", name = "radar", amount = 1}
 		},
-		result = "spidertron-remote"
+		results =
+		{
+			{type = "item", name = "spidertron-remote", amount = 1}
+		}
 	},]]
 		--[[{
 		type = "recipe",
@@ -48,11 +55,14 @@ data:extend(
 		energy_required = 10,
 		ingredients =
 		{
-			{"solar-panel", 1},
-			{"advanced-circuit", 2},
-			{"steel-plate", 5}
+			{type = "item", name = "solar-panel", amount = 1},
+			{type = "item", name = "advanced-circuit", amount = 2},
+			{type = "item", name = "steel-plate", amount = 5}
 		},
-		result = "Hybrid-drive"
+		results =
+		{
+			{type = "item", name = "Hybrid-drive", amount = 1}
+		}
 	}]]
 }
 )

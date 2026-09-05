@@ -54,8 +54,10 @@ for i=1,2 do
 		},
 		selection_box = {{-2, -2.4}, {2, 2.4}},
 		collision_box = {{-1.4, -1.4}, {1.4, 1.4}},
-		burner =
+		energy_source =
 		{
+			type = "burner",
+			fuel_categories = {"chemical"},
 			effectivity = 1,
 			fuel_inventory_size = fuel_inv_size[i],
 			smoke = {
@@ -86,6 +88,7 @@ for i=1,2 do
 		--friction = 0.03,
 		friction = vehicle_friction[i],
 		rotation_speed = 0.003,
+		rotation_snap_angle = 0.01,
 		turret_rotation_speed = 0.01,
 		turret_return_timeout = 300,
 		tank_driving = true,
@@ -106,6 +109,7 @@ for i=1,2 do
 				{
 					filename = "__core__/graphics/light-cone.png",
 					priority = "medium",
+					flags = {"light"},
 					scale = 2,
 					width = 200,
 					height = 200
@@ -136,28 +140,26 @@ for i=1,2 do
 			}
 		},
 		stop_trigger_speed = 0.2,
-		sound_no_fuel = { { filename = "__base__/sound/fight/tank-no-fuel-1.ogg", volume = 0.6 }, },
+		sound_no_fuel = { filename = "__base__/sound/fight/tank-no-fuel-1.ogg", volume = 0.6 },
 		stop_trigger =
 		{
 			{
 				type = "play-sound",
-				sound =
-				{
-					{
-						filename = "__base__/sound/car-breaks.ogg",
-						volume = 0.6
-					},
-				}
+				sound = { filename = "__base__/sound/car-breaks.ogg", volume = 0.6 }
 			},
 		},
-		sound_minimum_speed = 0.15;
-		vehicle_impact_sound = { filename = "__base__/sound/car-metal-impact.ogg", volume = 0.65 },
+		impact_category = "metal",
 		working_sound =
 		{
-			sound = { filename = "__base__/sound/fight/tank-engine.ogg", volume = 0.6 },
+			main_sounds =
+			{
+				{
+					sound = { filename = "__base__/sound/fight/tank-engine.ogg", volume = 0.6 },
+					match_volume_to_activity = true
+				}
+			},
 			activate_sound = { filename = "__base__/sound/fight/tank-engine-start.ogg", volume = 0.6 },
-			deactivate_sound = { filename = "__base__/sound/fight/tank-engine-stop.ogg", volume = 0.6 },
-			match_speed_to_activity = true,
+			deactivate_sound = { filename = "__base__/sound/fight/tank-engine-stop.ogg", volume = 0.6 }
 		},
 		open_sound = { filename = "__base__/sound/car-door-open.ogg", volume=0.7 },
 		close_sound = { filename = "__base__/sound/car-door-close.ogg", volume = 0.7 },
