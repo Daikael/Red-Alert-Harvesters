@@ -317,7 +317,7 @@ cncharvester = {
 	PlayAnimation = function(self)
 		-- Scoop / dump animations are not in this repository. Wait a short time instead.
 		-- This is an animation stand-in (~32 ticks), not the player drive-harvest timer.
-		-- Leave it alone when tuning DRIVE_MINE_INTERVAL in control.lua.
+		-- Leave it alone when tuning DRIVE_MINE_PERIOD_TICKS in control.lua.
 		self:BeginWait(Stats.TicksPerAnimationFrame * 8, self.oldState or self.state)
 	end,
 

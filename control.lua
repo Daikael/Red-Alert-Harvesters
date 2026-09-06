@@ -148,75 +148,87 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 end)
 
 -- Player-in-vehicle scoop cadence (frequency only — not ore per scoop).
--- First 2.0 drop: on_nth_tick(60) * 10 = 600 ticks = 10s between scoops.
--- 320 ticks ≈ 5.33s at 60 UPS → 600/320 = 1.875× as often (just under 2×).
--- Per-scoop volume is unchanged: can_insert(..., count = 4) then entity.mine(...).
+-- First 2.0 drop: on_nth_tick(60) × 10 = 600 ticks = 10s between scoops.
+-- on_nth_tick(320) ≈ 5.33s at 60 UPS → 600/320 = 1.875× as often (just under 2×).
+-- Per-scoop volume is unchanged: can_insert(..., count = 4) then entity.mine(...) once.
+-- Unload stays on the 60-tick poll so sitting at a refinery is still responsive.
 local DRIVE_MINE_PERIOD_TICKS = 320
-local next_mine_tick = 0
-local function On_Tick_Driving_Players()
+
+local function for_each_driven_harvester(callback)
 	for _, player in pairs(game.connected_players) do
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
-			local surface = vehicle.surface
-			local bounding_box_size = HARVESTER_MINE_RADIUS[vehicle.name] or 1
-			local ore = surface.find_entities_filtered {
-				type = "resource",
-				area = GetBoundingBox(vehicle.position, bounding_box_size)
-			}
-
-			if game.tick >= next_mine_tick then
-				next_mine_tick = game.tick + DRIVE_MINE_PERIOD_TICKS
-				local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
-				if trunk then
-					local showed_full = false
-					for _, entity in pairs(ore) do
-						if IsHarvestableResource(entity) then
-							local can_insert = false
-							for _, product in pairs(entity.prototype.mineable_properties.products) do
-								if (not product.type or product.type == "item") and product.name then
-									if vehicle.can_insert({name = product.name, count = 4}) then
-										can_insert = true
-										break
-									end
-								end
-							end
-							if can_insert then
-								entity.mine({inventory = trunk})
-							elseif not showed_full then
-								DrawFloatingText(surface, vehicle, "Inventory full", {r = 1, g = 1, b = 1, a = 1}, 20)
-								showed_full = true
-							end
-						end
-					end
-				end
-			end
-
-			local refineries = surface.find_entities_filtered {
-				name = "refinery",
-				area = GetBoundingBox(vehicle.position, 5)
-			}
-			if #refineries > 0 then
-				local inventory = vehicle.get_inventory(defines.inventory.car_trunk)
-				if inventory then
-					EachInventoryItem(inventory, function(name, count, quality)
-						local itemstack = InventoryItemStack(name, count, quality)
-						for _, refinery in pairs(refineries) do
-							if refinery.valid and refinery.can_insert(itemstack) then
-								local inserted = refinery.insert(itemstack)
-								if inserted > 0 then
-									inventory.remove(InventoryItemStack(name, inserted, quality))
-								end
-								break
-							end
-						end
-					end)
-				end
-			end
+			callback(vehicle)
 		end
 	end
 end
 
-script.on_nth_tick(60, On_Tick_Driving_Players)
+local function On_Nth_Tick_Drive_Mine()
+	for_each_driven_harvester(function(vehicle)
+		local surface = vehicle.surface
+		local bounding_box_size = HARVESTER_MINE_RADIUS[vehicle.name] or 1
+		local ore = surface.find_entities_filtered {
+			type = "resource",
+			area = GetBoundingBox(vehicle.position, bounding_box_size)
+		}
+		local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
+		if not trunk then
+			return
+		end
+		local showed_full = false
+		for _, entity in pairs(ore) do
+			if IsHarvestableResource(entity) then
+				local can_insert = false
+				for _, product in pairs(entity.prototype.mineable_properties.products) do
+					if (not product.type or product.type == "item") and product.name then
+						if vehicle.can_insert({name = product.name, count = 4}) then
+							can_insert = true
+							break
+						end
+					end
+				end
+				if can_insert then
+					entity.mine({inventory = trunk})
+				elseif not showed_full then
+					DrawFloatingText(surface, vehicle, "Inventory full", {r = 1, g = 1, b = 1, a = 1}, 20)
+					showed_full = true
+				end
+			end
+		end
+	end)
+end
+
+local function On_Nth_Tick_Drive_Unload()
+	for_each_driven_harvester(function(vehicle)
+		local surface = vehicle.surface
+		local refineries = surface.find_entities_filtered {
+			name = "refinery",
+			area = GetBoundingBox(vehicle.position, 5)
+		}
+		if #refineries == 0 then
+			return
+		end
+		local inventory = vehicle.get_inventory(defines.inventory.car_trunk)
+		if not inventory then
+			return
+		end
+		EachInventoryItem(inventory, function(name, count, quality)
+			local itemstack = InventoryItemStack(name, count, quality)
+			for _, refinery in pairs(refineries) do
+				if refinery.valid and refinery.can_insert(itemstack) then
+					local inserted = refinery.insert(itemstack)
+					if inserted > 0 then
+						inventory.remove(InventoryItemStack(name, inserted, quality))
+					end
+					break
+				end
+			end
+		end)
+	end)
+end
+
+script.on_nth_tick(DRIVE_MINE_PERIOD_TICKS, On_Nth_Tick_Drive_Mine)
+script.on_nth_tick(60, On_Nth_Tick_Drive_Unload)
 
 if auto_harvester_enabled then
 	script.on_nth_tick(1, function()

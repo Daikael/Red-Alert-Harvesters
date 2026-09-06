@@ -70,7 +70,7 @@ Player-in-vehicle mining (`control.lua`) only changes **how often** a scoop runs
 | Build | Ticks between scoops | Interval at 60 UPS | Scoops per minute |
 | --- | --- | --- | --- |
 | 2.0.0 first drop | 600 (`on_nth_tick(60)` × 10) | every **10** seconds | 6 |
-| this branch | **320** (`DRIVE_MINE_PERIOD_TICKS`) | every **~5.33** seconds | ~11.25 |
+| this branch | **320** (`on_nth_tick(320)`) | every **~5.33** seconds | ~11.25 |
 
 That is **600/320 = 1.875×** as often — just under doubled. Ore per scoop is unchanged.
 
