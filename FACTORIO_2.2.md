@@ -72,9 +72,27 @@ Chunks that have an **active harvester** on them get **periodic depletion rescan
 Deployed, fueled miners must **physically drive** to ore patches and **physically drive** home. Teleport movement is **not acceptable** for 2.2.x autonomy.
 
 - Prefer Factorio **pathfinder** / **`commandable`** / autopilot-style movement over scripted teleports or heading-step hacks.
-- Handle **collision** (other vehicles, buildings, cliffs, trees) and **stuck recovery** (detect no progress; do not leave a truck wedged forever).
+- Handle **collision** (other vehicles, buildings, cliffs, trees). Driving into a rock must not count as a *return-home trigger* (see M2), but the truck still has to steer around it.
 - **Return-home** uses the same physical drive — fuel / cargo-full / non-collision damage still mean “drive back to the depot,” not “snap there.”
-- Bump/impact is still ignored as a *return trigger* (see M2). Driving into a rock must not count as “go home,” but the truck still has to steer around it.
+
+#### Locked: stuck / path failure
+
+When pathfinding fails, or the truck **stops making progress** toward an assigned patch (or home), escalate **in this order**:
+
+1. **Repath** — retry pathfinding to the **same** target.
+2. If that keeps failing: **abandon the assignment** and pick **another in-range** patch that still passes the depot filter / index.
+3. If that keeps failing: **drive home early** to the depot.
+
+Do **not** teleport past the obstacle at any step.
+
+How many repaths, how long “no progress” lasts, and how many failed alternate patches count as “keeps failing” are **implementer-tunable**. This doc does not freeze retry counts or cooldowns.
+
+**Repeated failures** after cycling that escalation: raise a **global alert** in the same spirit as Factorio’s entity-damaged / entity-destroyed notifications (map alert / console-style player attention). Not a silent log.
+
+Alert coloring / pins (Daikael):
+
+- **Yellow** on the **erroring depot** — the AI hub that owns the stuck miner.
+- **Red** on the **erroring deposit** — the problematic **ore deposit / patch** the miner could not reach (the assignment target), **not** a second building type. If the failure is on the **home trip** with no ore target, red can pin the **miner** or the **blocked approach**; prefer the ore deposit when an outbound assignment is the cause.
 
 ### Suggested storage shape (implementer hint, not frozen)
 
@@ -150,6 +168,8 @@ A tied miner returns to its depot when:
 
 The trip home is a **physical drive**, same as the outbound trip. Do not teleport to the depot on these triggers.
 
+Path failure on the way home uses the same locked escalation (see **Locked: stuck / path failure**): repath to the depot first. There is no outbound assignment to swap if the truck is already going home; if repathing home keeps failing after that cycle, raise the yellow-depot / red-miner-or-approach alert. Do not teleport home.
+
 ### Ore filter (inserter-style)
 
 | Rule | Behavior |
@@ -206,8 +226,8 @@ The truck no longer grows a random radius and hopes. `FindingOre` (later) asks t
 
 1. **M1 index** — queue + one-chunk-per-budget-tick classify; fill `orechunk` / `tibchunk` (or replacement); Tib refcount borders; depletion rescans on active-harvester chunks. Hidden behind the existing auto-test flag or a new debug flag until it is trustworthy. **No truck movement required in this step.**
 2. **Surface policy** — enqueue from Tib flags + ore interest; skip unvisited-ineligible; hook surface create / `chunk_generated` / first visit.
-3. **Physical driving + retarget `FindingOre`** — any autonomy that sends a deployed, fueled truck to a patch (or home) uses Factorio pathfinder / `commandable` / autopilot-style driving. Collision and stuck recovery land with that movement, not later. Prove the index + real driving beat `FindRandomOreInRadius` + teleport before building the depot.
-4. **M2 depot** — entity/GUI, 5-slot filter + toggle, spawn-one-type + fixed modules/equipment, tie miners to depot, return-home triggers (drive back).
+3. **Physical driving + retarget `FindingOre`** — any autonomy that sends a deployed, fueled truck to a patch (or home) uses Factorio pathfinder / `commandable` / autopilot-style driving. Collision handling and the locked stuck / path-failure escalation (repath → other in-range patch → drive home early; then yellow/red global alert) land with that movement, not later. Prove the index + real driving beat `FindRandomOreInRadius` + teleport before building the depot.
+4. **M2 depot** — entity/GUI, 5-slot filter + toggle, spawn-one-type + fixed modules/equipment, tie miners to depot, return-home triggers (drive back; same stuck escalation if the home path fails).
 5. **Circuit I/O** — inputs (filter + range), outputs (miner count, in-range valid ores, inventory).
 6. **Dual-track 2.1 sibling** — after the 2.0 line works, same split as 2.1.17 / 2.1.18.
 
@@ -227,7 +247,8 @@ Not blocking M1. Resolve before or during M2.
 8. **`harvester-auto-by-default`.** Keep as “legacy per-truck AI without a depot,” or retire once depot ships?
 9. **Damage-return details.** HP threshold vs any non-impact damage event? Do we interrupt a scoop mid-cycle? `on_entity_damaged` with `force` / `damage_type` filters (ignore `impact` / `physical` from collision)?
 10. **Index persistence.** Full rebuild on `on_configuration_changed` vs migrate in place when Tib flags or resource prototypes change?
-11. **Stuck / path failure.** If the pathfinder cannot reach the assigned patch (or home), or the truck stops making progress: repath? abandon that assignment and pick another in-range patch? drive home early? Exact policy is not locked — only that we do **not** teleport past the obstacle.
+
+Stuck / path failure (former #11) is **locked** — see **Physical driving → Locked: stuck / path failure**. Retry counts / “no progress” windows stay implementer-tunable.
 
 ---
 
@@ -264,4 +285,4 @@ Later autonomy PRs (not this docs PR):
 
 - A deployed, fueled miner sent to a patch or home **drives** there (pathfinder / `commandable` / autopilot). No `vehicle.teleport` on that path.
 - Return-home (fuel / full / non-collision damage) is a physical drive back.
-- Collision and stuck recovery exist; a wedged truck is not left on a teleport heading.
+- Stuck / path failure escalates **repath → abandon + other in-range filtered patch → drive home early**, in that order. After cycling that without progress: **global alert** (yellow on the owning depot; red on the unreachable ore deposit, or miner / blocked approach on a home trip with no ore target). Not a silent log. No teleport past the block.
