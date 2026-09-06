@@ -49,7 +49,7 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 # from a clone of this branch
 rm -rf /tmp/Red-Alert-Harvester_2.0.0 /tmp/Red-Alert-Harvester_2.0.0.zip
 mkdir /tmp/Red-Alert-Harvester_2.0.0
-rsync -a --exclude .git --exclude .vscode --exclude README.md ./ /tmp/Red-Alert-Harvester_2.0.0/
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.0.0/
 cd /tmp && zip -r Red-Alert-Harvester_2.0.0.zip Red-Alert-Harvester_2.0.0
 # copy Red-Alert-Harvester_2.0.0.zip into your Factorio mods folder
 ```
