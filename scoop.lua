@@ -10,25 +10,47 @@ Scoop = Scoop or {}
 -- Modest quality bonuses (not vanilla drill +1 tile/level).
 Scoop.QUALITY_RADIUS_PER_LEVEL = 0.25
 Scoop.QUALITY_SPEED_PER_LEVEL = 0.05
--- 320 ticks = tester-approved 1.875× vs the original 600-tick cadence (~5.33s).
--- Budget is total items per period (8 Ore Truck / 16 type-2), not per ore entity.
-Scoop.BASE_DRIVE_INTERVAL_TICKS = 320
-Scoop.MIN_INTERVAL_TICKS = 12
-Scoop.DRIVE_ITEMS_PER_SCOOP = 8
-Scoop.TYPE2_ITEMS_PER_SCOOP = 16
+-- Per-item mining at the same average throughput as the old 8/16 per 320 ticks.
+-- Ore: 40 ticks (0.667 s) → 8×40 = 320 ticks for 8 items (~1.50 items/s).
+-- Tiberium: 20 ticks (0.333 s) → 16×20 = 320 ticks for 16 items (~3.00 items/s).
+Scoop.EQUIV_WINDOW_TICKS = 320
+Scoop.ORE_INTERVAL_TICKS = 40
+Scoop.TYPE2_INTERVAL_TICKS = 20
+Scoop.BASE_DRIVE_INTERVAL_TICKS = Scoop.ORE_INTERVAL_TICKS
+-- Floor is low enough that speed-module scaling matches the old 320-tick curve
+-- (40/5 = 8, 20/5 = 4). The old min of 12 never bound that curve.
+Scoop.MIN_INTERVAL_TICKS = 4
+Scoop.ITEMS_PER_SCOOP = 1
+Scoop.DRIVE_ITEMS_PER_SCOOP = 1
+Scoop.TYPE2_ITEMS_PER_SCOOP = 1
+Scoop.LEGACY_ORE_ITEMS = 8
+Scoop.LEGACY_TYPE2_ITEMS = 16
+Scoop.AUTO_LEGACY_SCOOPS_PER_LOCATION = 3
 Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
--- 30 kJ/item: Ore Truck 8-item scoop = 240 kJ (~1/50 of one solid fuel).
--- Tiberium 16-item scoop = 480 kJ (~1/25 of one solid fuel). Still scales
--- with yield / efficiency / speed / quality; empty pool is still OOF.
-Scoop.PARASITIC_JOULES_BASE = 240000
+-- 120 kJ/item = 4× the 2.1.10 tax. One solid fuel (12 MJ) ≈ 100 items.
+-- Sustained ore mining (~1.50/s) lasts ~67 s per solid fuel; Tiberium ~33 s.
+-- Still far below the old 300 kJ/item / "5 solid fuel per dig" class.
+Scoop.PARASITIC_JOULES_BASE = 120000
 Scoop.PARASITIC_MIN_FACTOR = 0.2
-Scoop.JOULES_PER_ITEM = 30000
+Scoop.JOULES_PER_ITEM = 120000
+
+function Scoop.interval_base(vehicle)
+	if vehicle and vehicle.name == "cncharvester-type2" then
+		return Scoop.TYPE2_INTERVAL_TICKS
+	end
+	return Scoop.ORE_INTERVAL_TICKS
+end
 
 function Scoop.scoop_items(vehicle)
+	return Scoop.ITEMS_PER_SCOOP
+end
+
+function Scoop.items_per_location(vehicle)
+	local legacy = Scoop.LEGACY_ORE_ITEMS
 	if vehicle and vehicle.name == "cncharvester-type2" then
-		return Scoop.TYPE2_ITEMS_PER_SCOOP
+		legacy = Scoop.LEGACY_TYPE2_ITEMS
 	end
-	return Scoop.DRIVE_ITEMS_PER_SCOOP
+	return Scoop.AUTO_LEGACY_SCOOPS_PER_LOCATION * legacy
 end
 
 local EMPTY_EFFECTS = {
@@ -74,7 +96,7 @@ function Scoop.radius(base_radius, quality_level)
 end
 
 function Scoop.parasitic_joules(consumption_effect)
-	return Scoop.action_joules(Scoop.DRIVE_ITEMS_PER_SCOOP, consumption_effect, 0)
+	return Scoop.action_joules(Scoop.ITEMS_PER_SCOOP, consumption_effect, 0)
 end
 
 function Scoop.action_joules(item_count, consumption_effect, speed_effect, quality_level)
@@ -274,8 +296,7 @@ function Scoop.harvest_area(vehicle, ores, total_items)
 	local effects = Scoop.read_effects(vehicle)
 	local qlevel = Scoop.quality_level(vehicle and vehicle.quality)
 	local cost = Scoop.action_joules(total_items, effects.consumption, effects.speed, qlevel)
-	-- Pool + stored grid + burnables must cover the full budget. A spark or
-	-- token leftover still cannot buy the scoop; a charged grid can.
+	-- Pay the full planned insert before any ore is added. Default is 1 item.
 	if not HybridDrive.can_afford(vehicle, cost) then
 		return {inserted = false, full = false, no_fuel = true}
 	end

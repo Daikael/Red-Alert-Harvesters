@@ -52,14 +52,23 @@ expect(with_eff < 1 and with_eff > 0.8, "efficiency slightly reduces drain")
 expect(Scoop.radius(1, 0) == 1, "normal radius")
 expect(Scoop.radius(1, 2) == 1.5, "rare radius +0.5")
 
-expect(Scoop.BASE_DRIVE_INTERVAL_TICKS == 320, "drive base is 320 ticks (1.875× vs 600)")
-expect(Scoop.interval_ticks(320, 0, 0) == 320, "unmodified drive interval 320")
-expect(Scoop.DRIVE_ITEMS_PER_SCOOP == 8, "Ore Truck scoop budget is 8 items")
-expect(Scoop.TYPE2_ITEMS_PER_SCOOP == 16, "Tiberium scoop budget is 16 items")
-expect(Scoop.scoop_items({name = "cncharvester"}) == 8, "scoop_items ore truck is 8")
-expect(Scoop.scoop_items({name = "cncharvester-type2"}) == 16, "scoop_items type-2 is 16")
-local interval = Scoop.interval_ticks(320, 0.5, 2)
-expect(interval < 320 and interval >= Scoop.MIN_INTERVAL_TICKS, "speed+quality shortens from 320")
+expect(Scoop.ORE_INTERVAL_TICKS == 40, "ore mines one item every 40 ticks")
+expect(Scoop.TYPE2_INTERVAL_TICKS == 20, "tiberium mines one item every 20 ticks")
+expect(Scoop.EQUIV_WINDOW_TICKS == 320, "legacy equivalent window is still 320 ticks")
+expect(Scoop.ORE_INTERVAL_TICKS * Scoop.LEGACY_ORE_ITEMS == 320, "ore 8×40 matches old 320-tick window")
+expect(Scoop.TYPE2_INTERVAL_TICKS * Scoop.LEGACY_TYPE2_ITEMS == 320, "tib 16×20 matches old 320-tick window")
+expect(Scoop.interval_base({name = "cncharvester"}) == 40, "ore interval_base is 40")
+expect(Scoop.interval_base({name = "cncharvester-type2"}) == 20, "type-2 interval_base is 20")
+expect(Scoop.interval_ticks(40, 0, 0) == 40, "unmodified ore interval 40")
+expect(Scoop.interval_ticks(20, 0, 0) == 20, "unmodified tiberium interval 20")
+expect(Scoop.ITEMS_PER_SCOOP == 1, "each mine inserts 1 item")
+expect(Scoop.scoop_items({name = "cncharvester"}) == 1, "scoop_items ore truck is 1")
+expect(Scoop.scoop_items({name = "cncharvester-type2"}) == 1, "scoop_items type-2 is 1")
+expect(Scoop.items_per_location({name = "cncharvester"}) == 24, "auto ore stays 3×8 items per location")
+expect(Scoop.items_per_location({name = "cncharvester-type2"}) == 48, "auto tib stays 3×16 items per location")
+local interval = Scoop.interval_ticks(40, 0.5, 2)
+expect(interval < 40 and interval >= Scoop.MIN_INTERVAL_TICKS, "speed+quality shortens from 40")
+expect(Scoop.interval_ticks(20, 4, 0) == 4, "high-speed tiberium is not clamped above 4")
 
 local q = {name = "normal", next = {name = "uncommon", next_probability = 0, next = nil}}
 local always = Scoop.roll_quality_fallback(q, 1, function() return 0 end)
@@ -99,17 +108,16 @@ expect(cell.energy == 6000, "pulled energy is removed from the equipment")
 expect(HybridDrive.take_from_grid({equipment = {{energy = 0, valid = true}}}, 4000) == 0, "empty grid does not refill")
 expect(HybridDrive.grid_stored_energy({equipment = {{energy = 0, valid = true}}}) == 0, "empty stored energy is 0")
 
-expect(Scoop.JOULES_PER_ITEM == 30000, "30 kJ per item")
-expect(math.abs(Scoop.action_joules(4, 0, 0) - 120000) < 1, "4 items no modules = 120 kJ")
-expect(math.abs(Scoop.action_joules(8, 0, 0) - 240000) < 1, "8-item Ore Truck scoop = 240 kJ")
-expect(math.abs(Scoop.action_joules(16, 0, 0) - 480000) < 1, "16-item type-2 scoop = 480 kJ")
-expect(Scoop.action_joules(8, 0, 0) < 12000000 / 20, "ore scoop is a small fraction of one solid fuel")
-expect(Scoop.action_joules(16, 0, 0) < 12000000 / 10, "tiberium scoop is far below 1 solid fuel")
-expect(Scoop.action_joules(8, 0, 1) > Scoop.action_joules(8, 0, 0), "speed modules raise scoop cost")
-expect(Scoop.action_joules(8, 0, 0, 5) > Scoop.action_joules(8, 0, 0, 0), "quality level raises scoop cost")
-expect(math.abs(Scoop.parasitic_joules(0) - 240000) < 1, "no efficiency = 240 kJ tax for 8 items")
-expect(math.abs(Scoop.parasitic_joules(-0.4) - 144000) < 1, "1x eff-3 = 144 kJ for 8 items")
-expect(math.abs(Scoop.parasitic_joules(-0.8) - 48000) < 1, "2x eff-3 = 48 kJ floor for 8 items")
+expect(Scoop.JOULES_PER_ITEM == 120000, "120 kJ per item (4× 2.1.10)")
+expect(math.abs(Scoop.action_joules(1, 0, 0) - 120000) < 1, "1 item no modules = 120 kJ")
+expect(math.abs(Scoop.action_joules(8, 0, 0) - 960000) < 1, "8 items (legacy window) = 960 kJ")
+expect(Scoop.action_joules(1, 0, 0) * 100 == 12000000, "100 items per 12 MJ solid fuel")
+expect(Scoop.action_joules(1, 0, 0) < 12000000 / 50, "one item is far below 1 solid fuel")
+expect(Scoop.action_joules(1, 0, 1) > Scoop.action_joules(1, 0, 0), "speed modules raise scoop cost")
+expect(Scoop.action_joules(1, 0, 0, 5) > Scoop.action_joules(1, 0, 0, 0), "quality level raises scoop cost")
+expect(math.abs(Scoop.parasitic_joules(0) - 120000) < 1, "no efficiency = 120 kJ tax for 1 item")
+expect(math.abs(Scoop.parasitic_joules(-0.4) - 72000) < 1, "1x eff-3 = 72 kJ for 1 item")
+expect(math.abs(Scoop.parasitic_joules(-0.8) - 24000) < 1, "2x eff-3 = 24 kJ floor for 1 item")
 expect(Scoop.parasitic_joules(0.5) > Scoop.parasitic_joules(0), "speed-consumption raises tax")
 
 expect(HybridDrive.is_banned_fuel("nuclear-fuel"), "nuclear-fuel banned")
@@ -355,9 +363,9 @@ local spark_pool = {
 		return {valid = true, get_item_count = function() return 0 end, _items = {}}
 	end,
 }
-expect(not HybridDrive.can_afford(spark_pool, 240000), "2 kJ spark + 50 kJ solar cannot afford an 8-item scoop")
+expect(not HybridDrive.can_afford(spark_pool, 120000), "2 kJ spark + 50 kJ solar cannot afford a 120 kJ item")
 expect(HybridDrive.can_afford(spark_pool, 2000), "spark can afford its own 2 kJ")
-expect(not HybridDrive.spend(spark_pool, 240000), "failed spend does not take a token drain")
+expect(not HybridDrive.spend(spark_pool, 120000), "failed spend does not take a token drain")
 expect(spark_pool.burner.remaining_burning_fuel == 2000, "unaffected remaining after rejected spend")
 expect(spark_pool.grid.equipment[1].energy == 50000, "rejected spend does not drain the grid")
 
@@ -371,9 +379,9 @@ local charged_grid = {
 	end,
 }
 expect(HybridDrive.has_usable_energy(charged_grid), "empty solids + charged grid is usable energy")
-expect(HybridDrive.can_afford(charged_grid, 240000), "5 MJ grid can pay a 240 kJ scoop")
+expect(HybridDrive.can_afford(charged_grid, 120000), "5 MJ grid can pay a 120 kJ item")
 expect(charged_grid.grid.equipment[1].energy == 5000000, "can_afford does not drain the grid")
-expect(HybridDrive.spend(charged_grid, 240000), "spend pulls stored grid energy into the pool")
+expect(HybridDrive.spend(charged_grid, 120000), "spend pulls stored grid energy into the pool")
 expect(charged_grid.grid.equipment[1].energy < 5000000, "scoop spend drains the grid")
 expect(math.abs(charged_grid.burner.remaining_burning_fuel) < 1, "spend leaves the pool empty after paying from grid")
 expect(not HybridDrive.has_usable_energy({
@@ -419,15 +427,15 @@ local function harvest_vehicle(remaining)
 end
 local patch = {valid = true, amount = 50, name = "iron-ore", prototype = {}, destroy = function() end}
 inserted = 0
-local denied = Scoop.harvest_area(harvest_vehicle(2000), {patch}, 8)
+local denied = Scoop.harvest_area(harvest_vehicle(2000), {patch}, 1)
 expect(denied.no_fuel == true, "harvest_area refuses a scoop the pool cannot pay")
 expect(inserted == 0, "refused scoop inserts no ore")
 
 inserted = 0
 local rich = harvest_vehicle(40000000)
-local allowed = Scoop.harvest_area(rich, {patch, {valid = true, amount = 50, name = "iron-ore", prototype = {}, destroy = function() end}}, 8)
+local allowed = Scoop.harvest_area(rich, {patch, {valid = true, amount = 50, name = "iron-ore", prototype = {}, destroy = function() end}}, 1)
 expect(allowed.no_fuel ~= true, "funded scoop is allowed")
-expect(inserted == 8, "funded scoop inserts the 8-item budget, not 4 per tile")
+expect(inserted == 1, "funded scoop inserts 1 item")
 expect(rich.burner.remaining_burning_fuel < 40000000, "funded scoop spends pool energy")
 
 inserted = 0
@@ -435,7 +443,7 @@ local tib = harvest_vehicle(40000000)
 tib.name = "cncharvester-type2"
 local tib_ok = Scoop.harvest_area(tib, {patch}, Scoop.scoop_items(tib))
 expect(tib_ok.no_fuel ~= true, "type-2 scoop is allowed when the pool can pay")
-expect(inserted == 16, "type-2 scoop inserts 16 items")
+expect(inserted == 1, "type-2 scoop inserts 1 item")
 
 local loc = assert(io.open("locale/en/all.cfg", "r")):read("*a")
 expect(loc:find("cncharvester%-hybrid%-charge=Hybrid charge", 1) ~= nil, "hybrid-charge item-name is localized")
@@ -468,7 +476,7 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.10"', 1, true) ~= nil, "pack version is 2.1.10")
+expect(info_src:find('"version": "2.1.11"', 1, true) ~= nil, "pack version is 2.1.11")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
 expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")

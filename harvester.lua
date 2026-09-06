@@ -322,11 +322,10 @@ cncharvester = {
 	end,
 
 	PlayAnimation = function(self)
-		-- Animation stand-in (~32 ticks), not the player drive-harvest 320-tick timer.
-		-- Speed/quality modules may shorten this wait; volume per scoop is unchanged.
+		-- Same per-item cadence as player drive-harvest (40 / 20 ticks).
 		local effects = Scoop.read_effects(self.vehicle)
 		local qlevel = Scoop.quality_level(self.vehicle.quality)
-		local wait = Scoop.interval_ticks(Stats.TicksPerAnimationFrame * 8, effects.speed, qlevel)
+		local wait = Scoop.interval_ticks(Scoop.interval_base(self.vehicle), effects.speed, qlevel)
 		self:BeginWait(wait, self.oldState or self.state)
 	end,
 
@@ -359,7 +358,7 @@ cncharvester = {
 		end,
 
 		[States.MiningOre] = function(self)
-			if self.scoopsMined >= Stats.ScoopsPerLocation then
+			if self.scoopsMined >= Scoop.items_per_location(self.vehicle) then
 				self.state = States.FindingOre
 				self.searchRadius = Stats.CloseMineSearchRadius
 				return

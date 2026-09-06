@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.11
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.11. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.11. Git branch is 2.1.11 (renamed in place from 2.1.10). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Balancing:
+    - Mining is 1 item at a time. Ore Truck every 40 ticks (~0.67 s, ~1.50 items/s). Tiberium every 20 ticks (~0.33 s, ~3.00 items/s). Same average as the old 8 / 16 items per 320 ticks.
+    - Harvest tax is 120 kJ/item (4× the 2.1.10 30 kJ tax). One solid fuel ≈ 100 items. Cost still scales with efficiency, speed, and quality. Energy is paid before each insert; empty pool is still Out of fuel.
+  Changes:
+    - Auto-harvesters use the same 40 / 20 tick cadence. Items per location stay 24 / 48 (3 old bulk scoops) so they do not relocate after 3 items.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.10
 Date: 2026-09-06
   Info:

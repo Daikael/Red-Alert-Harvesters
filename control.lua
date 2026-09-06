@@ -18,12 +18,9 @@ local HARVESTER_MINE_RADIUS = {
 	["cncharvester-type2"] = 2,
 }
 
--- Player-in-vehicle scoop cadence (frequency only — not ore per scoop).
--- First 2.0 drop: on_nth_tick(60) × 10 = 600 ticks = 10s.
--- 320 ticks ≈ 5.33s at 60 UPS → 600/320 = 1.875× (tester-approved).
--- 2.1: countdown is equivalent to on_nth_tick(320); speed/quality may shorten from this base.
--- Volume is Scoop.scoop_items (8 Ore Truck / 16 type-2). Unload stays on a 60-tick poll.
-local DRIVE_MINE_PERIOD_TICKS = 320
+-- Player-in-vehicle mining is 1 item per countdown.
+-- Ore 40 ticks / Tiberium 20 ticks = same average rate as the old 8/16 per 320.
+-- Speed/quality may shorten from that base. Unload stays on a 60-tick poll.
 
 local function ensure_storage()
 	storage.tibchunk = storage.tibchunk or {}
@@ -224,7 +221,7 @@ local function drive_harvest(player, vehicle)
 	local vehicle_id = vehicle.unit_number
 	if storage.drive_scoop_wait[player.index] == nil or storage.drive_scoop_vehicle[player.index] ~= vehicle_id then
 		-- First tick in this seat must not scoop (place-on-ore free yield).
-		storage.drive_scoop_wait[player.index] = DRIVE_MINE_PERIOD_TICKS
+		storage.drive_scoop_wait[player.index] = Scoop.interval_base(vehicle)
 		storage.drive_scoop_vehicle[player.index] = vehicle_id
 		return
 	end
@@ -236,9 +233,8 @@ local function drive_harvest(player, vehicle)
 
 	local effects = Scoop.read_effects(vehicle)
 	local qlevel = Scoop.quality_level(vehicle.quality)
-	-- Base 320 ticks (= on_nth_tick(320)); modules/quality may shorten.
 	storage.drive_scoop_wait[player.index] = Scoop.interval_ticks(
-		DRIVE_MINE_PERIOD_TICKS,
+		Scoop.interval_base(vehicle),
 		effects.speed,
 		qlevel
 	)
@@ -267,8 +263,8 @@ local function drive_harvest(player, vehicle)
 	end
 end
 
--- Hybrid pool and module-bay sync need every tick. Drive scoop uses a 320-tick
--- countdown (same cadence as master's on_nth_tick(320) when unmodified).
+-- Hybrid pool and module-bay sync need every tick. Drive mining uses a
+-- per-item countdown (40 ore / 20 Tiberium ticks when unmodified).
 script.on_nth_tick(1, function()
 	ensure_storage()
 
