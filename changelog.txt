@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.18
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.18. Factorio 2.0 backdate of the approved 2.1.17 gameplay. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.18. Git branch is 2.1.18 (new sibling — 2.1.17 / PR #15 stays the 2.1 beta). factorio_version is 2.0. Do not merge to master.
+    - Cars use 2.0 braking_power / friction (not 2.1 braking_force / friction_force). Recipes use category (not 2.1 categories). Quality prototype keys and the quality module effect are set only when the quality / space-age mod is loaded.
+    - Slave-drill gate prefers disabled_by_script, then writes LuaEntity.active (legal on 2.0). Hybrid / slave-miner / invisible hitch / Tib category boot fix unchanged. Entity quality bonuses degrade to level 0 on base 2.0 without Space Age.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.17
 Date: 2026-09-06
   Info:

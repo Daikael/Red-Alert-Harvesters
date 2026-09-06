@@ -328,7 +328,7 @@ cncharvester = {
 	PlayAnimation = function(self)
 		-- Same per-item cadence as player drive-harvest (40 / 20 ticks).
 		local effects = Scoop.read_effects(self.vehicle)
-		local qlevel = Scoop.quality_level(self.vehicle.quality)
+		local qlevel = Scoop.quality_level(SafeQuality(self.vehicle))
 		local wait = Scoop.interval_ticks(Scoop.interval_base(self.vehicle), effects.speed, qlevel)
 		self:BeginWait(wait, self.oldState or self.state)
 	end,

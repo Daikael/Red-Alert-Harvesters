@@ -668,7 +668,7 @@ function HybridDrive.tick(vehicle)
 	if ModuleBay and ModuleBay.effects then
 		effects = ModuleBay.effects(vehicle)
 	end
-	local rates = HybridDrive.rates(vehicle.name, vehicle.quality, effects)
+	local rates = HybridDrive.rates(vehicle.name, SafeQuality(vehicle), effects)
 	local burner = vehicle.burner
 	if rates and burner then
 		local moving = vehicle.speed and math.abs(vehicle.speed) > 0.001

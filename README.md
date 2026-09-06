@@ -2,20 +2,21 @@
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
-This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.17`). It is **not** the live 2.0 stable pack on `master`.
+This branch is the **Factorio 2.0 backdate** of the tester-approved **2.1.17** gameplay (pack `2.1.18`). It is **not** the live 2.0 stable pack on `master`, and it does **not** replace the 2.1 experimental line.
 
-Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.17`**. Later unreleased test revs stay on three-part patch bumps (`2.1.18`, `2.1.19`, …). `factorio_version` is **`2.1`** (not 2.0).
+Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.18`**. `factorio_version` is **`2.0`**.
 
-- **2.0 stable players:** use `master` / `Red-Alert-Harvester_2.0.0` (that line still uses the singular `info.json` name).
-- **2.1 experimental:** this branch / pack **`Red-Alert-Harvesters_2.1.17`**.
+- **2.1 experimental (keep):** branch `2.1.17` / draft PR #15 / `Red-Alert-Harvesters_2.1.17` (`factorio_version` **2.1**).
+- **This pack:** branch `2.1.18` / `Red-Alert-Harvesters_2.1.18` (`factorio_version` **2.0**).
+- **Live 2.0 on master:** `Red-Alert-Harvester_2.0.0` (singular name — older pack).
 
 ## Development branch names
 
-Tester-facing development branches are **just the three-part version**: `2.1.17`, then `2.1.18`, … Do not use `cursor/…` names. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
+Tester-facing development branches are **just the three-part version**. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
 
-**Version bumps rename the branch in place.** Do not open a parallel `2.1.18` next to `2.1.17`. Rename (`git branch -m 2.1.18`, push the new name, delete the old remote). Prefer retargeting the open draft PR; if GitHub cannot retarget the head, open a new draft PR, close the old one with a pointer, and still delete the old version branch.
+**2.1.18 is a sibling of 2.1.17**, not a rename. Do not delete or close the 2.1.17 branch / PR #15. Do not merge either branch to `master`.
 
-GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.17`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.17`**.
+GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.18`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.18`**.
 
 ## Install naming (Factorio will refuse the wrong zip)
 
@@ -24,27 +25,27 @@ Factorio checks the **file or folder name** against `info.json`. The check is **
 | What | Exact value |
 | --- | --- |
 | GitHub repo | `Red-Alert-Harvesters` |
-| Git branch (this pack) | `2.1.17` |
+| Git branch (this pack) | `2.1.18` |
 | `info.json` `name` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.1.17` |
-| `info.json` `factorio_version` | `2.1` |
-| Folder in `mods/` | `Red-Alert-Harvesters_2.1.17` |
-| Zip in `mods/` | `Red-Alert-Harvesters_2.1.17.zip` |
-| GitHub archive folder | `Red-Alert-Harvesters-2.1.17` (hyphen — **rename to underscore**) |
+| `info.json` `version` | `2.1.18` |
+| `info.json` `factorio_version` | `2.0` |
+| Folder in `mods/` | `Red-Alert-Harvesters_2.1.18` |
+| Zip in `mods/` | `Red-Alert-Harvesters_2.1.18.zip` |
+| GitHub archive folder | `Red-Alert-Harvesters-2.1.18` (hyphen — **rename to underscore**) |
 
-The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvesters_2.1.17`**.
+The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvesters_2.1.18`**.
 
 `info.json` must sit at the **zip root** or **one folder deep** with that same folder name:
 
 ```text
-Red-Alert-Harvesters_2.1.17.zip
-  Red-Alert-Harvesters_2.1.17/
+Red-Alert-Harvesters_2.1.18.zip
+  Red-Alert-Harvesters_2.1.18/
     info.json
     control.lua
     ...
 ```
 
-or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester_2.1.17.zip`, or `Red-Alert-Harvesters-2.1.17.zip` will fail to load.
+or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester_2.1.18.zip`, or `Red-Alert-Harvesters-2.1.18.zip` will fail to load.
 
 ### Where to put it
 
@@ -58,18 +59,18 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 
 ```bash
 # from a clone of this branch
-rm -rf /tmp/Red-Alert-Harvesters_2.1.17 /tmp/Red-Alert-Harvesters_2.1.17.zip
-mkdir /tmp/Red-Alert-Harvesters_2.1.17
-rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvesters_2.1.17/
-cd /tmp && zip -r Red-Alert-Harvesters_2.1.17.zip Red-Alert-Harvesters_2.1.17
-# copy Red-Alert-Harvesters_2.1.17.zip into your Factorio mods folder
+rm -rf /tmp/Red-Alert-Harvesters_2.1.18 /tmp/Red-Alert-Harvesters_2.1.18.zip
+mkdir /tmp/Red-Alert-Harvesters_2.1.18
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvesters_2.1.18/
+cd /tmp && zip -r Red-Alert-Harvesters_2.1.18.zip Red-Alert-Harvesters_2.1.18
+# copy Red-Alert-Harvesters_2.1.18.zip into your Factorio mods folder
 ```
 
-On Windows: copy the repo into a folder literally named `Red-Alert-Harvesters_2.1.17`, then zip that folder.
+On Windows: copy the repo into a folder literally named `Red-Alert-Harvesters_2.1.18`, then zip that folder.
 
-## Smoke test (2.1 experimental)
+## Smoke test (Factorio 2.0)
 
-1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.17** with no load error **without** Factorio-Tiberium installed (2.1.12 failed assignID on `basic-solid-tiberium`; 2.1.15 failed AtlasBuilder on `transparent.png` at left_top=256x0). Use a **2.1 experimental** client, not 2.0 stable. `factorio_version` must be **2.1**.
+1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.18** with no load error **without** Factorio-Tiberium installed. Use a **2.0 stable** client, not 2.1 experimental. `factorio_version` must be **2.0**. Also boot **with** Tiberium 2.0.x (not the Tib 2.1 line).
 2. New Freeplay / sandbox. **Old World Harvesting** requires **solar energy**. Craft an Ore Truck (2×2 grid) and a Refinery. There is **no Hybrid-drive** item. The Tiberium harvester is unlocked by **Tiberium Harvesting** (requires electric engines) and crafts with electric engines.
 3. Fuel the truck, drive onto iron/copper/coal/stone. The **slave miner** on the hitch should produce **~1.50 ore/s** with no modules (one item about every 40 ticks). Tiberium is **~3.00/s**. Unload when you sit next to the refinery.
 4. SHIFT+E (or click the truck) opens the slave **mining-drill** (starts empty). That GUI is the energy bar: efficiency should lower draw, speed should raise it. Productivity modules should produce bonus ore (native drill prod, not a scripted coin-flip). Recipe solar+battery are **not** in the grid or bay. A charged portable battery should climb the hybrid bar while parked. An empty pool will not mine. Driving must **not** show a moving power pole, accumulator, chest, or floating ore-truck icon square.
@@ -90,10 +91,10 @@ One solid fuel (12 MJ) ≈ **100 items** at the no-module tax. Efficiency lowers
 
 When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red** localized `Inventory full` floating text (`cncharvester.inventory-full`) for **150 ticks** (~2.5 seconds at 60 UPS). Auto-harvester blocked warnings (`no-empty-refinery`, `no-fuel-refinery`) use the same red/TTL. Informational green `Heading for refuel` is also localized. Colors and TTLs are unchanged.
 
-## 2.1-only features
+## Features (same as 2.1.17, on 2.0)
 
-See `FACTORIO_2.1.md`: slave mining-drill (fixed 2 / 3 slots, native modules), hybrid-fed micro-grid, 120 kJ/item baseline tax, hybrid-charge pool (never nuclear). Truck recipes cost solar panel + battery and grant a slow built-in recharge (not removable). Hybrid converts player-installed grid/battery energy (parked pull is faster; moving stays below drive). The drill cannot run if the pool cannot pay that tick.
+See `FACTORIO_2.0.md` for 2.0 vs 2.1 deltas. Slave mining-drill (fixed 2 / 3 slots, native modules), hybrid-fed micro-grid, 120 kJ/item baseline tax, hybrid-charge pool (never nuclear). Truck recipes cost solar panel + battery and grant a slow built-in recharge (not removable). Hybrid converts player-installed grid/battery energy (parked pull is faster; moving stays below drive). The drill cannot run if the pool cannot pay that tick. Quality bonuses apply only if Space Age / quality is loaded; otherwise they degrade to normal.
 
 ## Optional dependency
 
-[Factorio and Conquer: Tiberian Dawn](https://mods.factorio.com/mod/Factorio-Tiberium) **2.1.x** (for example 2.1.16). Do not mix that mod’s 2.0.15 line with this 2.1 pack.
+[Factorio and Conquer: Tiberian Dawn](https://mods.factorio.com/mod/Factorio-Tiberium) **2.0.x**. Do not mix that mod’s 2.1 line with this 2.0 pack. The 2.1 experimental harvester pack is branch `2.1.17`.

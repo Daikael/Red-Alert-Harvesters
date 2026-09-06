@@ -27,6 +27,12 @@ function IsHarvestableResource() return true end
 function InventoryItemStack(name, count, quality)
 	return {name = name, count = count, quality = quality}
 end
+function SafeQuality(obj)
+	if not obj then
+		return nil
+	end
+	return obj.quality
+end
 ModuleBay = {effects = function() return {speed=0,productivity=0,consumption=0,pollution=0,quality=0} end}
 
 dofile("scoop.lua")
@@ -246,6 +252,16 @@ expect(HybridDrive.has_energy(convert_vehicle), "converted coal can drive")
 expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skipped when the pool has energy")
 
 local rec_src = assert(io.open("prototypes/recipes/harv_recipe.lua", "r")):read("*a")
+expect(rec_src:find('category = "crafting"', 1, true) ~= nil, "2.0 recipes use category")
+expect(rec_src:find("categories =", 1, true) == nil, "2.0 recipes do not use 2.1 categories")
+local refin_src = assert(io.open("prototypes/recipes/refin_recipe.lua", "r")):read("*a")
+expect(refin_src:find('category = "crafting"', 1, true) ~= nil, "refinery recipe uses 2.0 category")
+expect(refin_src:find("categories =", 1, true) == nil, "refinery recipe does not use 2.1 categories")
+local harv_src = assert(io.open("prototypes/entities/harv_entity.lua", "r")):read("*a")
+expect(harv_src:find("braking_power =", 1, true) ~= nil, "2.0 cars use braking_power")
+expect(harv_src:find("braking_force =", 1, true) == nil, "2.0 cars do not assign 2.1 braking_force")
+expect(harv_src:find("friction_force =", 1, true) == nil, "2.0 cars do not assign 2.1 friction_force")
+expect(harv_src:find("friction = vehicle_friction", 1, true) ~= nil, "2.0 cars use friction")
 expect(rec_src:find('name = "solar-panel"', 1, true) ~= nil, "truck recipes include solar-panel")
 expect(rec_src:find('name = "battery"', 1, true) ~= nil, "truck recipes include vanilla battery")
 expect(select(2, rec_src:gsub('name = "solar%-panel"', "")) >= 2, "both harvester recipes list solar-panel")
@@ -476,12 +492,12 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.17"', 1, true) ~= nil, "pack version is 2.1.17")
-expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
-expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
-expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")
-expect(info_src:find("base >= 2.0", 1, true) == nil, "base dependency is not pinned to 2.0")
-expect(info_src:find("Factorio%-Tiberium >= 2%.1%.0") ~= nil, "optional Tiberium dep is 2.1")
+expect(info_src:find('"version": "2.1.18"', 1, true) ~= nil, "pack version is 2.1.18")
+expect(info_src:find('"factorio_version": "2.0"', 1, true) ~= nil, "factorio_version is 2.0")
+expect(info_src:find('"factorio_version": "2.1"', 1, true) == nil, "factorio_version is not 2.1")
+expect(info_src:find("base >= 2.0.0", 1, true) ~= nil, "base dependency is 2.0")
+expect(info_src:find("base >= 2.1", 1, true) == nil, "base dependency is not pinned to 2.1")
+expect(info_src:find("Factorio%-Tiberium >= 2%.0%.0") ~= nil, "optional Tiberium dep is 2.0")
 local proto_scan = {
 	"prototypes/items/hybrid_charge.lua",
 	"prototypes/entities/harv_entity.lua",
@@ -498,7 +514,8 @@ expect(charge_src:find('localised_name = {"item-name.cncharvester-hybrid-charge"
 expect(charge_src:find('localised_name = {"fuel-category-name.cncharvester-hybrid"}', 1, true) ~= nil, "fuel category sets localised_name")
 
 local bay_src = assert(io.open("prototypes/entities/module_bay.lua", "r")):read("*a")
-expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality")
+expect(bay_src:find("HAS_QUALITY", 1, true) ~= nil, "quality prototype keys are gated for base 2.0")
+expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality when quality exists")
 expect(bay_src:match('module_bay%s*%(%s*"cncharvester%-module%-bay"%s*,%s*(%d+)') == "2", "ore truck bay is 2 slots")
 expect(bay_src:match('module_bay%s*%(%s*"cncharvester%-type2%-module%-bay"%s*,%s*(%d+)') == "3", "type-2 bay is 3 slots")
 expect(bay_src:find("module_slots = slots", 1, true) ~= nil, "bay uses slot argument")
@@ -552,11 +569,10 @@ expect(io.open("harvester.lua"):read("*a"):find("Scoop.tick_slave", 1, true) ~= 
 expect(io.open("control.lua"):read("*a"):find("Scoop.harvest_area", 1, true) == nil, "drive harvest does not script-insert via harvest_area")
 local mb_src = assert(io.open("modulebay.lua", "r")):read("*a")
 expect(mb_src:find("function ModuleBay.feed_energy", 1, true) ~= nil, "hybrid feeds the slave-miner micro-grid")
-expect(mb_src:find(".active =", 1, true) == nil, "modulebay does not write LuaEntity.active")
-expect(mb_src:find("disabled_by_script", 1, true) ~= nil, "2.1 drill gate uses disabled_by_script")
+expect(mb_src:find("disabled_by_script", 1, true) ~= nil, "prefers disabled_by_script when present")
+expect(mb_src:find("bay.active = enabled", 1, true) ~= nil, "2.0 fallback writes LuaEntity.active")
 expect(mb_src:find("set_supply_watts", 1, true) ~= nil, "starve/feed still cut or restore EEI watts")
 local active_scan = {
-	"modulebay.lua",
 	"control.lua",
 	"scoop.lua",
 	"hybriddrive.lua",

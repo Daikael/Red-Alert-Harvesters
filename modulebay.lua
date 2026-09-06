@@ -462,7 +462,7 @@ function ModuleBay.effects(vehicle)
 			local proto = stack.prototype
 			local me = proto.module_effects
 			if me then
-				add_effect(out, me, stack.quality)
+				add_effect(out, me, SafeQuality(stack))
 			end
 		end
 	end
@@ -474,7 +474,7 @@ function ModuleBay.prototype_energy_w(vehicle)
 	if bay and bay.valid and bay.prototype then
 		local proto = bay.prototype
 		if proto.get_max_energy_usage then
-			local ok, watts = pcall(proto.get_max_energy_usage, proto, bay.quality)
+			local ok, watts = pcall(proto.get_max_energy_usage, proto, SafeQuality(bay))
 			if ok and watts and watts > 0 then
 				return watts
 			end
@@ -514,16 +514,22 @@ local function set_supply_watts(supply, watts)
 	end
 end
 
--- Factorio 2.1: LuaEntity.active is read-only (nth_tick crash in 2.1.13).
--- Gate the drill with disabled_by_script when present; always cut/restore
--- the private EEI so an empty hybrid pool cannot mine.
+-- Factorio 2.1: LuaEntity.active is read-only; write path is disabled_by_script
+-- (2.1.13 nth_tick crash). Factorio 2.0: active is writable and
+-- disabled_by_script does not exist. Always cut/restore the private EEI so
+-- an empty hybrid pool cannot mine.
 local function set_drill_enabled(bay, enabled)
 	if not (bay and bay.valid) then
 		return
 	end
-	pcall(function()
+	local gated = pcall(function()
 		bay.disabled_by_script = not enabled
 	end)
+	if not gated then
+		pcall(function()
+			bay.active = enabled
+		end)
+	end
 	if enabled then
 		if bay.electric_buffer_size then
 			bay.energy = bay.electric_buffer_size

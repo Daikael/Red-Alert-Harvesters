@@ -70,6 +70,21 @@ function InventoryItemStack(name, count, quality)
 	return stack
 end
 
+-- Entity / stack quality is a Space Age (quality mod) field. Base 2.0
+-- without that mod may error on .quality; treat as nil (level 0).
+function SafeQuality(obj)
+	if not obj then
+		return nil
+	end
+	local ok, quality = pcall(function()
+		return obj.quality
+	end)
+	if ok then
+		return quality
+	end
+	return nil
+end
+
 function GetOccupiedSlots(inventory)
 	local slotsOccupied = 0
 	EachInventoryItem(inventory, function(itemName, count)

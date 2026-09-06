@@ -39,6 +39,11 @@ local function empty_4way_animation()
 	}
 end
 
+-- Quality prototype keys and the "quality" module effect exist when the
+-- quality / space-age mods are loaded. Base 2.0 without Space Age errors
+-- on unknown properties if we always set them.
+local HAS_QUALITY = mods["quality"] or mods["space-age"] or false
+
 local HIDDEN_FLAGS = {
 	"placeable-off-grid",
 	"not-on-map",
@@ -56,7 +61,11 @@ local HIDDEN_FLAGS = {
 --   Tiberium 3.0/s × 120 kJ = 360 kW
 -- Native modules then change rate and draw (prod bonus, efficiency, speed).
 local function module_bay(name, slots, icon, mining_speed, energy_usage, search_radius)
-	return {
+	local allowed_effects = {"speed", "productivity", "consumption", "pollution"}
+	if HAS_QUALITY then
+		table.insert(allowed_effects, "quality")
+	end
+	local bay = {
 		type = "mining-drill",
 		name = name,
 		icon = icon,
@@ -87,7 +96,6 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 		-- Tiberium categories in data-final-fixes.lua when they exist.
 		resource_categories = {"basic-solid"},
 		resource_searching_radius = search_radius,
-		quality_affects_mining_radius = false,
 		vector_to_place_result = {0, 0},
 		mining_speed = mining_speed,
 		energy_usage = energy_usage,
@@ -103,13 +111,19 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 			render_no_network_icon = false
 		},
 		module_slots = slots,
-		quality_affects_module_slots = false,
-		allowed_effects = {"speed", "productivity", "consumption", "pollution", "quality"},
+		allowed_effects = allowed_effects,
 		radius_visualisation_picture = empty_world_sprite(),
 		graphics_set = {
 			animation = empty_4way_animation()
 		}
 	}
+	-- Omit these on base 2.0 (unknown keys). With Space Age they stay false
+	-- so slot count / radius do not scale with entity quality.
+	if HAS_QUALITY then
+		bay.quality_affects_module_slots = false
+		bay.quality_affects_mining_radius = false
+	end
+	return bay
 end
 
 data:extend({

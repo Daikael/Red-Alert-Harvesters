@@ -1,6 +1,8 @@
-# Factorio 2.1 development line
+# Factorio 2.1 development line (historical on this branch)
 
-This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **not** the 2.0 stable pack.
+**This checkout is pack 2.1.18 — a Factorio 2.0 backdate.** The live 2.1 experimental pack stays on branch **`2.1.17`** / draft PR #15. See `FACTORIO_2.0.md` for 2.0 vs 2.1 deltas.
+
+The notes below describe the **2.1.17** feature set that 2.1.18 ports. They are not the install instructions for this folder.
 
 ## Branch base
 

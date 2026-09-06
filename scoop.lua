@@ -246,7 +246,7 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 	end
 
 	local effects = Scoop.read_effects(vehicle)
-	local vq = vehicle.quality
+	local vq = SafeQuality(vehicle)
 	local drain_mult = Scoop.drain_multiplier(vq, effects.consumption)
 	local name = product_name(ore)
 	local force = vehicle.force
@@ -296,7 +296,7 @@ function Scoop.harvest_area(vehicle, ores, total_items)
 	end
 	total_items = math.max(1, math.floor(total_items or Scoop.scoop_items(vehicle)))
 	local effects = Scoop.read_effects(vehicle)
-	local qlevel = Scoop.quality_level(vehicle and vehicle.quality)
+	local qlevel = Scoop.quality_level(SafeQuality(vehicle))
 	local cost = Scoop.action_joules(total_items, effects.consumption, effects.speed, qlevel)
 	-- Pay the full planned insert before any ore is added. Default is 1 item.
 	if not HybridDrive.can_afford(vehicle, cost) then
@@ -399,7 +399,7 @@ function Scoop.tick_slave(vehicle)
 	ModuleBay.ensure(vehicle)
 	ModuleBay.sync(vehicle)
 
-	local qlevel = Scoop.quality_level(vehicle.quality)
+	local qlevel = Scoop.quality_level(SafeQuality(vehicle))
 	local base_radius = 1
 	if vehicle.name == "cncharvester-type2" then
 		base_radius = 2

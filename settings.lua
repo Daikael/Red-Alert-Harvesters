@@ -1,4 +1,4 @@
--- 2.1: no known startup-setting prototype break vs 2.0.
+-- Startup settings are the same on Factorio 2.0 and 2.1.
 -- Quality radius / hybrid behavior is scripted. Mining modules apply on the slave drill.
 data:extend(
 	{
