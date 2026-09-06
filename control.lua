@@ -147,12 +147,12 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	end
 end)
 
--- Player-in-vehicle scoop cadence at 60 UPS:
--- on_nth_tick(60) * DRIVE_MINE_INTERVAL seconds between scoops.
--- First 2.0 drop used 10 (one scoop / 10s). 6 is just under doubled (10/6 ≈ 1.67×).
--- An exact 2× would be 5; keep 6 so it stays "just under 2×".
-local DRIVE_MINE_INTERVAL = 6
-local mine_timer = 0
+-- Player-in-vehicle scoop cadence (frequency only — not ore per scoop).
+-- First 2.0 drop: on_nth_tick(60) * 10 = 600 ticks = 10s between scoops.
+-- 320 ticks ≈ 5.33s at 60 UPS → 600/320 = 1.875× as often (just under 2×).
+-- Per-scoop volume is unchanged: can_insert(..., count = 4) then entity.mine(...).
+local DRIVE_MINE_PERIOD_TICKS = 320
+local next_mine_tick = 0
 local function On_Tick_Driving_Players()
 	for _, player in pairs(game.connected_players) do
 		local vehicle = player.vehicle
@@ -164,9 +164,8 @@ local function On_Tick_Driving_Players()
 				area = GetBoundingBox(vehicle.position, bounding_box_size)
 			}
 
-			mine_timer = mine_timer + 1
-			if mine_timer >= DRIVE_MINE_INTERVAL then
-				mine_timer = 0
+			if game.tick >= next_mine_tick then
+				next_mine_tick = game.tick + DRIVE_MINE_PERIOD_TICKS
 				local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
 				if trunk then
 					local showed_full = false

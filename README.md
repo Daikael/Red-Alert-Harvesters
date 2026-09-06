@@ -65,16 +65,16 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.0
 
 ## Drive-and-harvest scoop rate
 
-Player-in-vehicle mining (`control.lua`) runs on `script.on_nth_tick(60)` and scoops when an internal counter hits **`DRIVE_MINE_INTERVAL`**:
+Player-in-vehicle mining (`control.lua`) only changes **how often** a scoop runs, not how much each scoop takes (`can_insert` still checks `count = 4`, then `entity.mine` once per resource).
 
-| Build | Interval (60 UPS) | Scoops per minute |
-| --- | --- | --- |
-| 2.0.0 first drop | every **10** seconds | 6 |
-| this branch | every **6** seconds | 10 |
+| Build | Ticks between scoops | Interval at 60 UPS | Scoops per minute |
+| --- | --- | --- | --- |
+| 2.0.0 first drop | 600 (`on_nth_tick(60)` × 10) | every **10** seconds | 6 |
+| this branch | **320** (`DRIVE_MINE_PERIOD_TICKS`) | every **~5.33** seconds | ~11.25 |
 
-That is **10/6 ≈ 1.67×** — just under doubled. Testers called the 10s cadence pedestrian; 5s would be an exact 2×, so **6** is the chosen “just under 2×” value.
+That is **600/320 = 1.875×** as often — just under doubled. Ore per scoop is unchanged.
 
-Automatic harvesting (the experimental startup flag) uses a short ~32-tick wait as a stand-in for missing scoop animations. That is already much faster than the drive timer and was **not** rebalanced, so auto pathing stay the same.
+Automatic harvesting (the experimental startup flag) uses a short ~32-tick wait as a stand-in for missing scoop animations. That is already much faster than the drive timer and was **not** rebalanced, so auto pathing stays the same.
 
 ## Optional dependency
 
