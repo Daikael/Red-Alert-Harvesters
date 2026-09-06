@@ -90,6 +90,13 @@ local function On_Built(event)
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
+		-- Player-built: consume 1 coal/wood from the placer if they have it.
+		-- Otherwise no free items — only a tiny joule spark so Hybrid can start.
+		local player = event.player_index and game.get_player(event.player_index)
+		if player and player.valid then
+			HybridDrive.try_take_player_kickoff(ent, player)
+		end
+		HybridDrive.apply_spark_if_empty(ent)
 	elseif ent.name == "refinery" and auto_harvester_enabled then
 		storage.refineries[ent.unit_number] = Refinery.New(ent)
 	end
@@ -100,6 +107,7 @@ local function On_Removed(event)
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
 		ModuleBay.destroy_for_vehicle(ent, event.buffer)
+		HybridDrive.scrub_charge_before_remove(ent, event.buffer)
 		HybridDrive.forget(ent.unit_number)
 		local harvester = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if harvester then

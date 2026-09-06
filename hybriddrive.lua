@@ -5,9 +5,11 @@ HybridDrive = HybridDrive or {}
 
 HybridDrive.CONVERTER_NAME = "Hybrid-drive"
 HybridDrive.BATTERY_NAME = "Hybrid-drive-battery"
--- Never invent nuclear-fuel / uranium-fuel-cell. Only top up an existing burn,
--- or start a cheap coal/wood burn with remaining_burning_fuel clamped.
-HybridDrive.SAFE_BURN_ITEMS = { "coal", "wood" }
+-- Never invent coal/wood/nuclear items. Player-built kickoff may consume 1 coal/wood
+-- from the placer. Otherwise a tiny joule spark (hidden charge identity) lets
+-- Hybrid-drive start; remaining is clamped so placing a truck is not a full fuel bar.
+HybridDrive.CHARGE_ITEM = "cncharvester-hybrid-charge"
+HybridDrive.KICKOFF_ITEMS = { "coal", "wood" }
 HybridDrive.BANNED_FUELS = {
 	["uranium-fuel-cell"] = true,
 	["nuclear-fuel"] = true,
@@ -16,8 +18,8 @@ HybridDrive.BANNED_FUELS = {
 }
 -- Coal is 4 MJ. Anything denser than solid fuel is treated as kickoff-OP.
 HybridDrive.MAX_ALLOWED_FUEL_VALUE = 12000000
-HybridDrive.STARTER_COAL = 10
-HybridDrive.STARTER_WOOD = 20
+-- ~1.6 ticks of Ore Truck drive (75 kW / 60 = 1250 J/tick). Not a coal/wood bar.
+HybridDrive.SPARK_JOULES = 2000
 HybridDrive.CONVERSION_EFFICIENCY = 0.90
 -- Driving draw is 10% above max refill so you cannot cruise on electric alone.
 HybridDrive.DRIVE_OVER_REFILL = 1.10
@@ -114,7 +116,8 @@ function HybridDrive.strip_banned_fuel(vehicle)
 	local burner = vehicle.burner
 	if burner then
 		local burning = currently_burning_name(burner)
-		if HybridDrive.is_banned_fuel(burning) then
+		-- Charge identity is the non-lootable spark/hybrid carrier; leave it.
+		if burning and HybridDrive.is_banned_fuel(burning) and burning ~= HybridDrive.CHARGE_ITEM then
 			burner.currently_burning = nil
 			burner.remaining_burning_fuel = 0
 		end
@@ -130,22 +133,99 @@ function HybridDrive.strip_banned_fuel(vehicle)
 	end)
 end
 
-function HybridDrive.give_starter_fuel(vehicle)
+function HybridDrive.ignite_charge(burner)
+	if not burner then
+		return
+	end
+	burner.currently_burning = HybridDrive.CHARGE_ITEM
+	-- Writing currently_burning fills remaining to the item's full fuel_value.
+	-- Always clamp; a full charge bar is the "free fuel bar" exploit.
+	burner.remaining_burning_fuel = 0
+end
+
+function HybridDrive.apply_spark(burner)
+	if not burner then
+		return
+	end
+	HybridDrive.ignite_charge(burner)
+	burner.remaining_burning_fuel = HybridDrive.SPARK_JOULES
+end
+
+function HybridDrive.apply_spark_if_empty(vehicle)
+	if not (vehicle and vehicle.valid and vehicle.burner) then
+		return false
+	end
+	local inv = fuel_inventory(vehicle)
+	if inv and inv.valid and inv.get_item_count() > 0 then
+		return false
+	end
+	local burning = currently_burning_name(vehicle.burner)
+	if burning and burning ~= HybridDrive.CHARGE_ITEM and not HybridDrive.is_banned_fuel(burning) then
+		return false
+	end
+	HybridDrive.apply_spark(vehicle.burner)
+	return true
+end
+
+function HybridDrive.scrub_charge_before_remove(vehicle, buffer)
+	if not (vehicle and vehicle.valid) then
+		return
+	end
+	local burner = vehicle.burner
+	if burner and currently_burning_name(burner) == HybridDrive.CHARGE_ITEM then
+		burner.currently_burning = nil
+		burner.remaining_burning_fuel = 0
+	end
+	HybridDrive.strip_banned_fuel(vehicle)
+	if buffer and buffer.valid then
+		local count = buffer.get_item_count(HybridDrive.CHARGE_ITEM)
+		if count and count > 0 then
+			buffer.remove({name = HybridDrive.CHARGE_ITEM, count = count})
+		end
+	end
+end
+
+function HybridDrive.choose_kickoff_item(get_count)
+	if not get_count then
+		return nil
+	end
+	for _, name in ipairs(HybridDrive.KICKOFF_ITEMS) do
+		if (get_count(name) or 0) >= 1 then
+			return name
+		end
+	end
+	return nil
+end
+
+-- Approach A: consume 1 coal (else wood) from the placing player. Never spawn items.
+-- Returns the item name moved, or nil if the tank stays empty.
+function HybridDrive.try_take_player_kickoff(vehicle, player)
+	if not (vehicle and vehicle.valid and player and player.valid) then
+		return nil
+	end
 	local inv = fuel_inventory(vehicle)
 	if not (inv and inv.valid) then
-		return
+		return nil
 	end
 	if inv.get_item_count() > 0 then
-		return
+		return nil
 	end
-	local coal = prototypes and prototypes.item and prototypes.item["coal"]
-	if coal then
-		inv.insert{name = "coal", count = HybridDrive.STARTER_COAL}
-		return
+	local name = HybridDrive.choose_kickoff_item(function(item)
+		return player.get_item_count(item)
+	end)
+	if not name then
+		return nil
 	end
-	if prototypes and prototypes.item and prototypes.item["wood"] then
-		inv.insert{name = "wood", count = HybridDrive.STARTER_WOOD}
+	local removed = player.remove_item({name = name, count = 1})
+	if not removed or removed < 1 then
+		return nil
 	end
+	local inserted = inv.insert({name = name, count = 1})
+	if inserted < 1 then
+		player.insert({name = name, count = 1})
+		return nil
+	end
+	return name
 end
 
 function HybridDrive.prepare_vehicle(vehicle)
@@ -154,14 +234,13 @@ function HybridDrive.prepare_vehicle(vehicle)
 	end
 	HybridDrive.ensure_storage()
 	local id = vehicle.unit_number
-	-- Once per unit_number: strip injected nuclear-tier fuel, then a small coal/wood
-	-- starter if the tank is empty. Later enters must not fight player-inserted fuel.
+	-- Once per unit_number: strip injected nuclear-tier / hidden charge.
+	-- Never insert free coal/wood. Player-built kickoff is try_take_player_kickoff.
 	if storage.starter_fuel_given[id] then
 		return
 	end
 	storage.starter_fuel_given[id] = true
 	HybridDrive.strip_banned_fuel(vehicle)
-	HybridDrive.give_starter_fuel(vehicle)
 end
 
 function HybridDrive.auto_equip(vehicle)
@@ -193,18 +272,6 @@ function HybridDrive.forget(unit_number)
 	if storage.starter_fuel_given then
 		storage.starter_fuel_given[unit_number] = nil
 	end
-end
-
-local function first_safe_burn_item()
-	if not prototypes or not prototypes.item then
-		return "coal"
-	end
-	for _, name in ipairs(HybridDrive.SAFE_BURN_ITEMS) do
-		if prototypes.item[name] then
-			return name
-		end
-	end
-	return nil
 end
 
 local function take_from_grid(grid, joules)
@@ -242,22 +309,14 @@ function HybridDrive.add_burner_energy(burner, joules, max_buffer)
 		return 0
 	end
 	local burning = currently_burning_name(burner)
-	-- Old saves may still have the hidden charge item as currently_burning.
-	-- Replace that only; do not clear a player-inserted chemical fuel.
-	if burning == "cncharvester-hybrid-charge" then
-		burner.currently_burning = nil
-		burner.remaining_burning_fuel = 0
-		burning = nil
-	end
-	if not burning then
-		local safe = first_safe_burn_item()
-		if not safe then
-			return 0
+	-- Empty burner: use hidden charge as a non-lootable identity, clamp the
+	-- engine's full-bar fill, then add only the converted joules (capped).
+	if (not burning) or burning == HybridDrive.CHARGE_ITEM then
+		if not burning then
+			HybridDrive.ignite_charge(burner)
+		elseif (burner.remaining_burning_fuel or 0) > (max_buffer or HybridDrive.SPARK_JOULES) then
+			burner.remaining_burning_fuel = max_buffer or HybridDrive.SPARK_JOULES
 		end
-		burner.currently_burning = safe
-		-- Writing currently_burning fills remaining to the item's full fuel_value
-		-- (coal 4 MJ). Clamp immediately so we never leave a full-cell buffer.
-		burner.remaining_burning_fuel = 0
 	end
 	if not currently_burning_name(burner) then
 		return 0

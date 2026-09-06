@@ -11,7 +11,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.3` |
+| `info.json` `version` | `2.0.0` | `2.1.4` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -84,18 +84,36 @@ Hybrid-drive is **battery-equipment** (converter identity), not a 0.4 kW solar p
 Each tick, if Hybrid-drive is installed:
 
 1. Pull up to `grid_j_per_tick` from batteries first, then other equipment `energy` (fusion/solar/etc.).
-2. Add `pulled * 0.90` to `LuaBurner.remaining_burning_fuel` (capped). Conversion **never inserts** nuclear-fuel / uranium-fuel-cell / fusion-power-cell.
-3. If nothing is burning, set `currently_burning` to **coal** (or wood) and immediately clamp `remaining_burning_fuel` to 0, then add only the converted joules. Writing `currently_burning` otherwise fills remaining to the item’s full `fuel_value` (that is what looked like a full nuclear cell in 2.1.1–2.1.2).
-4. Cap stored burner energy at **4 seconds** of driving draw.
+2. Add `pulled * 0.90` to `LuaBurner.remaining_burning_fuel` (capped at 4 s of drive). Conversion **never inserts** fuel items.
+3. If nothing real is burning, set `currently_burning` to hidden `cncharvester-hybrid-charge` and **immediately clamp** remaining (writing it would otherwise fill the item’s full `fuel_value` — the “full free fuel bar”).
+4. On mine, that hidden identity is cleared and stripped from the mine buffer so it is not loot.
 
-### Starter fuel (2.1.3)
+### Kickoff fuel (2.1.4 — no free items, tiny spark)
 
-On first build / first track (`HybridDrive.prepare_vehicle`, once per `unit_number`):
+2.1.3 inserted 10 coal / 20 wood into new tanks. That is free pollution-free resources and is **removed**.
 
-1. Strip `uranium-fuel-cell`, `nuclear-fuel`, `fusion-power-cell`, and leftover `cncharvester-hybrid-charge` from the burner and fuel inventory.
-2. If the fuel inventory is empty, insert **10 coal** (or **20 wood** if coal is missing).
+On first prepare (`HybridDrive.prepare_vehicle`, once per `unit_number`):
 
-Later player-inserted fuels are left alone. Hidden `cncharvester-hybrid-charge` remains in the data stage only so old saves still load.
+1. Strip `uranium-fuel-cell`, `nuclear-fuel`, `fusion-power-cell`, and any `cncharvester-hybrid-charge` **items** from the fuel inventory (the hidden charge is never a tank stack).
+
+Then, **on player-built** (`on_built_entity` with `player_index`):
+
+- If the placer has **coal**, consume **1** from their inventory and insert that 1 into the truck.
+- Else if they have **wood**, consume **1** wood the same way.
+
+If the tank is still empty (no coal/wood, or robot/script/clone build):
+
+- Apply a **2 kJ spark** (`SPARK_JOULES`): hidden charge identity, `remaining_burning_fuel = 2000`.
+- That is ~1.6 ticks of Ore Truck drive (75 kW), **not** a coal (4 MJ) / wood (2 MJ) / 400 kJ charge bar.
+- Hybrid-drive can then refill from the grid up to the 4 s cap (300 / 350 kJ). Sustained energy is grid conversion or player-supplied fuel.
+
+| Source | Energy | Notes |
+| --- | --- | --- |
+| Empty-tank spark | **2 kJ** | Not “out of fuel”; negligible vs coal |
+| Hybrid idle cap | 300 / 350 kJ | Paid from grid, 10% below drive draw |
+| 1 coal (player-paid) | 4 MJ | Only if consumed from the placer |
+
+Hidden charge `fuel_value` is **400 kJ** (headroom above the type-2 cap). Runtime never leaves remaining at that full value.
 
 ### Numbers
 
@@ -115,8 +133,8 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW even with ful
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvester_2.1.3`** (singular `info.json` name — see README). Confirm data stage loads.
-2. **Starter fuel:** A newly built truck should have **10 coal** (or 20 wood), never a nuclear fuel cell. Hybrid-drive must not add nuclear items while converting.
+1. Install as **`Red-Alert-Harvester_2.1.4`** (singular `info.json` name — see README). Confirm data stage loads.
+2. **Kickoff fuel:** Place a truck while holding coal — you should lose **1 coal** and the tank should show that 1. Place with no coal/wood — **empty slots**, fuel bar a sliver (~2 kJ), not a full coal/nuclear bar. Robot-built trucks: same spark, no items. Mine the truck: no free coal/wood/hidden-charge loot. Hybrid-drive must not spawn solids.
 3. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. **2 slots** on Ore Truck / **3** on Tiberium, including uncommon+ quality trucks. Insert speed/quality/productivity/efficiency modules. Confirm they are not left behind when the truck is mined (modules return to you).
 4. **Harvest fuel tax:** Drive-harvest with an empty bay — coal should drop clearly. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
 5. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).

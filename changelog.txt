@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.4
+Date: 2026-09-06
+  Balancing:
+    - New trucks no longer spawn free coal/wood (that was infinite pollution-free fuel). Fuel slots start empty. On player placement, if the placer has coal (else wood), 1 item is taken from their inventory and moved into the truck.
+    - If the tank is still empty, the burner gets a 2 kJ spark (hidden charge identity, immediately clamped) so it is not “out of fuel” and Hybrid-drive can refill from the grid. This is not a coal/wood/nuclear bar. Mining scrubs the hidden charge so it cannot drop as loot.
+    - Hybrid-drive conversion only adds joules (4 s cap). It never inserts fuel items. Writing currently_burning is always followed by a clamp so placement cannot yield a full free fuel bar.
+  Changes:
+    - Pack version 2.1.4. Zip/folder name is Red-Alert-Harvester_2.1.4. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.3
 Date: 2026-09-06
   Balancing:
