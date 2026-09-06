@@ -24,7 +24,7 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 
 ## Current auto AI (what we are replacing)
 
-Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) turns on a **per-truck** loop in `harvester.lua`, ticked from `control.lua` when the flag is on.
+Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) now enables **`ChunkIndex` only**. The per-truck teleport loop in `harvester.lua` is commented out (kept for reference). Manual drive / hitch / scoop / hybrid / refinery dump are unchanged.
 
 What it actually does today:
 
@@ -41,7 +41,7 @@ What it actually does today:
 
 ## Milestone 1 — Global slow chunk scanner
 
-**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`) and/or runtime **Chunk ore index (2.2 scanner)** (`cncharvester-chunk-index`, default off). Default saves stay quiet. No truck movement. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
+**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`; restart required). Default off. That flag runs the **index only** — the legacy teleport auto-harvester is commented out. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
 
 Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 
@@ -263,7 +263,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
 | `chunkindex.lua` | M1 slow index. Queue + one-chunk-per-tick classify, Tib refcount borders, harvester depletion requeue. No `basic-solid-tiberium` string. |
-| `settings.lua` | `Auto-cncharvester-testing`, unused `harvester-auto-by-default`, runtime `cncharvester-chunk-index` (default off). Tib world flags live in **Factorio-Tiberium**, not here. |
+| `settings.lua` | `Auto-cncharvester-testing` (startup; the only M1 gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
 | `specialOres.lua` | Resource entity name ≠ item name. Index should store something the depot filter and circuit can name (item, not only entity). |
 | `modulebay.lua` / `hybriddrive.lua` / `scoop.lua` | Unchanged for M1. Depot spawn must apply the **fixed** module list + equipment to the same slave-drill / grid those files own. |

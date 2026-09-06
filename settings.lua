@@ -13,13 +13,9 @@ data:extend(
 			name = "harvester-auto-by-default",
 			setting_type = "startup",
 			default_value = false
-		},
-		{
-			type = "bool-setting",
-			name = "cncharvester-chunk-index",
-			setting_type = "runtime-global",
-			default_value = false
 		}
+		-- Runtime cncharvester-chunk-index removed: the M1 scanner follows
+		-- Auto-cncharvester-testing only (one clear gate; restart required).
 		--[[ ,
 		{
 			type = "int-setting",

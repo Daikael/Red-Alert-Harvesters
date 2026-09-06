@@ -74,7 +74,7 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1
 2. New Freeplay / sandbox. **Old World Harvesting** requires **solar energy**. Craft an Ore Truck (2×2 grid) and a Refinery. There is **no Hybrid-drive** item. The Tiberium harvester is unlocked by **Tiberium Harvesting** (requires electric engines) and crafts with electric engines.
 3. Fuel the truck, drive onto iron/copper/coal/stone. The **slave miner** on the hitch should produce **~1.50 ore/s** with no modules (one item about every 40 ticks). Tiberium is **~3.00/s**. Unload when you sit next to the refinery.
 4. SHIFT+E (or click the truck) opens the slave **mining-drill** (starts empty). That GUI is the energy bar: efficiency should lower draw, speed should raise it. Productivity modules should produce bonus ore (native drill prod, not a scripted coin-flip). Recipe solar+battery are **not** in the grid or bay. A charged portable battery should climb the hybrid bar while parked. An empty pool will not mine. Driving must **not** show a moving power pole, accumulator, chest, or floating ore-truck icon square.
-5. Optional: Mods → Startup → **Automatic harvester testing**, place a fueled truck near ore and a refinery, then save/reload.
+5. Optional: Mods → Startup → **Automatic harvester testing** (restart). That turns on the slow chunk ore/Tiberium index only. The old teleport auto-harvester is disabled. Manual drive / dump is unchanged.
 
 ## Drive-and-harvest rate
 

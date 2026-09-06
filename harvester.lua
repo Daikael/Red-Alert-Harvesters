@@ -101,6 +101,8 @@ cncharvester = {
 		self.onArrivalCallback = nil
 	end,
 
+	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
+	-- control.lua no longer calls Tick. Kept for reference.
 	Tick = function(self)
 		if not (self.vehicle and self.vehicle.valid) then
 			return
@@ -453,6 +455,7 @@ cncharvester = {
 			end
 		end,
 
+		-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
 		[States.MovingToLocation] = function(self)
 			if math.abs(self.vehicle.orientation - self.targetOrientation) > 0.001 then
 				if self.targetOrientation - self.vehicle.orientation > 0.5 then
@@ -471,14 +474,14 @@ cncharvester = {
 			end
 
 			if self.targetDistance < Stats.MovementSpeed then
-				self.vehicle.teleport(self.targetPosition)
+				-- self.vehicle.teleport(self.targetPosition)
 				if self.arrival_state then
 					self.state = self.arrival_state
 					self.arrival_state = false
 				end
 				return
 			end
-			self.vehicle.teleport(Vector.add(self.vehicle.position, Vector.mul(self.targetHeading, Stats.MovementSpeed)))
+			-- self.vehicle.teleport(Vector.add(self.vehicle.position, Vector.mul(self.targetHeading, Stats.MovementSpeed)))
 			self.targetDistance = self.targetDistance - Stats.MovementSpeed
 		end,
 

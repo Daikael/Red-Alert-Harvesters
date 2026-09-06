@@ -224,13 +224,6 @@ local function startup_value(name)
 	return settings.startup[name].value
 end
 
-local function runtime_value(name)
-	if not (settings and settings.global and settings.global[name]) then
-		return nil
-	end
-	return settings.global[name].value
-end
-
 function ChunkIndex.read_tib_flags()
 	local present = script and script.active_mods and script.active_mods["Factorio-Tiberium"]
 	if not present then
@@ -250,10 +243,9 @@ function ChunkIndex.read_tib_flags()
 end
 
 function ChunkIndex.enabled()
-	if startup_value("Auto-cncharvester-testing") == true then
-		return true
-	end
-	return runtime_value("cncharvester-chunk-index") == true
+	-- One gate: startup Automatic harvester testing. Needs a restart.
+	-- The flag now enables this index only (legacy teleport AI is commented out).
+	return startup_value("Auto-cncharvester-testing") == true
 end
 
 function ChunkIndex.ensure_storage()

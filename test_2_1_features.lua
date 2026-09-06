@@ -537,6 +537,8 @@ expect(index_src:find("string.find(category, \"tiberium\"", 1, true) ~= nil, "ch
 expect(index_src:find("BUDGET_PER_TICK = 1", 1, true) ~= nil, "scanner drains one chunk per budget tick")
 expect(io.open("control.lua"):read("*a"):find('require "chunkindex"', 1, true) ~= nil, "control requires chunkindex")
 expect(io.open("control.lua"):read("*a"):find("ChunkIndex.tick", 1, true) ~= nil, "nth-tick drains the chunk index")
+expect(io.open("control.lua"):read("*a"):find("legacy teleport AI disabled", 1, true) ~= nil, "legacy teleport AI is commented out")
+expect(io.open("control.lua"):read("*a"):find("\n\t\t\t\tharvester:Tick()", 1, true) == nil, "harvester:Tick is not live")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
 expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_deleted", 1, true) ~= nil, "control hooks on_chunk_deleted")
@@ -726,8 +728,10 @@ expect(empty_c.empty == true, "no resources means empty")
 expect(empty_c.has_tib == false, "empty chunk is not Tib")
 
 local settings_src = assert(io.open("settings.lua"):read("*a"))
-expect(settings_src:find('name = "cncharvester-chunk-index"', 1, true) ~= nil, "runtime chunk-index setting exists")
-expect(settings_src:find('setting_type = "runtime-global"', 1, true) ~= nil, "chunk-index setting is runtime-global")
+expect(settings_src:find('name = "cncharvester-chunk-index"', 1, true) == nil, "runtime chunk-index setting is removed")
+expect(settings_src:find('name = "Auto-cncharvester-testing"', 1, true) ~= nil, "startup testing flag remains the scanner gate")
+expect(index_src:find("cncharvester-chunk-index", 1, true) == nil, "chunkindex does not read a runtime setting")
+expect(index_src:find('Auto-cncharvester-testing', 1, true) ~= nil, "chunkindex.enabled reads the startup testing flag")
 
 if fails > 0 then
 	print(fails .. " failed")
