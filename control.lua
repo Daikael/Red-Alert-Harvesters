@@ -13,14 +13,8 @@ local HARVESTER_NAMES = {
 	["cncharvester-type2"] = true,
 }
 
-local HARVESTER_MINE_RADIUS = {
-	["cncharvester"] = 1,
-	["cncharvester-type2"] = 2,
-}
-
--- Player-in-vehicle mining is 1 item per countdown.
--- Ore 40 ticks / Tiberium 20 ticks = same average rate as the old 8/16 per 320.
--- Speed/quality may shorten from that base. Unload stays on a 60-tick poll.
+-- Player-in-vehicle mining runs through the slave miner after a first-sit
+-- wait (40 / 20 ticks) so place-on-ore is not free. Unload stays on a 60-tick poll.
 
 local function ensure_storage()
 	storage.tibchunk = storage.tibchunk or {}
@@ -188,6 +182,22 @@ script.on_event("cncharvester-open-module-bay", function(event)
 	ModuleBay.open_for_player(player)
 end)
 
+script.on_event(defines.events.on_gui_opened, function(event)
+	local player = game.get_player(event.player_index)
+	local ent = event.entity
+	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+		ModuleBay.ensure_draw_gui(player, ent)
+	end
+end)
+
+script.on_event(defines.events.on_gui_closed, function(event)
+	local player = game.get_player(event.player_index)
+	local ent = event.entity
+	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+		ModuleBay.close_draw_gui(player)
+	end
+end)
+
 local function unload_near_refinery(vehicle)
 	local surface = vehicle.surface
 	local refineries = surface.find_entities_filtered {
@@ -220,51 +230,33 @@ local function drive_harvest(player, vehicle)
 	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
 	local vehicle_id = vehicle.unit_number
 	if storage.drive_scoop_wait[player.index] == nil or storage.drive_scoop_vehicle[player.index] ~= vehicle_id then
-		-- First tick in this seat must not scoop (place-on-ore free yield).
+		-- First tick in this seat must not mine (place-on-ore free yield).
 		storage.drive_scoop_wait[player.index] = Scoop.interval_base(vehicle)
 		storage.drive_scoop_vehicle[player.index] = vehicle_id
+		ModuleBay.starve(vehicle)
 		return
 	end
 	local wait = storage.drive_scoop_wait[player.index] or 0
 	if wait > 0 then
 		storage.drive_scoop_wait[player.index] = wait - 1
+		ModuleBay.starve(vehicle)
 		return
 	end
 
-	local effects = Scoop.read_effects(vehicle)
-	local qlevel = Scoop.quality_level(vehicle.quality)
-	storage.drive_scoop_wait[player.index] = Scoop.interval_ticks(
-		Scoop.interval_base(vehicle),
-		effects.speed,
-		qlevel
-	)
-
-	local radius = Scoop.radius(HARVESTER_MINE_RADIUS[vehicle.name] or 1, qlevel)
-	local ores = vehicle.surface.find_entities_filtered {
-		type = "resource",
-		area = GetBoundingBox(vehicle.position, radius)
-	}
-	local harvestable = {}
-	for _, entity in pairs(ores) do
-		if IsHarvestableResource(entity) then
-			table.insert(harvestable, entity)
-		end
-	end
-	if #harvestable == 0 then
-		return
-	end
-	local result = Scoop.harvest_area(vehicle, harvestable, Scoop.scoop_items(vehicle))
+	-- After the first-sit gate, the slave miner runs every tick. Native
+	-- mining_speed (1.5 / 3.0) plus modules set the cadence — do not also
+	-- apply the old scripted interval_ticks or prod would be bypassed again.
+	local result = Scoop.tick_slave(vehicle)
 	if result.no_fuel then
-		DrawFloatingText(vehicle.surface, vehicle, {"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		Scoop.toast(vehicle, "cncharvester.out-of-fuel")
 		return
 	end
 	if result.full and not result.inserted then
-		DrawFloatingText(vehicle.surface, vehicle, {"cncharvester.inventory-full"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		Scoop.toast(vehicle, "cncharvester.inventory-full")
 	end
 end
 
--- Hybrid pool and module-bay sync need every tick. Drive mining uses a
--- per-item countdown (40 ore / 20 Tiberium ticks when unmodified).
+-- Hybrid pool, slave-miner feed, and hitch teleport run every tick.
 script.on_nth_tick(1, function()
 	ensure_storage()
 
@@ -275,9 +267,7 @@ script.on_nth_tick(1, function()
 		end
 	end
 
-	if game.tick % 5 == 0 then
-		ModuleBay.sync_all()
-	end
+	ModuleBay.sync_all()
 
 	local ticked = {}
 	local function tick_hybrid(vehicle)
@@ -307,6 +297,7 @@ script.on_nth_tick(1, function()
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
 			drive_harvest(player, vehicle)
+			ModuleBay.refresh_draw_gui(player, vehicle)
 			if game.tick % 60 == 0 then
 				unload_near_refinery(vehicle)
 			end

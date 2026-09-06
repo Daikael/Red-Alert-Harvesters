@@ -1,4 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.12
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.12. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.12. Git branch is 2.1.12 (renamed in place from 2.1.11). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Productivity modules now apply through the slave mining-drill (native bonus-production bar). The scripted scoop no longer rolls a fake productivity chance that bypassed Factorio's module math.
+  Changes:
+    - Slave miner is a real electric drill: Ore Truck mining_speed 1.5 (180 kW), Tiberium 3.0 (360 kW). No-module baseline stays ~1.50 / ~3.00 items/s and 120 kJ/item.
+    - Efficiency, speed, quality, and pollution modules apply natively on that drill. SHIFT+E still opens the hitch; the drill energy bar plus a Hybrid mining draw readout show efficiency lowering draw and speed raising it.
+    - Hybrid pool feeds a private pole + electric-energy-interface micro-grid on the truck. The drill is not free factory power: each working tick is paid from hybrid (pool / grid cover / burnables) before the micro-grid is energized. Empty pool is still Out of fuel.
+    - First sit still waits a full 40 / 20 ticks (no free place-on-ore). After that the slave miner runs every tick; scripted per-item countdowns no longer set the rate (native speed modules do).
+    - Harvest error toasts are throttled to one per 150 ticks per truck.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.11
 Date: 2026-09-06
   Info:

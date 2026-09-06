@@ -85,8 +85,13 @@ function IsHarvestableResource(entity)
 		return false
 	end
 	local category = entity.prototype.resource_category
-	if category ~= "basic-solid" and category ~= "basic-solid-tiberium" then
+	if category == "basic-fluid" or category == "lava-magma" then
 		return false
+	end
+	if category ~= "basic-solid" and category ~= "basic-solid-tiberium" then
+		if not (category and string.find(category, "tiberium", 1, true)) then
+			return false
+		end
 	end
 	local props = entity.prototype.mineable_properties
 	return props and props.minable and props.products

@@ -6,15 +6,15 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch is the three-part version (`2.1.11`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.11`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.11` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
-- **Bump by renaming in place** (`2.1.11` → `2.1.12`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
+- Tester-facing git branch is the three-part version (`2.1.12`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.12`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.12` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
+- **Bump by renaming in place** (`2.1.12` → `2.1.13`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
 | `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.0.0` | `2.1.11` |
+| `info.json` `version` | `2.0.0` | `2.1.12` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -22,64 +22,56 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 ## Ported from 2.0 (`master` / PR #3)
 
 - README zip name: `Red-Alert-Harvesters_<version>` matching plural `info.json` `name` (2.1 experimental). The 2.0 line on `master` still uses singular `Red-Alert-Harvester`.
-- Drive mining is **1 item** every **40 ticks** (Ore Truck) / **20 ticks** (Tiberium). Same average as the old 8 / 16 per 320 ticks.
+- Drive mining no-module baseline is **1.50 / 3.00 items/s** (same average as the old 8 / 16 per 320 ticks). 2.1.12 runs that through the slave miner.
 - Inventory-full / blocked-harvest toasts: locale keys (`cncharvester.inventory-full` and related), `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
 
-## Feature 1 — Modular Ore Truck
+## Feature 1 — Slave miner (native modules)
 
-`CarPrototype` has **no** `module_slots`. Modules live on a companion mining-drill shell that never mines (dummy `cncharvester-module-bay` resource category).
+`CarPrototype` has **no** `module_slots`. Modules live on a **slave mining-drill** hitch that is teleported with the truck. Through 2.1.11 that drill was a dummy (`cncharvester-module-bay` resource category, void energy) and the script inserted ore — so **productivity did not use Factorio’s bonus-production bar**.
 
-### Layer A — entity quality
+2.1.12 runs harvest **through that drill**:
 
-Read from `vehicle.quality`:
+| Vehicle | Drill | Slots | mining_speed | energy_usage | Search radius |
+| --- | --- | --- | --- | --- | --- |
+| `cncharvester` | `cncharvester-module-bay` | 2 | **1.5** (~1.50/s) | **180 kW** | 2.5 |
+| `cncharvester-type2` | `cncharvester-type2-module-bay` | 3 | **3.0** (~3.00/s) | **360 kW** | 3.5 |
 
-| Quality level | Drain (if prototype field missing) | Scoop radius | Scoop interval |
-| --- | --- | --- | --- |
-| 0 normal | 100% | base | base |
-| 1 uncommon | 5/6 | +0.25 | / 1.05 |
-| 2 rare | 4/6 | +0.50 | / 1.10 |
-| 3 epic | 3/6 | +0.75 | / 1.15 |
-| 5 legendary | 1/6 | +1.25 | / 1.25 |
+`180 kW / 1.5 s⁻¹ = 120 kJ/item` (same 2.1.11 tax). Tiberium is the same tax at 3/s. **No-module baseline cadence is unchanged.** Speed / efficiency / quality / pollution / productivity then apply **natively**. Intentional shifts when modules are installed: prod bonus items from the drill prod bar; efficiency lowers `energy_usage` (20% floor); speed raises rate **and** consumption. Force mining-productivity research also applies (native drill). Vehicle quality is **not** copied onto the bay (slots stay 2 / 3; legendary trucks do not get vanilla +150% machine speed).
 
-When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins over the 1/6 table (vanilla drill values). A successful scoop decrements the patch only if `math.random() < drain`.
+### Architecture
 
-### Layer B — companion module bay
+1. **Slave drill** — real `resource_categories` (`basic-solid`, `basic-solid-tiberium`, plus any `*tiberium*` category from `data-final-fixes.lua`). Electric energy source so the vanilla mining-drill GUI shows an **energy use bar**.
+2. **Private micro-grid** — hidden `cncharvester-drill-pole` (`maximum_wire_distance = 0`, so it does not copper-join the factory) + `cncharvester-drill-supply` electric-energy-interface. Script sets `power_production` from the hybrid pool. A nearby factory pole may redundantly cover the hitch; that does **not** authorize a free mine because the script only sets `bay.active = true` after `HybridDrive.spend`.
+3. **Hopper** — hidden `cncharvester-scoop-hopper`. `drop_target` is set to the hopper; contents are moved into the car trunk each tick (including native prod extras).
+4. **Pay / gate** — `ModuleBay.feed_energy` spends `estimated_draw_w / 60` from the hybrid pool (pool + 90% grid + convertible solids) **before** energizing the micro-grid. Empty / spark-only pool → starve, Out of fuel. First sit still waits **40 / 20 ticks**.
+5. **UI** — SHIFT+E / click hitch opens the drill (modules + vanilla energy bar). A relative GUI also shows **Hybrid mining draw** in kW so efficiency vs speed is obvious.
+6. **Toasts** — inventory-full / OOF are throttled to one per 150 ticks per truck.
 
-| Vehicle | Bay prototype | Module slots |
-| --- | --- | --- |
-| `cncharvester` | `cncharvester-module-bay` | 2 |
-| `cncharvester-type2` | `cncharvester-type2-module-bay` | 3 |
+`Scoop.harvest_area` remains as a unit-test pay-and-insert stand-in. Drive and auto call `Scoop.tick_slave` only.
+
+### Layer A — entity quality (scripted radius gate only)
+
+The enable-gate still uses `vehicle.quality` for **search radius** (+0.25/level). The slave miner is created at **normal** quality so baseline speed stays 1.5 / 3.0 and slots stay 2 / 3. Native resource drain is therefore normal-quality (100%). Documented tradeoff vs 2.1.11’s scripted 1/6 drain table — do not pass vehicle quality onto the bay or vanilla quality speed would jump legendary trucks to 2.5×.
+
+### Layer B — module bay (unchanged slot rules)
 
 - `allowed_effects`: speed, productivity, consumption, pollution, quality.
-- **Slot count does not scale with quality.** `quality_affects_module_slots = false`. The bay is created at normal quality (vehicle quality is not passed to `create_entity`). Uncommon/rare/epic/legendary trucks still have **2** or **3** slots.
+- **Slot count does not scale with quality.** `quality_affects_module_slots = false`.
 - Not minable / not destructible / not blueprintable / empty collision mask.
-- Teleported with the truck; destroyed on truck mine/death (modules go to the mine buffer or trunk).
+- Teleported with the truck (mining_progress / bonus_mining_progress restored after teleport); destroyed on truck mine/death (modules go to the mine buffer or trunk). Helpers (pole / supply / hopper) die with it.
 - Orphans are reaped on `on_configuration_changed`.
-- Open: click the small hitch, or **SHIFT+E** (`cncharvester-open-module-bay`) while driving / with the truck selected.
 
-### Scripted scoop (drive + auto)
+### Harvest tax numbers (no modules)
 
-1. Read `bay.effects` (fallback: sum module inventory, scaled by module-item quality multipliers).
-2. Quality chance → `LuaQualityPrototype.roll_quality(effect, seed, force)` on 2.1; else `next` / `next_probability` chain.
-3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
-4. Resource drain from Layer A; efficiency modules (`consumption < 0`) still shave a little drain (`drain * (1 + consumption * 0.25)`).
-5. **Parasitic harvest fuel tax:** `harvest_area` (drive or auto) must **afford the item** from the hybrid pool **before** it is inserted. Cost is `120 kJ × max(0.2, 1 + consumption) × (1 + max(0, speed) + 0.05×quality_level)` per item. Default volume is **1**. A token spark still cannot buy an item; a charged grid can pay by draining stored energy into the pool (90%).
-6. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
-7. Speed + quality level shorten the per-item interval (`base / (1 + speed + 0.05*level)`, min 4 ticks). Bases are **40** (Ore Truck) / **20** (Tiberium).
-8. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)` (animation stand-in; the parasitic tax above is the real harvest fuel cost).
-9. Pollution effect, if any, adds a tiny `surface.pollute`.
-
-### Harvest parasitic tax numbers
-
-Costs below use **120 kJ/item** (2.1.11; 4× the 2.1.10 tax of 30 kJ). Speed modules multiply further via the speed term (not shown). One solid fuel is 12 MJ ≈ **100 items**.
+Same 120 kJ/item as 2.1.11. With modules, native drill math wins (efficiency cheaper, speed more draw and faster).
 
 | Mine | Cadence | No modules | 2× efficiency-3 (−80%) | vs 1 solid fuel |
 | --- | --- | --- | --- | --- |
-| 1 item | 40 / 20 ticks | **120 kJ** | 24 kJ | ~100 items |
-| Ore Truck 5.33 s | 8 × 40 ticks | **960 kJ** | 192 kJ | ~12.5 windows |
-| Tiberium 5.33 s | 16 × 20 ticks | **1.92 MJ** | 384 kJ | ~6.25 windows |
+| 1 item | ~40 / 20 ticks | **120 kJ** | **24 kJ** (native 20% floor) | ~100 items |
+| Ore Truck 5.33 s | 8 items | **960 kJ** | 192 kJ | ~12.5 windows |
+| Tiberium 5.33 s | 16 items | **1.92 MJ** | 384 kJ | ~6.25 windows |
 
-`can_afford` counts pool + 90% of stored grid energy + convertible tank solids. `spend` pulls from the pool, then from stored grid if needed. Out of fuel only when that sum cannot cover the action. Inventory-full refunds the tax.
+`can_afford` counts pool + 90% of stored grid energy + convertible tank solids. `spend` pulls from the pool, then from stored grid if needed. Out of fuel only when that sum cannot cover the tick. Trunk-full starves the drill (hopper stops transferring).
 
 ## Feature 2 — Hybrid energy pool
 
@@ -149,15 +141,15 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.11`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.11` → `Red-Alert-Harvesters_2.1.11`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvesters_2.1.12`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.12` → `Red-Alert-Harvesters_2.1.12`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
-3. **Per-item mine + tax:** One item every 40 / 20 ticks. A 2 kJ spark cannot buy 120 kJ. Speed/quality raise cost and shorten the interval.
-4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
+3. **Slave-miner baseline + tax:** No modules → ~1.50 / ~3.00 items/s. A 2 kJ spark cannot keep the drill fed (180 kW ore / 360 kW tib). First sit waits 40 / 20 ticks.
+4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or mine; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
 5. **Intrinsic solar + battery:** Fresh truck, empty grid — parked pool climbs slowly from the baked-in 18 kW trickle. Install a charged portable battery: the hybrid bar should rise clearly (several MJ in a few seconds). Recipe still costs solar+battery. Sustained driving+mining still net-drains.
-6. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. **2 slots** on Ore Truck / **3** on Tiberium, including uncommon+ quality trucks. Insert speed/quality/productivity/efficiency modules. Confirm they are not left behind when the truck is mined (modules return to you).
-7. **Harvest fuel tax:** Drive-harvest with an empty bay and real fuel — pool drops **per item** at 120 kJ. Fill 2× efficiency-3; fuel use should feel much cheaper. Average ore rate still ~1.5/s.
-8. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
-9. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better. Slot count must stay 2 / 3.
+6. **Slave miner GUI:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the **mining-drill** GUI (modules + energy bar + Hybrid mining draw). **2 slots** / **3** slots, including uncommon+ quality trucks. Insert productivity — bonus products must appear (not a rare coin-flip). Insert efficiency — energy bar / draw kW drops. Insert speed — rate and draw rise. Modules return when the truck is mined.
+7. **Harvest fuel tax:** Drive-harvest with an empty bay and real fuel — hybrid pool drops at ~120 kJ/item (180 kW at 1.5/s). Fill 2× efficiency-3; the energy bar and hybrid drain should drop to the 20% floor. Average ore rate still ~1.5/s.
+8. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality). Native drill quality modules apply; this is no longer a scripted `roll_quality` on insert.
+9. **Entity quality:** Place a rare/epic Ore Truck. Search radius is still a bit larger. Slot count must stay 2 / 3. Drill rate stays the 1.5 / 3.0 baseline (bay is normal quality). Patch drain is native-normal (not the old 1/6 scripted table).
 10. **Craft / grid / recycle:** Recipe lists vanilla solar panel + battery. A freshly placed truck has an **empty 2×2** (Ore Truck) or **3×3** (Tiberium) grid and empty module bay (no free solar/battery/modules; no Hybrid-drive item exists). Strip-recycle-recraft must not mint extra modules or equipment beyond a normal recycle of the craft cost.
 11. **Quality hybrid:** A rare/legendary truck should refill faster and hold a larger electric cap than normal. Driving still net-drains. Module slots stay 2 / 3.
 12. **Drain empty:** Stuck until fueled or recharged. Type stays hybrid-charge, never nuclear.
@@ -166,9 +158,10 @@ This environment has **no Factorio client**. Static checks: `luac -p` and `lua t
 ## Remaining 2.1 unknowns
 
 - `LuaEquipment.type` vs `prototype.type` when classifying batteries.
-- Whether a later 2.1 build rejects dummy resource categories or void-energy mining drills.
-- Bay `create_entity` no longer passes `quality` (slots stay 2 / 3).
-- Factorio-Tiberium 2.1 together with this pack is still untested in-client.
+- Whether a disconnected electric drill + private pole/EEI micro-grid stays isolated from nearby substations in every 2.1 build (script still pay-gates `active`).
+- Bay `create_entity` no longer passes `quality` (slots stay 2 / 3; baseline rate stays 1.5 / 3.0).
+- Factorio-Tiberium 2.1 together with this pack is still untested in-client. `data-final-fixes.lua` copies `*tiberium*` resource categories onto the slave miners.
+- Resources that need a fluid (uranium + sulfuric acid) are not mined by the slave drill (no fluid box).
 
 ## PR targeting
 

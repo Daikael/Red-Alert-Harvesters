@@ -1,5 +1,5 @@
 -- 2.1: no known startup-setting prototype break vs 2.0.
--- Quality / module / hybrid behavior is scripted (see scoop.lua, hybriddrive.lua).
+-- Quality radius / hybrid behavior is scripted. Mining modules apply on the slave drill.
 data:extend(
 	{
 		{

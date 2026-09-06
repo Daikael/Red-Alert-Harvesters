@@ -1,5 +1,7 @@
--- Scripted scoop: entity quality (Layer A) + companion module effects (Layer B).
--- Cars cannot host modules; effects are read from the companion mining-drill bay.
+-- Harvest helpers. 2.1.12 runtime mining goes through the slave miner
+-- (ModuleBay.feed_energy + native drill + hopper collect) so Factorio applies
+-- productivity / efficiency / speed. harvest_area stays as a pay-gate stand-in
+-- for unit tests and is not the in-game ore path.
 
 require "utilities"
 require "modulebay"
@@ -33,6 +35,12 @@ Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
 Scoop.PARASITIC_JOULES_BASE = 120000
 Scoop.PARASITIC_MIN_FACTOR = 0.2
 Scoop.JOULES_PER_ITEM = 120000
+-- Slave-miner prototype watts (mining_speed × 120 kJ/item).
+Scoop.ORE_MINING_SPEED = 1.5
+Scoop.TYPE2_MINING_SPEED = 3.0
+Scoop.ORE_ENERGY_W = 180000
+Scoop.TYPE2_ENERGY_W = 360000
+Scoop.USES_SLAVE_MINER = true
 
 function Scoop.interval_base(vehicle)
 	if vehicle and vehicle.name == "cncharvester-type2" then
@@ -262,14 +270,8 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 			end
 		end
 
-		-- Productivity: extra product, no extra drain.
-		if (effects.productivity or 0) > 0 and math.random() < effects.productivity then
-			local bonus_q = Scoop.roll_product_quality(seed_quality, effects.quality, force)
-			if not insert_one(trunk, name, bonus_q) then
-				full = true
-				break
-			end
-		end
+		-- 2.1.12: in-game bonus products come from the slave miner's native
+		-- productivity bar. This stand-in path does not roll fake prod.
 	end
 
 	if inserted and (effects.pollution or 0) ~= 0 and vehicle.surface and vehicle.surface.valid then
@@ -337,4 +339,120 @@ function Scoop.harvest_area(vehicle, ores, total_items)
 		HybridDrive.lock_charge(vehicle.burner, current + cost)
 	end
 	return {inserted = any, full = full, no_fuel = false}
+end
+
+function Scoop.drill_energy_w(vehicle)
+	if vehicle and vehicle.name == "cncharvester-type2" then
+		return Scoop.TYPE2_ENERGY_W
+	end
+	return Scoop.ORE_ENERGY_W
+end
+
+function Scoop.mining_speed(vehicle)
+	if vehicle and vehicle.name == "cncharvester-type2" then
+		return Scoop.TYPE2_MINING_SPEED
+	end
+	return Scoop.ORE_MINING_SPEED
+end
+
+function Scoop.find_harvestable(vehicle, radius)
+	if not (vehicle and vehicle.valid and vehicle.surface) then
+		return {}
+	end
+	local ores = vehicle.surface.find_entities_filtered{
+		type = "resource",
+		area = GetBoundingBox(vehicle.position, radius)
+	}
+	local harvestable = {}
+	for _, entity in pairs(ores) do
+		if IsHarvestableResource(entity) then
+			table.insert(harvestable, entity)
+		end
+	end
+	return harvestable
+end
+
+function Scoop.toast(vehicle, locale_key)
+	if not (vehicle and vehicle.valid and vehicle.surface) then
+		return
+	end
+	storage.scoop_toasts = storage.scoop_toasts or {}
+	local id = vehicle.unit_number
+	storage.scoop_toasts[id] = storage.scoop_toasts[id] or {}
+	local last = storage.scoop_toasts[id][locale_key] or -100000
+	if game and game.tick and (game.tick - last) < FLOATING_TEXT_ERROR_TTL then
+		return
+	end
+	if game and game.tick then
+		storage.scoop_toasts[id][locale_key] = game.tick
+	end
+	DrawFloatingText(vehicle.surface, vehicle, {locale_key}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+end
+
+-- Runtime path: enable the slave miner when ore is in range and the hybrid
+-- pool can pay this tick of native draw. Products (including native prod
+-- bonuses) land in the hopper and are moved to the trunk.
+function Scoop.tick_slave(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return {inserted = false, full = false, items = 0}
+	end
+	ModuleBay.ensure(vehicle)
+	ModuleBay.sync(vehicle)
+
+	local qlevel = Scoop.quality_level(vehicle.quality)
+	local base_radius = 1
+	if vehicle.name == "cncharvester-type2" then
+		base_radius = 2
+	end
+	local radius = Scoop.radius(base_radius, qlevel)
+	local harvestable = Scoop.find_harvestable(vehicle, radius)
+	local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
+	if not trunk then
+		ModuleBay.starve(vehicle)
+		return {inserted = false, full = true, items = 0}
+	end
+	if #harvestable <= 0 then
+		ModuleBay.starve(vehicle)
+		return {inserted = false, full = false, items = 0}
+	end
+
+	local bay = ModuleBay.get(vehicle)
+	if bay and bay.valid and defines and defines.entity_status then
+		local st = bay.status
+		if st == defines.entity_status.missing_required_fluid
+			or st == defines.entity_status.no_minable_resources then
+			-- Uranium (needs acid) and similar: do not keep paying hybrid.
+			ModuleBay.starve(vehicle)
+			return {inserted = false, full = false, items = 0}
+		end
+	end
+
+	local collected = ModuleBay.collect(vehicle)
+	if collected.full and not collected.inserted then
+		ModuleBay.starve(vehicle)
+		return collected
+	end
+
+	local draw_w = ModuleBay.estimated_draw_w(vehicle)
+	local tick_j = math.max(ModuleBay.MIN_FEED_J, draw_w / 60)
+	if not HybridDrive.can_afford(vehicle, tick_j) then
+		ModuleBay.starve(vehicle)
+		collected.no_fuel = true
+		return collected
+	end
+	if not ModuleBay.feed_energy(vehicle) then
+		ModuleBay.starve(vehicle)
+		collected.no_fuel = true
+		return collected
+	end
+
+	local after = ModuleBay.collect(vehicle)
+	after.items = (collected.items or 0) + (after.items or 0)
+	after.inserted = after.inserted or collected.inserted
+	after.full = after.full or collected.full
+	after.no_fuel = false
+	if after.full and not after.inserted then
+		ModuleBay.starve(vehicle)
+	end
+	return after
 end

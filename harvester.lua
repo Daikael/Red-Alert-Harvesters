@@ -106,6 +106,10 @@ cncharvester = {
 			return
 		end
 
+		if self.state ~= States.MiningOre then
+			ModuleBay.starve(self.vehicle)
+		end
+
 		if StateUsesEnergy[self.state] then
 			if not self:CheckFuel() then
 				return
@@ -359,36 +363,34 @@ cncharvester = {
 
 		[States.MiningOre] = function(self)
 			if self.scoopsMined >= Scoop.items_per_location(self.vehicle) then
+				ModuleBay.starve(self.vehicle)
 				self.state = States.FindingOre
 				self.searchRadius = Stats.CloseMineSearchRadius
 				return
 			end
 
-			local qlevel = Scoop.quality_level(self.vehicle.quality)
-			local ores = self:FindOresInRadius(Scoop.radius(Stats.MiningRadius, qlevel))
-			if #ores < 1 then
-				self.state = States.FindingOre
-				self.searchRadius = Stats.CloseMineSearchRadius
-				return
-			end
-
-			local result = Scoop.harvest_area(self.vehicle, ores, Scoop.scoop_items(self.vehicle))
+			local result = Scoop.tick_slave(self.vehicle)
 			if result.no_fuel then
-				self:FloatingText({"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+				Scoop.toast(self.vehicle, "cncharvester.out-of-fuel")
 				return
+			end
+			if result.full and not result.inserted then
+				self:SetIsFilled(true)
+			end
+			if (result.items or 0) > 0 then
+				self.scoopsMined = self.scoopsMined + result.items
 			end
 			if result.full then
 				self:SetIsFilled(true)
 			end
 
 			if self.filled then
+				ModuleBay.starve(self.vehicle)
 				self.scoopsMined = 0
 				self.state = States.FindingRefinery
 				return
 			end
-			self.scoopsMined = self.scoopsMined + 1
-			self.oldState = States.MiningOre
-			self:PlayAnimation()
+			-- Stay in MiningOre. Native drill cadence replaces PlayAnimation waits.
 		end,
 
 		[States.FindingRefinery] = function(self)
