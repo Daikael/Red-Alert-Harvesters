@@ -5,8 +5,8 @@ function Surface.lookup(surface)
 	for chunk in surface.get_chunks() do
 		local resources = surface.find_entities_filtered({area=chunk.area, blah})
 		for _, entity in pairs(resources) do
-			if (entity.prototype.resource_category == "basic-solid") or
-					(entity.prototype.resource_category == "basic-solid-tiberium") then
+			local cat = entity.prototype.resource_category
+			if cat == "basic-solid" or (cat and string.find(cat, "tiberium", 1, true)) then
 				for _, resources in pairs(resources) do
 					if type(resources) == 'string' then
 						if game.surfaces[resources] then
@@ -49,7 +49,6 @@ function Surface.find_all_entities(search_criteria)
 
 	return result
 end
-local tibres = 'entity.prototype.resource_category == "basic-solid-tiberium"'
 function Surface.tiberium()
-	Surface.find_all_entities({type = tibres})
+	Surface.find_all_entities({type = "resource"})
 end

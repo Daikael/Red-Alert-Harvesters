@@ -62,7 +62,11 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 		selection_box = {{-0.4, -0.4}, {0.4, 0.4}},
 		selectable_in_game = true,
 		minable = nil,
-		resource_categories = {"basic-solid", "basic-solid-tiberium"},
+		-- Vanilla only. Do not list basic-solid-tiberium here: that
+		-- resource-category exists only when Factorio-Tiberium is loaded
+		-- (boot error assignID on Deck without that mod). Type-2 gets real
+		-- Tiberium categories in data-final-fixes.lua when they exist.
+		resource_categories = {"basic-solid"},
 		resource_searching_radius = search_radius,
 		quality_affects_mining_radius = false,
 		vector_to_place_result = {0, 0},

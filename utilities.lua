@@ -80,7 +80,14 @@ function GetOccupiedSlots(inventory)
 	return slotsOccupied
 end
 
-function IsHarvestableResource(entity)
+local SLAVE_BAY_FOR = {
+	["cncharvester"] = "cncharvester-module-bay",
+	["cncharvester-type2"] = "cncharvester-type2-module-bay",
+}
+
+-- Match the slave miner's real resource_categories. Never require a
+-- basic-solid-tiberium prototype that only exists with Factorio-Tiberium.
+function IsHarvestableResource(entity, vehicle)
 	if not (entity and entity.valid) then
 		return false
 	end
@@ -88,7 +95,17 @@ function IsHarvestableResource(entity)
 	if category == "basic-fluid" or category == "lava-magma" then
 		return false
 	end
-	if category ~= "basic-solid" and category ~= "basic-solid-tiberium" then
+	if vehicle and vehicle.valid and vehicle.name and prototypes and prototypes.entity then
+		local bay_name = SLAVE_BAY_FOR[vehicle.name]
+		local bay_proto = bay_name and prototypes.entity[bay_name]
+		if bay_proto and bay_proto.resource_categories then
+			if not bay_proto.resource_categories[category] then
+				return false
+			end
+		elseif category ~= "basic-solid" then
+			return false
+		end
+	elseif category ~= "basic-solid" then
 		if not (category and string.find(category, "tiberium", 1, true)) then
 			return false
 		end

@@ -241,7 +241,7 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 	if not (vehicle and vehicle.valid and ore and ore.valid and trunk and trunk.valid) then
 		return {inserted = false, full = false}
 	end
-	if not IsHarvestableResource(ore) then
+	if not IsHarvestableResource(ore, vehicle) then
 		return {inserted = false, full = false}
 	end
 
@@ -365,7 +365,7 @@ function Scoop.find_harvestable(vehicle, radius)
 	}
 	local harvestable = {}
 	for _, entity in pairs(ores) do
-		if IsHarvestableResource(entity) then
+		if IsHarvestableResource(entity, vehicle) then
 			table.insert(harvestable, entity)
 		end
 	end

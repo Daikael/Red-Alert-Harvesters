@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.13
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.13. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.13. Git branch is 2.1.13 (renamed in place from 2.1.12). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Boot no longer requires resource-category `basic-solid-tiberium`. That name is defined by Factorio-Tiberium, not vanilla. On a 2.1.16 Deck load with only this pack, Factorio failed assignID at `cncharvester-module-bay.resource_categories[1]`. Slave drills now list `basic-solid` only. This pack does not invent a fake Tiberium category.
+    - When Factorio-Tiberium is loaded, data-final-fixes adds its real categories to the Tiberium harvester bay only (and strips them from the Ore Truck bay if that mod injected them onto every basic-solid drill).
+---------------------------------------------------------------------------------------------------
 Version: 2.1.12
 Date: 2026-09-06
   Info:
