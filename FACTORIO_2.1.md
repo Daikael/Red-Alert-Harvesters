@@ -6,6 +6,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
+- Tester-facing git branch name matches the pack folder: **`Red-Alert-Harvester_<version>`** (this rev: `Red-Alert-Harvester_2.1.8`). Not `cursor/…`. GitHub source zips may be prefixed `Red-Alert-Harvesters-…`; rename the extracted folder to `Red-Alert-Harvester_2.1.8` before install.
 
 ## Packaging
 
