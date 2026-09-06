@@ -9,6 +9,12 @@ Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2
 - **2.0 stable players:** use `master` / `Red-Alert-Harvester_2.0.0`.
 - **2.1 experimental:** this branch / `Red-Alert-Harvester_2.1.8`.
 
+## Development branch names
+
+Tester-facing development branches must match the Factorio pack basename: **`Red-Alert-Harvester_<version>`** (singular Harvester, underscore, three-part version). Example: pack `2.1.8` → branch **`Red-Alert-Harvester_2.1.8`**. Do not use `cursor/…` names for tester builds. The next test rev is a new branch `Red-Alert-Harvester_2.1.9` (or the PR is retargeted to that name).
+
+GitHub **Code → Download ZIP** prefixes the repo name. You may get `Red-Alert-Harvesters-Red-Alert-Harvester_2.1.8.zip` (or a folder `Red-Alert-Harvesters-Red-Alert-Harvester_2.1.8`). Rename/extract so the folder you drop into Factorio `mods/` is exactly **`Red-Alert-Harvester_2.1.8`**.
+
 ## Install naming (Factorio will refuse the wrong zip)
 
 Factorio checks the **file or folder name** against `info.json`. The check is **case-sensitive**. Testers already hit:
