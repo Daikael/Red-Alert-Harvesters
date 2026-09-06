@@ -356,29 +356,21 @@ expect(loc:find("no%-empty%-refinery=Cannot find unoccupied empty refinery", 1) 
 expect(loc:find("no%-fuel%-refinery=Cannot find refinery with fuel", 1) ~= nil, "no-fuel-refinery is localized")
 expect(loc:find("Fuel inserted in the tank charges this electrical capacity", 1, true) ~= nil, "fuel→electrical capacity string is localized")
 
-local toast_scan = {
-	["control.lua"] = {
-		[["Inventory full"]] = true,
-		[["Heading for refuel"]] = true,
-		[["Cannot find unoccupied empty refinery"]] = true,
-		[["Cannot find refinery with fuel"]] = true,
-	},
-	["harvester.lua"] = {
-		[["Inventory full"]] = true,
-		[["Heading for refuel"]] = true,
-		[["Cannot find unoccupied empty refinery"]] = true,
-		[["Cannot find refinery with fuel"]] = true,
-	},
+local toast_files = { "control.lua", "harvester.lua" }
+local toast_banned = {
+	'"Inventory full"',
+	'"Heading for refuel"',
+	'"Cannot find unoccupied empty refinery"',
+	'"Cannot find refinery with fuel"',
 }
-for path, banned in pairs(toast_scan) do
+for _, path in ipairs(toast_files) do
 	local src = assert(io.open(path, "r")):read("*a")
-	for needle, _ in pairs(banned) do
+	for _, needle in ipairs(toast_banned) do
 		expect(src:find(needle, 1, true) == nil, path .. " does not hard-code " .. needle)
 	end
-	if path == "control.lua" then
-		expect(src:find('{"cncharvester.inventory-full"}', 1, true) ~= nil, "control.lua uses inventory-full locale key")
-	end
 end
+expect(io.open("control.lua"):read("*a"):find('{"cncharvester.inventory-full"}', 1, true) ~= nil, "control.lua uses inventory-full locale key")
+expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refinery"}', 1, true) ~= nil, "harvester.lua uses no-empty-refinery locale key")
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"version": "2.1.7"', 1, true) ~= nil, "pack version is 2.1.7")
