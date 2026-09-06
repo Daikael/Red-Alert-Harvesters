@@ -121,11 +121,11 @@ cncharvester = {
 		log("Red-Alert-Harvester harvester state=" .. tostring(self.state) .. " orientation=" .. tostring(self.currentOrientation))
 	end,
 
-	FloatingText = function(self, text, color)
+	FloatingText = function(self, text, color, ttl)
 		if not (self.vehicle and self.vehicle.valid) then
 			return
 		end
-		DrawFloatingText(self.vehicle.surface, self.vehicle, text, color or {r = 1, g = 1, b = 1}, 60)
+		DrawFloatingText(self.vehicle.surface, self.vehicle, text, color or {r = 1, g = 1, b = 1}, ttl or 60)
 	end,
 
 	CheckFuel = function(self)
@@ -408,7 +408,7 @@ cncharvester = {
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find unoccupied empty refinery", {r = 0.8, g = 0.2, b = 0.2})
+					self:FloatingText("Cannot find unoccupied empty refinery", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end
@@ -497,7 +497,7 @@ cncharvester = {
 			local refinery = Refinery.NearestWithFuel(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find refinery with fuel", {r = 0.8, g = 0.2, b = 0.2})
+					self:FloatingText("Cannot find refinery with fuel", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end

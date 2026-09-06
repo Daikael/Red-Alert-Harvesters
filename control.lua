@@ -190,7 +190,7 @@ local function On_Nth_Tick_Drive_Mine()
 				if can_insert then
 					entity.mine({inventory = trunk})
 				elseif not showed_full then
-					DrawFloatingText(surface, vehicle, "Inventory full", {r = 1, g = 1, b = 1, a = 1}, 20)
+					DrawFloatingText(surface, vehicle, "Inventory full", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 					showed_full = true
 				end
 			end

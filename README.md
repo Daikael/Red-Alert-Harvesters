@@ -76,6 +76,10 @@ That is **600/320 = 1.875×** as often — just under doubled. Ore per scoop is 
 
 Automatic harvesting (the experimental startup flag) uses a short ~32-tick wait as a stand-in for missing scoop animations. That is already much faster than the drive timer and was **not** rebalanced, so auto pathing stays the same.
 
+## Inventory-full warning
+
+When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red** `"Inventory full"` floating text for **150 ticks** (~2.5 seconds at 60 UPS). That is only the blocked-harvest warning: auto-harvester status lines (for example green “Heading for refuel”) keep their own colors and shorter TTL.
+
 ## Optional dependency
 
 [Factorio and Conquer: Tiberian Dawn](https://mods.factorio.com/mod/Factorio-Tiberium) **2.0.x** (for example 2.0.15). Do not mix that mod’s 2.1 line with this 2.0 pack.
