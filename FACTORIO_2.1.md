@@ -6,14 +6,14 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch is the three-part version (`2.1.17`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.17`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.17` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
+- Tester-facing git branch is the three-part version (`2.1.17`). Mod `info.json` name is singular **`Red-Alert-Harvester`** (portal slug). Pack folder is **`Red-Alert-Harvester_2.1.17`**. GitHub source archives may still be repo-prefixed `Red-Alert-Harvesters-2.1.17`; use the release zip. `factorio_version` is **`2.1`**.
 - **Bump by renaming in place** (`2.1.17` → `2.1.18`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
+| `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvester` |
 | `info.json` `version` | `2.0.0` | `2.1.17` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
@@ -21,7 +21,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 ## Ported from 2.0 (`master` / PR #3)
 
-- README zip name: `Red-Alert-Harvesters_<version>` matching plural `info.json` `name` (2.1 experimental). The 2.0 line on `master` still uses singular `Red-Alert-Harvester`.
+- README zip name: `Red-Alert-Harvester_<version>` matching singular `info.json` `name` (portal slug). GitHub source archives may still be repo-prefixed plural.
 - Drive mining no-module baseline is **1.50 / 3.00 items/s** (same average as the old 8 / 16 per 320 ticks). 2.1.12 runs that through the slave miner.
 - Inventory-full / blocked-harvest toasts: locale keys (`cncharvester.inventory-full` and related), `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
 
@@ -141,7 +141,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.17`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.17` → `Red-Alert-Harvesters_2.1.17`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client **with and without** Factorio-Tiberium (2.1.12 assignID crash; 2.1.15 AtlasBuilder `transparent.png` left_top=256x0). Loading a 2.1.12-migrated save must not crash `on_nth_tick` (2.1.13 wrote read-only `LuaEntity.active`). Driving must not show a moving pole/accumulator/chest **or** a floating ore-truck icon square (2.1.16 hitch). Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvester_2.1.17`** (singular `info.json` name — see README). Use the GitHub Release zip, not the repo-prefixed source archive. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client **with and without** Factorio-Tiberium (2.1.12 assignID crash; 2.1.15 AtlasBuilder `transparent.png` left_top=256x0). Loading a 2.1.12-migrated save must not crash `on_nth_tick` (2.1.13 wrote read-only `LuaEntity.active`). Driving must not show a moving pole/accumulator/chest **or** a floating ore-truck icon square (2.1.16 hitch). Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Slave-miner baseline + tax:** No modules → ~1.50 / ~3.00 items/s. A 2 kJ spark cannot keep the drill fed (180 kW ore / 360 kW tib). First sit waits 40 / 20 ticks.
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or mine; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.

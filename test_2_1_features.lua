@@ -475,7 +475,8 @@ expect(io.open("control.lua"):read("*a"):find("cncharvester.inventory-full", 1, 
 expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refinery"}', 1, true) ~= nil, "harvester.lua uses no-empty-refinery locale key")
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
-expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
+expect(info_src:find('"name": "Red-Alert-Harvester"', 1, true) ~= nil, "mod name is singular Red-Alert-Harvester")
+expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) == nil, "mod name is not the plural portal mismatch")
 expect(info_src:find('"version": "2.1.17"', 1, true) ~= nil, "pack version is 2.1.17")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
@@ -489,8 +490,8 @@ local proto_scan = {
 }
 for _, path in ipairs(proto_scan) do
 	local src = assert(io.open(path, "r")):read("*a")
-	expect(src:find("__Red-Alert-Harvester__/", 1, true) == nil, path .. " does not use singular asset prefix")
-	expect(src:find("__Red-Alert-Harvesters__/", 1, true) ~= nil, path .. " uses plural asset prefix")
+	expect(src:find("__Red-Alert-Harvesters__/", 1, true) == nil, path .. " does not use plural asset prefix")
+	expect(src:find("__Red-Alert-Harvester__/", 1, true) ~= nil, path .. " uses singular asset prefix")
 end
 
 local charge_src = assert(io.open("prototypes/items/hybrid_charge.lua", "r")):read("*a")
@@ -525,7 +526,7 @@ expect(bay_src:find("maximum_wire_distance = 0", 1, true) ~= nil, "private pole 
 expect(bay_src:find("function strip_world_graphics", 1, true) ~= nil, "helpers strip vanilla world graphics")
 expect(bay_src:find("util.empty_sprite", 1, true) ~= nil, "helpers use util.empty_sprite")
 expect(bay_src:find("__core__/graphics/empty.png", 1, true) ~= nil, "helpers use core 1x1 empty.png")
-expect(bay_src:find('filename = "__Red-Alert-Harvesters__/graphics/entity/transparent.png"', 1, true) == nil, "helpers do not assign the 256 transparent sheet")
+expect(bay_src:find('filename = "__Red-Alert-Harvester__/graphics/entity/transparent.png"', 1, true) == nil, "helpers do not assign the 256 transparent sheet")
 expect(io.open("graphics/entity/transparent.png", "r") == nil, "orphaned transparent.png is deleted")
 expect(bay_src:find("function bay_animation", 1, true) == nil, "slave drill has no hitch icon animation")
 expect(bay_src:find("shift = {0.85, 0.85}", 1, true) == nil, "slave drill does not paint a bottom-right icon")
@@ -561,7 +562,7 @@ local active_scan = {
 	"scoop.lua",
 	"hybriddrive.lua",
 	"harvester.lua",
-	"migrations/Red-Alert-Harvesters_2.1.12.lua",
+	"migrations/Red-Alert-Harvester_2.1.12.lua",
 }
 for _, path in ipairs(active_scan) do
 	local src = assert(io.open(path, "r")):read("*a")

@@ -4,7 +4,7 @@ data:extend({
 		name = "Old-World-Harvesting",
 		-- solar-energy matches the solar-panel already in the Ore Truck recipe.
 		prerequisites = {"steel-processing", "engine", "solar-energy"},
-		icon = "__Red-Alert-Harvesters__/graphics/icons/refin_icon.png",
+		icon = "__Red-Alert-Harvester__/graphics/icons/refin_icon.png",
 		icon_size = 32,
 		effects =
 		{
@@ -33,7 +33,7 @@ data:extend({
 		type = "technology",
 		name = "Tiberium-Harvesting",
 		prerequisites = {"Old-World-Harvesting", "electric-engine"},
-		icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon-type2.png",
+		icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon-type2.png",
 		icon_size = 32,
 		effects =
 		{

@@ -116,7 +116,7 @@ data:extend({
 	module_bay(
 		"cncharvester-module-bay",
 		2,
-		"__Red-Alert-Harvesters__/graphics/icons/harv_icon.png",
+		"__Red-Alert-Harvester__/graphics/icons/harv_icon.png",
 		1.5,
 		"180kW",
 		2.5
@@ -124,7 +124,7 @@ data:extend({
 	module_bay(
 		"cncharvester-type2-module-bay",
 		3,
-		"__Red-Alert-Harvesters__/graphics/icons/harv_icon-type2.png",
+		"__Red-Alert-Harvester__/graphics/icons/harv_icon-type2.png",
 		3.0,
 		"360kW",
 		3.5
@@ -166,7 +166,7 @@ end
 -- never joins the factory copper grid (that would dump hybrid power out).
 local pole = table.deepcopy(data.raw["electric-pole"]["small-electric-pole"])
 pole.name = "cncharvester-drill-pole"
-pole.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
+pole.icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon.png"
 pole.icon_size = 32
 pole.minable = nil
 pole.max_health = 1
@@ -195,7 +195,7 @@ data:extend({pole})
 
 local supply = table.deepcopy(data.raw["electric-energy-interface"]["electric-energy-interface"])
 supply.name = "cncharvester-drill-supply"
-supply.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
+supply.icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon.png"
 supply.icon_size = 32
 supply.minable = nil
 supply.max_health = 1
@@ -227,7 +227,7 @@ data:extend({supply})
 
 local hopper = table.deepcopy(data.raw.container["wooden-chest"])
 hopper.name = "cncharvester-scoop-hopper"
-hopper.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
+hopper.icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon.png"
 hopper.icon_size = 32
 hopper.minable = nil
 hopper.max_health = 1
