@@ -2,6 +2,9 @@ require "utilities"
 require "harvesterstats"
 require "refinery"
 require "specialOres"
+require "modulebay"
+require "scoop"
+require "hybriddrive"
 
 local States = {
 	Animating = 0,
@@ -43,11 +46,6 @@ local function vehicle_trunk(vehicle)
 	return vehicle.get_inventory(defines.inventory.car_trunk)
 end
 
-local function is_infinite_resource(ore)
-	local proto = ore.prototype
-	return proto and proto.infinite_resource
-end
-
 cncharvester = {
 	New = function(entity)
 		local self = {
@@ -80,6 +78,7 @@ cncharvester = {
 		}
 		setmetatable(self, {__index = cncharvester})
 		self:SetIsFilled(false)
+		ModuleBay.ensure(entity)
 		return self
 	end,
 
@@ -89,6 +88,9 @@ cncharvester = {
 			if refinery then
 				refinery:UnReserve()
 			end
+		end
+		if self.vehicle and self.vehicle.valid then
+			ModuleBay.destroy_for_vehicle(self.vehicle)
 		end
 		self.vehicle = nil
 	end,
@@ -104,11 +106,20 @@ cncharvester = {
 			return
 		end
 
+		if self.state ~= States.MiningOre then
+			ModuleBay.starve(self.vehicle)
+		end
+
 		if StateUsesEnergy[self.state] then
 			if not self:CheckFuel() then
 				return
 			end
-			self.currentEnergy = self.currentEnergy - Stats.EnergyUsedPerTick
+			local consume = Stats.EnergyUsedPerTick
+			if self.state == States.MiningOre or self.state == States.Animating then
+				local effects = Scoop.read_effects(self.vehicle)
+				consume = consume * math.max(0.2, 1 + (effects.consumption or 0))
+			end
+			self.currentEnergy = self.currentEnergy - consume
 		end
 		local st = self.state
 		local fn = cncharvester.StateFunctions[st]
@@ -118,7 +129,7 @@ cncharvester = {
 	end,
 
 	ErrorDump = function(self)
-		log("Red-Alert-Harvester harvester state=" .. tostring(self.state) .. " orientation=" .. tostring(self.currentOrientation))
+		log("Red-Alert-Harvesters harvester state=" .. tostring(self.state) .. " orientation=" .. tostring(self.currentOrientation))
 	end,
 
 	FloatingText = function(self, text, color, ttl)
@@ -129,24 +140,24 @@ cncharvester = {
 	end,
 
 	CheckFuel = function(self)
-		if self.currentEnergy <= 0 then
-			self:UseFuel()
+		if not (self.vehicle and self.vehicle.valid) then
+			return false
 		end
-
-		local fuelInv = vehicle_fuel_inventory(self.vehicle)
-		if
-			not self.refueling
-			and self.state ~= States.Animating
-			and self.vehicle.valid
-			and fuelInv
-			and fuelInv.get_item_count() < 5
-		then
-			self:FloatingText("Heading for refuel", {r = 0.2, g = 0.8, b = 0.2})
-			self.state = States.FindingRefuelRefinery
-			self.refueling = true
+		-- Same gate as the Ore Truck: hybrid pool, charged grid, or burnables.
+		-- Empty solid slots are fine while the pool/grid can still run.
+		if HybridDrive.has_usable_energy(self.vehicle) then
+			self.currentEnergy = math.max(self.currentEnergy or 0, 1)
+			return true
 		end
-
-		return self.currentEnergy > 0
+		self:UseFuel()
+		if HybridDrive.has_usable_energy(self.vehicle) then
+			self.currentEnergy = math.max(self.currentEnergy or 0, 1)
+			return true
+		end
+		if game and game.tick and (game.tick % FLOATING_TEXT_ERROR_TTL) == 0 then
+			self:FloatingText({"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		end
+		return false
 	end,
 
 	UseFuel = function(self)
@@ -315,10 +326,11 @@ cncharvester = {
 	end,
 
 	PlayAnimation = function(self)
-		-- Scoop / dump animations are not in this repository. Wait a short time instead.
-		-- This is an animation stand-in (~32 ticks), not the player drive-harvest timer.
-		-- Leave it alone when tuning DRIVE_MINE_PERIOD_TICKS in control.lua.
-		self:BeginWait(Stats.TicksPerAnimationFrame * 8, self.oldState or self.state)
+		-- Same per-item cadence as player drive-harvest (40 / 20 ticks).
+		local effects = Scoop.read_effects(self.vehicle)
+		local qlevel = Scoop.quality_level(SafeQuality(self.vehicle))
+		local wait = Scoop.interval_ticks(Scoop.interval_base(self.vehicle), effects.speed, qlevel)
+		self:BeginWait(wait, self.oldState or self.state)
 	end,
 
 	StateFunctions = {
@@ -350,65 +362,42 @@ cncharvester = {
 		end,
 
 		[States.MiningOre] = function(self)
-			if self.scoopsMined >= Stats.ScoopsPerLocation then
+			if self.scoopsMined >= Scoop.items_per_location(self.vehicle) then
+				ModuleBay.starve(self.vehicle)
 				self.state = States.FindingOre
 				self.searchRadius = Stats.CloseMineSearchRadius
 				return
 			end
 
-			local ores = self:FindOresInRadius(Stats.MiningRadius)
-			if #ores < 1 then
-				self.state = States.FindingOre
-				self.searchRadius = Stats.CloseMineSearchRadius
+			local result = Scoop.tick_slave(self.vehicle)
+			if result.no_fuel then
+				Scoop.toast(self.vehicle, "cncharvester.out-of-fuel")
 				return
 			end
-
-			local amountPerOre = math.ceil(Stats.OreMinedPerScoop / #ores)
-			for _, ore in pairs(ores) do
-				if ore.valid then
-					local oreName = ResourceProductItemName(ore)
-					local proto = ore.prototype
-					local minAmount = proto.minimum_resource_amount or 0
-					local oreAmount = ore.amount - math.max(0, minAmount)
-					local maxAmount = math.min(amountPerOre, oreAmount)
-					if not self.vehicle.can_insert{name = oreName, count = 1} then
-						self:SetIsFilled(true)
-					elseif maxAmount >= 0 then
-						if is_infinite_resource(ore) then
-							self.vehicle.insert{name = oreName, count = amountPerOre}
-						elseif maxAmount > 0 then
-							self.vehicle.insert{name = oreName, count = maxAmount}
-						end
-
-						local newAmount = ore.amount - maxAmount
-						if newAmount <= 0 then
-							if not is_infinite_resource(ore) then
-								ore.destroy()
-							end
-						else
-							ore.amount = newAmount
-						end
-					else
-						self.vehicle.insert{name = oreName, count = amountPerOre}
-					end
-				end
+			if result.full and not result.inserted then
+				self:SetIsFilled(true)
+			end
+			if (result.items or 0) > 0 then
+				self.scoopsMined = self.scoopsMined + result.items
+			end
+			if result.full then
+				self:SetIsFilled(true)
 			end
 
 			if self.filled then
+				ModuleBay.starve(self.vehicle)
 				self.scoopsMined = 0
 				self.state = States.FindingRefinery
 				return
 			end
-			self.scoopsMined = self.scoopsMined + 1
-			self.oldState = States.MiningOre
-			self:PlayAnimation()
+			-- Stay in MiningOre. Native drill cadence replaces PlayAnimation waits.
 		end,
 
 		[States.FindingRefinery] = function(self)
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find unoccupied empty refinery", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+					self:FloatingText({"cncharvester.no-empty-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end
@@ -497,7 +486,7 @@ cncharvester = {
 			local refinery = Refinery.NearestWithFuel(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find refinery with fuel", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+					self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end

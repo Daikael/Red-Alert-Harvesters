@@ -1,5 +1,8 @@
 require "utilities"
 require "chunksearcher"
+require "modulebay"
+require "scoop"
+require "hybriddrive"
 require "harvester"
 require "specialOres"
 
@@ -10,31 +13,39 @@ local HARVESTER_NAMES = {
 	["cncharvester-type2"] = true,
 }
 
-local HARVESTER_MINE_RADIUS = {
-	["cncharvester"] = 1,
-	["cncharvester-type2"] = 2,
-}
+-- Player-in-vehicle mining runs through the slave miner after a first-sit
+-- wait (40 / 20 ticks) so place-on-ore is not free. Unload stays on a 60-tick poll.
 
 local function ensure_storage()
 	storage.tibchunk = storage.tibchunk or {}
 	storage.orechunk = storage.orechunk or {}
 	storage.cncharvesters = storage.cncharvesters or {}
 	storage.refineries = storage.refineries or {}
+	storage.drive_scoop_wait = storage.drive_scoop_wait or {}
+	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
+	ModuleBay.ensure_storage()
+	HybridDrive.ensure_storage()
 end
 
-local function grid_has_equipment(grid, name)
-	if not grid then
-		return false
+local function track_harvester(ent)
+	if not (ent and ent.valid and HARVESTER_NAMES[ent.name]) then
+		return
 	end
-	return grid.find(name) ~= nil
+	ModuleBay.ensure(ent)
+	HybridDrive.prepare_vehicle(ent)
+	if auto_harvester_enabled and not storage.cncharvesters[ent.unit_number] then
+		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
+	end
 end
 
 script.on_init(function()
 	ensure_storage()
+	ModuleBay.attach_existing()
 end)
 
 script.on_configuration_changed(function()
 	ensure_storage()
+	ModuleBay.attach_existing()
 	if not auto_harvester_enabled then
 		return
 	end
@@ -70,8 +81,12 @@ local function On_Built(event)
 	local ent = event.entity or event.created_entity or event.destination
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
-		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
-	elseif ent.name == "refinery" then
+		track_harvester(ent)
+		-- Recipe solar/battery are consumed at craft. Do not insert them (or any
+		-- modules/equipment) here — that is a place→strip→recycle exploit.
+		local player = event.player_index and game.get_player(event.player_index)
+		HybridDrive.on_built(ent, player and player.valid and player or nil)
+	elseif ent.name == "refinery" and auto_harvester_enabled then
 		storage.refineries[ent.unit_number] = Refinery.New(ent)
 	end
 end
@@ -80,158 +95,216 @@ local function On_Removed(event)
 	local ent = event.entity
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
-		local harvester = storage.cncharvesters[ent.unit_number]
+		ModuleBay.destroy_for_vehicle(ent, event.buffer)
+		HybridDrive.scrub_charge_before_remove(ent, event.buffer)
+		HybridDrive.forget(ent.unit_number)
+		local harvester = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if harvester then
 			harvester:Delete()
 			storage.cncharvesters[ent.unit_number] = nil
 			return
 		end
-		for id, tracked in pairs(storage.cncharvesters) do
-			if tracked.vehicle == ent then
-				tracked:Delete()
-				storage.cncharvesters[id] = nil
-				return
+		if storage.cncharvesters then
+			for id, tracked in pairs(storage.cncharvesters) do
+				if tracked.vehicle == ent then
+					tracked:Delete()
+					storage.cncharvesters[id] = nil
+					return
+				end
 			end
 		end
+	elseif ModuleBay.NAMES[ent.name] then
+		if event.buffer and event.buffer.valid then
+			local inv = ent.get_module_inventory()
+			if inv then
+				for i = 1, #inv do
+					local stack = inv[i]
+					if stack.valid_for_read then
+						event.buffer.insert(stack)
+						stack.clear()
+					end
+				end
+			end
+		end
+		ModuleBay.on_bay_removed(ent)
 	elseif ent.name == "refinery" then
-		local refinery = storage.refineries[ent.unit_number]
+		local refinery = storage.refineries and storage.refineries[ent.unit_number]
 		if refinery then
 			refinery:Delete()
 			storage.refineries[ent.unit_number] = nil
 			return
 		end
-		for id, tracked in pairs(storage.refineries) do
-			if tracked.entity == ent then
-				tracked:Delete()
-				storage.refineries[id] = nil
-				return
+		if storage.refineries then
+			for id, tracked in pairs(storage.refineries) do
+				if tracked.entity == ent then
+					tracked:Delete()
+					storage.refineries[id] = nil
+					return
+				end
 			end
 		end
 	end
 end
 
-if auto_harvester_enabled then
-	local built_events = {
-		defines.events.on_built_entity,
-		defines.events.on_robot_built_entity,
-		defines.events.script_raised_built,
-		defines.events.script_raised_revive,
-	}
-	if defines.events.on_space_platform_built_entity then
-		table.insert(built_events, defines.events.on_space_platform_built_entity)
-	end
-	script.on_event(built_events, On_Built)
-
-	script.on_event(defines.events.on_entity_cloned, On_Built)
-
-	local removed_events = {
-		defines.events.on_player_mined_entity,
-		defines.events.on_robot_mined_entity,
-		defines.events.on_entity_died,
-		defines.events.script_raised_destroy,
-	}
-	if defines.events.on_space_platform_mined_entity then
-		table.insert(removed_events, defines.events.on_space_platform_mined_entity)
-	end
-	script.on_event(removed_events, On_Removed)
+local built_events = {
+	defines.events.on_built_entity,
+	defines.events.on_robot_built_entity,
+	defines.events.script_raised_built,
+	defines.events.script_raised_revive,
+}
+if defines.events.on_space_platform_built_entity then
+	table.insert(built_events, defines.events.on_space_platform_built_entity)
 end
+script.on_event(built_events, On_Built)
+script.on_event(defines.events.on_entity_cloned, On_Built)
+
+local removed_events = {
+	defines.events.on_player_mined_entity,
+	defines.events.on_robot_mined_entity,
+	defines.events.on_entity_died,
+	defines.events.script_raised_destroy,
+}
+if defines.events.on_space_platform_mined_entity then
+	table.insert(removed_events, defines.events.on_space_platform_mined_entity)
+end
+script.on_event(removed_events, On_Removed)
 
 script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	local ent = event.entity
 	if ent and ent.valid and HARVESTER_NAMES[ent.name] then
-		local vehgrid = ent.grid
-		if vehgrid and not grid_has_equipment(vehgrid, "Hybrid-drive") then
-			vehgrid.put{name = "Hybrid-drive"}
-			vehgrid.put{name = "Hybrid-drive-battery"}
-		end
+		track_harvester(ent)
+		HybridDrive.prepare_vehicle(ent)
 	end
 end)
 
--- Player-in-vehicle scoop cadence (frequency only — not ore per scoop).
--- First 2.0 drop: on_nth_tick(60) × 10 = 600 ticks = 10s between scoops.
--- on_nth_tick(320) ≈ 5.33s at 60 UPS → 600/320 = 1.875× as often (just under 2×).
--- Per-scoop volume is unchanged: can_insert(..., count = 4) then entity.mine(...) once.
--- Unload stays on the 60-tick poll so sitting at a refinery is still responsive.
-local DRIVE_MINE_PERIOD_TICKS = 320
+script.on_event("cncharvester-open-module-bay", function(event)
+	local player = game.get_player(event.player_index)
+	ModuleBay.open_for_player(player)
+end)
 
-local function for_each_driven_harvester(callback)
-	for _, player in pairs(game.connected_players) do
-		local vehicle = player.vehicle
-		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
-			callback(vehicle)
+script.on_event(defines.events.on_gui_opened, function(event)
+	local player = game.get_player(event.player_index)
+	local ent = event.entity
+	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+		ModuleBay.ensure_draw_gui(player, ent)
+	end
+end)
+
+script.on_event(defines.events.on_gui_closed, function(event)
+	local player = game.get_player(event.player_index)
+	local ent = event.entity
+	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+		ModuleBay.close_draw_gui(player)
+	end
+end)
+
+local function unload_near_refinery(vehicle)
+	local surface = vehicle.surface
+	local refineries = surface.find_entities_filtered {
+		name = "refinery",
+		area = GetBoundingBox(vehicle.position, 5)
+	}
+	if #refineries == 0 then
+		return
+	end
+	local inventory = vehicle.get_inventory(defines.inventory.car_trunk)
+	if not inventory then
+		return
+	end
+	EachInventoryItem(inventory, function(name, count, quality)
+		local itemstack = InventoryItemStack(name, count, quality)
+		for _, refinery in pairs(refineries) do
+			if refinery.valid and refinery.can_insert(itemstack) then
+				local inserted = refinery.insert(itemstack)
+				if inserted > 0 then
+					inventory.remove(InventoryItemStack(name, inserted, quality))
+				end
+				break
+			end
 		end
+	end)
+end
+
+local function drive_harvest(player, vehicle)
+	storage.drive_scoop_wait = storage.drive_scoop_wait or {}
+	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
+	local vehicle_id = vehicle.unit_number
+	if storage.drive_scoop_wait[player.index] == nil or storage.drive_scoop_vehicle[player.index] ~= vehicle_id then
+		-- First tick in this seat must not mine (place-on-ore free yield).
+		storage.drive_scoop_wait[player.index] = Scoop.interval_base(vehicle)
+		storage.drive_scoop_vehicle[player.index] = vehicle_id
+		ModuleBay.starve(vehicle)
+		return
+	end
+	local wait = storage.drive_scoop_wait[player.index] or 0
+	if wait > 0 then
+		storage.drive_scoop_wait[player.index] = wait - 1
+		ModuleBay.starve(vehicle)
+		return
+	end
+
+	-- After the first-sit gate, the slave miner runs every tick. Native
+	-- mining_speed (1.5 / 3.0) plus modules set the cadence — do not also
+	-- apply the old scripted interval_ticks or prod would be bypassed again.
+	local result = Scoop.tick_slave(vehicle)
+	if result.no_fuel then
+		Scoop.toast(vehicle, "cncharvester.out-of-fuel")
+		return
+	end
+	if result.full and not result.inserted then
+		Scoop.toast(vehicle, "cncharvester.inventory-full")
 	end
 end
 
-local function On_Nth_Tick_Drive_Mine()
-	for_each_driven_harvester(function(vehicle)
-		local surface = vehicle.surface
-		local bounding_box_size = HARVESTER_MINE_RADIUS[vehicle.name] or 1
-		local ore = surface.find_entities_filtered {
-			type = "resource",
-			area = GetBoundingBox(vehicle.position, bounding_box_size)
-		}
-		local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
-		if not trunk then
+-- Hybrid pool, slave-miner feed, and hitch teleport run every tick.
+script.on_nth_tick(1, function()
+	ensure_storage()
+
+	for _, player in pairs(game.connected_players) do
+		local vehicle = player.vehicle
+		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
+			track_harvester(vehicle)
+		end
+	end
+
+	ModuleBay.sync_all()
+
+	local ticked = {}
+	local function tick_hybrid(vehicle)
+		if not (vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name]) then
 			return
 		end
-		local showed_full = false
-		for _, entity in pairs(ore) do
-			if IsHarvestableResource(entity) then
-				local can_insert = false
-				for _, product in pairs(entity.prototype.mineable_properties.products) do
-					if (not product.type or product.type == "item") and product.name then
-						if vehicle.can_insert({name = product.name, count = 4}) then
-							can_insert = true
-							break
-						end
-					end
-				end
-				if can_insert then
-					entity.mine({inventory = trunk})
-				elseif not showed_full then
-					DrawFloatingText(surface, vehicle, "Inventory full", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
-					showed_full = true
-				end
+		local id = vehicle.unit_number
+		if ticked[id] then
+			return
+		end
+		ticked[id] = true
+		HybridDrive.tick(vehicle)
+	end
+	for _, rec in pairs(storage.module_bays or {}) do
+		tick_hybrid(rec.vehicle)
+	end
+	for _, player in pairs(game.connected_players) do
+		tick_hybrid(player.vehicle)
+	end
+	if storage.cncharvesters then
+		for _, harvester in pairs(storage.cncharvesters) do
+			tick_hybrid(harvester.vehicle)
+		end
+	end
+
+	for _, player in pairs(game.connected_players) do
+		local vehicle = player.vehicle
+		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
+			drive_harvest(player, vehicle)
+			ModuleBay.refresh_draw_gui(player, vehicle)
+			if game.tick % 60 == 0 then
+				unload_near_refinery(vehicle)
 			end
 		end
-	end)
-end
+	end
 
-local function On_Nth_Tick_Drive_Unload()
-	for_each_driven_harvester(function(vehicle)
-		local surface = vehicle.surface
-		local refineries = surface.find_entities_filtered {
-			name = "refinery",
-			area = GetBoundingBox(vehicle.position, 5)
-		}
-		if #refineries == 0 then
-			return
-		end
-		local inventory = vehicle.get_inventory(defines.inventory.car_trunk)
-		if not inventory then
-			return
-		end
-		EachInventoryItem(inventory, function(name, count, quality)
-			local itemstack = InventoryItemStack(name, count, quality)
-			for _, refinery in pairs(refineries) do
-				if refinery.valid and refinery.can_insert(itemstack) then
-					local inserted = refinery.insert(itemstack)
-					if inserted > 0 then
-						inventory.remove(InventoryItemStack(name, inserted, quality))
-					end
-					break
-				end
-			end
-		end)
-	end)
-end
-
-script.on_nth_tick(DRIVE_MINE_PERIOD_TICKS, On_Nth_Tick_Drive_Mine)
-script.on_nth_tick(60, On_Nth_Tick_Drive_Unload)
-
-if auto_harvester_enabled then
-	script.on_nth_tick(1, function()
+	if auto_harvester_enabled then
 		if storage.cncharvesters then
 			for id, harvester in pairs(storage.cncharvesters) do
 				if harvester.vehicle and harvester.vehicle.valid then
@@ -250,5 +323,5 @@ if auto_harvester_enabled then
 				end
 			end
 		end
-	end)
-end
+	end
+end)

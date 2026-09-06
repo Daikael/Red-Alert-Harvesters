@@ -57,7 +57,10 @@ for i=1,2 do
 		energy_source =
 		{
 			type = "burner",
-			fuel_categories = {"chemical"},
+			-- Hybrid-charge is the only currently_burning identity. Chemical
+			-- items are still accepted in the tank and script-converted into
+			-- that pool so Factorio cannot latch nuclear-fuel.
+			fuel_categories = {"cncharvester-hybrid", "chemical"},
 			effectivity = 1,
 			fuel_inventory_size = fuel_inv_size[i],
 			smoke = {
@@ -83,9 +86,10 @@ for i=1,2 do
 		--weight = 15000,
 		weight = 6000,
 		consumption = vehicle_speed[i],
+		-- Factorio 2.0 CarPrototype uses braking_power (Energy) and friction.
+		-- 2.1 renamed those to braking_force / friction_force — do not use those here.
 		braking_power = vehicle_speed[i],
 		terrain_friction_modifier = 0.01,
-		--friction = 0.03,
 		friction = vehicle_friction[i],
 		rotation_speed = 0.003,
 		rotation_snap_angle = 0.01,

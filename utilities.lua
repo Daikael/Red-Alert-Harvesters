@@ -1,7 +1,7 @@
 require "specialOres"
 
 function Error(text)
-	log("Red-Alert-Harvester: " .. tostring(text or "unknown error"))
+	log("Red-Alert-Harvesters: " .. tostring(text or "unknown error"))
 	if game and game.print then
 		game.print({"", "[C&C Harvesters] ", text or "unknown error"})
 	end
@@ -51,7 +51,8 @@ function EntityPrototype(name)
 	return prototypes.entity[name]
 end
 
--- 2.0 get_contents() returns { {name=, count=, quality=}, ... } instead of a name->count map.
+-- 2.0/2.1 get_contents() returns { {name=, count=, quality=}, ... } instead of a name->count map.
+-- Scooping rolls quality in scoop.lua; this helper preserves stack quality on unload.
 function EachInventoryItem(inventory, callback)
 	if not (inventory and inventory.valid) then
 		return
@@ -69,6 +70,21 @@ function InventoryItemStack(name, count, quality)
 	return stack
 end
 
+-- Entity / stack quality is a Space Age (quality mod) field. Base 2.0
+-- without that mod may error on .quality; treat as nil (level 0).
+function SafeQuality(obj)
+	if not obj then
+		return nil
+	end
+	local ok, quality = pcall(function()
+		return obj.quality
+	end)
+	if ok then
+		return quality
+	end
+	return nil
+end
+
 function GetOccupiedSlots(inventory)
 	local slotsOccupied = 0
 	EachInventoryItem(inventory, function(itemName, count)
@@ -79,13 +95,35 @@ function GetOccupiedSlots(inventory)
 	return slotsOccupied
 end
 
-function IsHarvestableResource(entity)
+local SLAVE_BAY_FOR = {
+	["cncharvester"] = "cncharvester-module-bay",
+	["cncharvester-type2"] = "cncharvester-type2-module-bay",
+}
+
+-- Match the slave miner's real resource_categories. Never require a
+-- basic-solid-tiberium prototype that only exists with Factorio-Tiberium.
+function IsHarvestableResource(entity, vehicle)
 	if not (entity and entity.valid) then
 		return false
 	end
 	local category = entity.prototype.resource_category
-	if category ~= "basic-solid" and category ~= "basic-solid-tiberium" then
+	if category == "basic-fluid" or category == "lava-magma" then
 		return false
+	end
+	if vehicle and vehicle.valid and vehicle.name and prototypes and prototypes.entity then
+		local bay_name = SLAVE_BAY_FOR[vehicle.name]
+		local bay_proto = bay_name and prototypes.entity[bay_name]
+		if bay_proto and bay_proto.resource_categories then
+			if not bay_proto.resource_categories[category] then
+				return false
+			end
+		elseif category ~= "basic-solid" then
+			return false
+		end
+	elseif category ~= "basic-solid" then
+		if not (category and string.find(category, "tiberium", 1, true)) then
+			return false
+		end
 	end
 	local props = entity.prototype.mineable_properties
 	return props and props.minable and props.products
