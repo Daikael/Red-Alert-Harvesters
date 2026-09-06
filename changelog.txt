@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.16
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.16. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.16. Git branch is 2.1.16 (renamed in place from 2.1.15). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Hitch helper sprites no longer use graphics/entity/transparent.png with a 256×256 rectangle / direction_count=4. That asked AtlasBuilder for left_top=256x0, outside the sheet, and crashed Factorio 2.1.16 at data.raw container/electric-pole/electric-energy-interface. Helpers now use util.empty_sprite() (core 1×1 empty.png, x=0, y=0, one direction). They stay world-invisible and still power the slave drill.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.15
 Date: 2026-09-06
   Info:

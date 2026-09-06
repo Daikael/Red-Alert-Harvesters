@@ -3,6 +3,8 @@
 -- speed natively. A hidden pole + electric-energy-interface form a private
 -- micro-grid (powered from the hybrid pool in control). A hopper catches output.
 
+require("util")
+
 local function bay_animation()
 	local frame = {
 		filename = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png",
@@ -111,40 +113,29 @@ data:extend({
 	),
 })
 
--- Invisible 256×256 sheet already in the pack. Scale ~0 so the hitch
--- micro-grid (pole / EEI / hopper) does not paint moving tiles.
-local TRANSPARENT = "__Red-Alert-Harvesters__/graphics/entity/transparent.png"
+-- 2.1.15 painted helpers with graphics/entity/transparent.png (256×256)
+-- plus direction_count=4 / a shared 4-way table. AtlasBuilder then asked
+-- for left_top=256x0, which is outside that sheet (Factorio 2.1.16 crash).
+-- Use core empty.png at 1×1, x=0, y=0, one direction — same as util.empty_sprite().
 
-local function invisible_sprite(extra)
-	local sprite = {
-		filename = TRANSPARENT,
-		width = 256,
-		height = 256,
-		scale = 0.001,
-		priority = "very-low",
-		flags = {"no-crop"}
-	}
-	if extra then
-		for key, value in pairs(extra) do
-			sprite[key] = value
-		end
-	end
+local function empty_world_sprite()
+	local sprite = util.empty_sprite()
+	sprite.filename = "__core__/graphics/empty.png"
+	sprite.x = 0
+	sprite.y = 0
+	sprite.width = 1
+	sprite.height = 1
+	sprite.frame_count = 1
+	sprite.line_length = 1
+	sprite.direction_count = 1
+	sprite.hr_version = nil
+	sprite.shift = {0, 0}
 	return sprite
-end
-
-local function invisible_4way()
-	local frame = invisible_sprite()
-	return {
-		north = frame,
-		east = frame,
-		south = frame,
-		west = frame
-	}
 end
 
 local function strip_world_graphics(ent)
 	ent.pictures = nil
-	ent.picture = invisible_sprite()
+	ent.picture = empty_world_sprite()
 	ent.animation = nil
 	ent.animations = nil
 	ent.idle_animation = nil
@@ -155,13 +146,14 @@ local function strip_world_graphics(ent)
 	ent.light2 = nil
 	ent.light_when_powered = nil
 	ent.water_reflection = nil
-	ent.radius_visualisation_picture = invisible_sprite()
+	ent.radius_visualisation_picture = empty_world_sprite()
 	ent.integration_patch = nil
 	ent.circuit_connector = nil
 	ent.circuit_connector_sprites = nil
 	ent.corpse = nil
 	ent.dying_explosion = nil
 	ent.damaged_trigger_effect = nil
+	ent.stateless_visualisation = nil
 	ent.alert_icon_scale = 0
 	ent.draw_copper_wires = false
 	ent.draw_circuit_wires = false
@@ -188,13 +180,14 @@ pole.next_upgrade = nil
 pole.fast_replaceable_group = nil
 pole.placeable_by = nil
 strip_world_graphics(pole)
--- ElectricPolePrototype requires pictures (not picture).
+-- RotatedSprite direction_count must match connection_points and the sheet.
+-- One 1×1 empty frame — never a 4-wide strip on a 1-frame image.
 pole.pictures = {
 	layers = {
-		invisible_sprite{direction_count = 4}
+		empty_world_sprite()
 	}
 }
-pole.connection_points = pole.connection_points or {
+pole.connection_points = {
 	{
 		shadow = {copper = {0, 0}},
 		wire = {copper = {0, 0}}
@@ -227,8 +220,11 @@ supply.energy_source = {
 supply.next_upgrade = nil
 supply.placeable_by = nil
 strip_world_graphics(supply)
-supply.picture = invisible_sprite()
-supply.pictures = invisible_4way()
+-- picture wins over pictures/animation; keep all empty and unshared.
+supply.picture = empty_world_sprite()
+supply.pictures = nil
+supply.animation = nil
+supply.animations = nil
 data:extend({supply})
 
 local hopper = table.deepcopy(data.raw.container["wooden-chest"])
@@ -246,5 +242,6 @@ hopper.next_upgrade = nil
 hopper.fast_replaceable_group = nil
 hopper.placeable_by = nil
 strip_world_graphics(hopper)
-hopper.picture = invisible_sprite()
+hopper.picture = empty_world_sprite()
+hopper.pictures = nil
 data:extend({hopper})

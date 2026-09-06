@@ -6,15 +6,15 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch is the three-part version (`2.1.15`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.15`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.15` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
-- **Bump by renaming in place** (`2.1.15` → `2.1.16`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
+- Tester-facing git branch is the three-part version (`2.1.16`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.16`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.16` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
+- **Bump by renaming in place** (`2.1.16` → `2.1.17`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
 | `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.0.0` | `2.1.15` |
+| `info.json` `version` | `2.0.0` | `2.1.16` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -41,7 +41,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 ### Architecture
 
 1. **Slave drill** — `resource_categories = {"basic-solid"}` only in the prototype (vanilla always has that). **Do not** list `basic-solid-tiberium` unless that category exists — 2.1.12 failed assignID on Deck without Factorio-Tiberium. `data-final-fixes.lua` adds real Tiberium categories to the **type-2** bay only when `data.raw["resource-category"][name]` exists, and strips them from the Ore Truck bay. This pack does not invent a fake Tiberium resource-category. Electric energy source so the vanilla mining-drill GUI shows an **energy use bar**.
-2. **Private micro-grid** — `cncharvester-drill-pole` (`maximum_wire_distance = 0`) + `cncharvester-drill-supply` EEI. Both (and the hopper) are **world-invisible**: deepcopy vanilla prototypes, then replace pictures/lights/shadows with `graphics/entity/transparent.png` at scale 0.001, `selectable_in_game = false`, empty selection box, `hide-alt-info`. They still energize the slave drill. Script sets `power_production` from the hybrid pool after pay-first (`disabled_by_script` / EEI cut — never write `LuaEntity.active`).
+2. **Private micro-grid** — `cncharvester-drill-pole` (`maximum_wire_distance = 0`) + `cncharvester-drill-supply` EEI. Both (and the hopper) are **world-invisible**: deepcopy vanilla prototypes, then replace pictures/lights/shadows with `util.empty_sprite()` (`__core__/graphics/empty.png`, 1×1, `x=0`, `y=0`, `direction_count=1`). Do **not** use `graphics/entity/transparent.png` with `direction_count=4` — 2.1.15 crashed AtlasBuilder (`left_top=256x0` outside the 256×256 sheet). Helpers are `selectable_in_game = false`, empty selection box, `hide-alt-info`. They still energize the slave drill. Script sets `power_production` from the hybrid pool after pay-first (`disabled_by_script` / EEI cut — never write `LuaEntity.active`).
 3. **Hopper** — invisible `cncharvester-scoop-hopper`. `drop_target` is set to the hopper; contents are moved into the car trunk each tick (including native prod extras). The slave-drill hitch itself stays visible/selectable for SHIFT+E.
 4. **Pay / gate** — `ModuleBay.feed_energy` spends `estimated_draw_w / 60` from the hybrid pool (pool + 90% grid + convertible solids) **before** energizing the micro-grid. Empty / spark-only pool → starve (EEI `power_production` 0, drill energy 0, `disabled_by_script` when present). **Do not write `LuaEntity.active`** — it is read-only in Factorio 2.1 and crashed 2.1.13 `on_nth_tick`. First sit still waits **40 / 20 ticks**.
 5. **UI** — SHIFT+E / click hitch opens the drill (modules + vanilla energy bar). A relative GUI also shows **Hybrid mining draw** in kW so efficiency vs speed is obvious.
@@ -141,7 +141,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.15`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.15` → `Red-Alert-Harvesters_2.1.15`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client **without** Factorio-Tiberium (2.1.12 assignID crash). Loading a 2.1.12-migrated save must not crash `on_nth_tick` (2.1.13 wrote read-only `LuaEntity.active`). Driving must not show a moving pole/accumulator/chest — only the small hitch. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvesters_2.1.16`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.16` → `Red-Alert-Harvesters_2.1.16`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client **with and without** Factorio-Tiberium (2.1.12 assignID crash; 2.1.15 AtlasBuilder `transparent.png` left_top=256x0). Loading a 2.1.12-migrated save must not crash `on_nth_tick` (2.1.13 wrote read-only `LuaEntity.active`). Driving must not show a moving pole/accumulator/chest — only the small hitch. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Slave-miner baseline + tax:** No modules → ~1.50 / ~3.00 items/s. A 2 kJ spark cannot keep the drill fed (180 kW ore / 360 kW tib). First sit waits 40 / 20 ticks.
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or mine; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
