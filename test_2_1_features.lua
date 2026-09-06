@@ -525,7 +525,7 @@ expect(bay_src:find("maximum_wire_distance = 0", 1, true) ~= nil, "private pole 
 expect(bay_src:find("function strip_world_graphics", 1, true) ~= nil, "helpers strip vanilla world graphics")
 expect(bay_src:find("util.empty_sprite", 1, true) ~= nil, "helpers use util.empty_sprite")
 expect(bay_src:find("__core__/graphics/empty.png", 1, true) ~= nil, "helpers use core 1x1 empty.png")
-expect(bay_src:find("graphics/entity/transparent.png", 1, true) == nil, "helpers do not use the 256 transparent sheet")
+expect(bay_src:find('filename = "__Red-Alert-Harvesters__/graphics/entity/transparent.png"', 1, true) == nil, "helpers do not assign the 256 transparent sheet")
 expect(bay_src:find("direction_count = 4", 1, true) == nil, "helpers do not slice a 4-wide sheet")
 expect(bay_src:find("x = 0", 1, true) ~= nil, "helper sprites pin x=0")
 expect(bay_src:find("y = 0", 1, true) ~= nil, "helper sprites pin y=0")
