@@ -41,7 +41,7 @@ What it actually does today:
 
 ## Milestone 1 — Global slow chunk scanner
 
-**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`) and/or runtime **Chunk ore index (2.2 scanner)** (`cncharvester-chunk-index`, default off). Default saves stay quiet. No truck movement.
+**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`) and/or runtime **Chunk ore index (2.2 scanner)** (`cncharvester-chunk-index`, default off). Default saves stay quiet. No truck movement. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
 
 Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 

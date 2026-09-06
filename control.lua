@@ -173,6 +173,8 @@ end
 script.on_event(removed_events, On_Removed)
 
 script.on_event(defines.events.on_chunk_generated, ChunkIndex.on_chunk_generated)
+script.on_event(defines.events.on_pre_chunk_deleted, ChunkIndex.on_chunks_deleted)
+script.on_event(defines.events.on_chunk_deleted, ChunkIndex.on_chunks_deleted)
 script.on_event(defines.events.on_surface_created, ChunkIndex.on_surface_created)
 script.on_event(defines.events.on_player_changed_surface, ChunkIndex.on_player_changed_surface)
 script.on_event(defines.events.on_player_created, ChunkIndex.on_player_entered)

@@ -538,6 +538,8 @@ expect(index_src:find("BUDGET_PER_TICK = 1", 1, true) ~= nil, "scanner drains on
 expect(io.open("control.lua"):read("*a"):find('require "chunkindex"', 1, true) ~= nil, "control requires chunkindex")
 expect(io.open("control.lua"):read("*a"):find("ChunkIndex.tick", 1, true) ~= nil, "nth-tick drains the chunk index")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
+expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")
+expect(io.open("control.lua"):read("*a"):find("on_chunk_deleted", 1, true) ~= nil, "control hooks on_chunk_deleted")
 expect(io.open("harvester.lua"):read("*a"):find("vehicle.teleport", 1, true) ~= nil, "M1 does not remove legacy teleport AI")
 expect(io.open("utilities.lua"):read("*a"):find('category ~= "basic-solid-tiberium"', 1, true) == nil, "harvest filter does not require basic-solid-tiberium")
 expect(bay_src:find("1.5", 1, true) ~= nil, "ore truck mining_speed 1.5")
@@ -638,6 +640,43 @@ ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, true, false)
 expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "last Tib deplete clears neighbor flag")
 ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, true, false)
 expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "double deplete is a no-op")
+
+local orechunk, tibchunk = {}, {}
+orechunk[1] = {[0] = {[0] = {items = {["tiberium-ore"] = true}, empty = false}}}
+tibchunk[1] = {[0] = {[0] = true}}
+local qstate = {queue = {{1, 0, 0}, {1, 1, 0}}, head = 1, queued = {["1:0:0"] = true, ["1:1:0"] = true}}
+border, holds = {}, {}
+ChunkIndex.apply_tib_transition(border, holds, 1, 0, 0, false, true)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 1, "pre-delete neighbor is flagged")
+ChunkIndex.forget_chunk_state(orechunk, tibchunk, border, holds, qstate, 1, 0, 0)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "delete Tib source unwinds neighbor refcount")
+expect(holds[1] == nil or holds[1][0] == nil or holds[1][0][0] == nil, "delete Tib source drops tib_holds")
+expect(orechunk[1] == nil, "delete clears orechunk row")
+expect(tibchunk[1] == nil, "delete clears tibchunk row")
+expect(qstate.queued["1:0:0"] == nil, "delete drops queued key")
+expect(qstate.queue[1] == false, "delete tombstones the queue slot")
+expect(qstate.queued["1:1:0"] == true, "other queued chunks stay")
+
+-- Two Tib sources; delete one source; shared neighbor stays at 1.
+border, holds = {}, {}
+ChunkIndex.apply_tib_transition(border, holds, 1, 0, 0, false, true)
+ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, false, true)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 2, "shared neighbor before delete")
+ChunkIndex.forget_chunk_state({}, {[1]={[0]={[0]=true}}}, border, holds, nil, 1, 0, 0)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 1, "delete one of two Tib sources leaves neighbor at 1")
+
+-- Border-only neighbor deleted: drop its border slot, do not unwind the source.
+border, holds = {}, {}
+ChunkIndex.apply_tib_transition(border, holds, 1, 0, 0, false, true)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 1, "border neighbor flagged")
+ChunkIndex.forget_chunk_state({}, {}, border, holds, nil, 1, 1, 0)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "delete border neighbor drops its border entry")
+expect(holds[1][0][0] == true, "Tib source holds stay when only a neighbor is deleted")
+expect(ChunkIndex.border_count(border, 1, 0, 1) == 1, "other neighbors of the source stay counted")
+
+ChunkIndex.forget_chunk_state({}, {}, border, holds, nil, 1, 0, 0)
+expect(ChunkIndex.border_count(border, 1, 0, 1) == 0, "later delete of the source still unwinds remaining neighbors")
+expect(ChunkIndex.forget_chunk_state({}, {}, {}, {}, nil, 1, 9, 9) == nil, "forget of unknown chunk is a no-op")
 
 local flags_off = {present = false, mode = "tiber", extra = {nauvis = true}}
 expect(ChunkIndex.tib_can_spawn_on("nauvis", flags_off) == false, "no Tib mod means no Tib spawn")

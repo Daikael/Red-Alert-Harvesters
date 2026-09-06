@@ -79,6 +79,77 @@ function ChunkIndex.border_count(border, si, x, y)
 	return (row and row[y]) or 0
 end
 
+-- Drop one nested [si][x][y] slot and prune empty parents (no ghost keys).
+function ChunkIndex.nest_clear(root, si, x, y)
+	if not root then
+		return
+	end
+	local s = root[si]
+	if not s then
+		return
+	end
+	local row = s[x]
+	if not row then
+		return
+	end
+	row[y] = nil
+	if next(row) == nil then
+		s[x] = nil
+	end
+	if next(s) == nil then
+		root[si] = nil
+	end
+end
+
+-- Remove a deleted chunk from the FIFO + queued set. Tombstones are
+-- skipped on pop so we do not scan or re-enqueue ghosts.
+function ChunkIndex.drop_from_queue(queue_state, si, x, y)
+	if not queue_state then
+		return
+	end
+	local key = ChunkIndex.chunk_key(si, x, y)
+	if queue_state.queued then
+		queue_state.queued[key] = nil
+	end
+	local q = queue_state.queue
+	if not q then
+		return
+	end
+	local head = queue_state.head or 1
+	for i = head, #q do
+		local item = q[i]
+		if item and item[1] == si and item[2] == x and item[3] == y then
+			q[i] = false
+		end
+	end
+end
+
+-- Forget a chunk that was deleted / is about to be deleted.
+-- If it was a Tib source, unwind neighbor refcounts (same as deplete).
+-- If it was only a border neighbor, drop its border slot so it is not
+-- requeued. Index rows and the scan queue are cleared either way.
+function ChunkIndex.forget_chunk_state(orechunk, tibchunk, border, holds, queue_state, si, x, y)
+	if not (si and x and y) then
+		return
+	end
+	border = border or {}
+	holds = holds or {}
+	local held = holds[si] and holds[si][x] and holds[si][x][y]
+	local marked_tib = tibchunk and tibchunk[si] and tibchunk[si][x] and tibchunk[si][x][y] == true
+	if held or marked_tib then
+		ChunkIndex.apply_tib_transition(border, holds, si, x, y, true, false)
+	end
+	ChunkIndex.nest_clear(border, si, x, y)
+	ChunkIndex.nest_clear(holds, si, x, y)
+	if orechunk then
+		ChunkIndex.nest_clear(orechunk, si, x, y)
+	end
+	if tibchunk then
+		ChunkIndex.nest_clear(tibchunk, si, x, y)
+	end
+	ChunkIndex.drop_from_queue(queue_state, si, x, y)
+end
+
 -- James-Fire Factorio-Tiberium startup flags. Slurry tech is not a gate.
 -- flags = { present, mode, extra = {nauvis=bool,...}, all_other = bool }
 function ChunkIndex.tib_can_spawn_on(planet_name, flags)
@@ -228,6 +299,44 @@ function ChunkIndex.enqueue(surface_index, x, y)
 	st.queued[key] = true
 	st.queue[#st.queue + 1] = {surface_index, x, y}
 	return true
+end
+
+function ChunkIndex.forget_chunk(surface_index, x, y)
+	if not (surface_index and x and y) then
+		return
+	end
+	if not storage then
+		return
+	end
+	ChunkIndex.ensure_storage()
+	ChunkIndex.forget_chunk_state(
+		storage.orechunk,
+		storage.tibchunk,
+		storage.chunkindex.border,
+		storage.chunkindex.tib_holds,
+		storage.chunkindex,
+		surface_index,
+		x,
+		y
+	)
+end
+
+-- on_pre_chunk_deleted / on_chunk_deleted: positions[] on one surface.
+-- Run even if the scanner setting is off so leftover index rows die.
+function ChunkIndex.on_chunks_deleted(event)
+	if not event then
+		return
+	end
+	local si = event.surface_index
+	local positions = event.positions
+	if not (si and positions) then
+		return
+	end
+	for _, pos in pairs(positions) do
+		if pos and pos.x and pos.y then
+			ChunkIndex.forget_chunk(si, pos.x, pos.y)
+		end
+	end
 end
 
 function ChunkIndex.watch_harvester(entity)
@@ -410,18 +519,21 @@ end
 
 local function pop_queue(st)
 	local q = st.queue
-	local head = st.head
-	if head > #q then
-		return nil
+	while true do
+		local head = st.head
+		if head > #q then
+			return nil
+		end
+		local item = q[head]
+		q[head] = nil
+		st.head = head + 1
+		compact_queue(st)
+		-- Tombstones (deleted chunks) and empty slots are skipped.
+		if item then
+			st.queued[ChunkIndex.chunk_key(item[1], item[2], item[3])] = nil
+			return item
+		end
 	end
-	local item = q[head]
-	q[head] = nil
-	st.head = head + 1
-	compact_queue(st)
-	if item then
-		st.queued[ChunkIndex.chunk_key(item[1], item[2], item[3])] = nil
-	end
-	return item
 end
 
 local function enqueue_border(st)
