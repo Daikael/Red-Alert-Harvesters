@@ -1,4 +1,15 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.0
+Date: 2026-09-06
+  Changes:
+    - Development line for Factorio 2.1 experimental/beta (factorio_version 2.1). Separate from the 2.0.0 / factorio_version 2.0 pack.
+    - Requires base >= 2.1.0. Optional Factorio-Tiberium dependency now expects the 2.1 line (>= 2.1.0).
+    - Harvester cars use braking_force / friction_force (2.1 removed braking_power / friction).
+    - Recipes set categories = {"crafting"} (2.1 removed RecipePrototype.category).
+    - Quality-system features are out of scope here; inventory transfers still preserve existing quality from the 2.0 port.
+  Info:
+    - See FACTORIO_2.1.md for remaining 2.1 API unknowns. This release is a load-compat scaffold, not a 2.1 feature pass.
+---------------------------------------------------------------------------------------------------
 Version: 2.0.0
 Date: 2026-09-05
   Changes:

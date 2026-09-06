@@ -1,3 +1,5 @@
+-- 2.1: no known startup-setting prototype break vs 2.0. Quality-related settings
+-- are intentionally not added here (separate design pass).
 data:extend(
 	{
 		{

@@ -4,6 +4,8 @@ data:extend(
 		type = "recipe",
 		name = "cncharvester",
 		enabled = false,
+		-- 2.1: RecipePrototype.category / additional_categories were removed; use categories.
+		categories = {"crafting"},
 		ingredients =
 		{
 			{type = "item", name = "engine-unit", amount = 8},
@@ -21,6 +23,7 @@ data:extend(
 		type = "recipe",
 		name = "cncharvester-type2",
 		enabled = false,
+		categories = {"crafting"},
 		ingredients =
 		{
 			{type = "item", name = "cncharvester", amount = 1},

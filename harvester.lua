@@ -369,6 +369,8 @@ cncharvester = {
 					local minAmount = proto.minimum_resource_amount or 0
 					local oreAmount = ore.amount - math.max(0, minAmount)
 					local maxAmount = math.min(amountPerOre, oreAmount)
+					-- TODO(quality, 2.1): insert without quality; a later pass should decide
+					-- whether mined ore inherits resource/entity quality (out of scope here).
 					if not self.vehicle.can_insert{name = oreName, count = 1} then
 						self:SetIsFilled(true)
 					elseif maxAmount >= 0 then

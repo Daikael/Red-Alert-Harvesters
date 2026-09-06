@@ -176,6 +176,8 @@ local function On_Tick_Driving_Players()
 									end
 								end
 							end
+							-- TODO(quality, 2.1): entity.mine() keeps whatever quality the
+							-- engine assigns; no extra quality-system behavior is added here.
 							if can_insert then
 								entity.mine({inventory = trunk})
 							elseif not showed_full then

@@ -27,6 +27,7 @@ data:extend({
 		unit =
 		{
 			count = 100,
+			-- 2.1: science packs are plain items. Official docs still accept {name, amount} tuples.
 			ingredients =
 			{
 				{"automation-science-pack", 2},
