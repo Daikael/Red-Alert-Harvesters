@@ -4,18 +4,23 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 ## Branch base
 
-- Branched from `cursor/factorio-2.0-compat-98d9` at `c765378` (PR #3, Factorio 2.0 port).
-- Do **not** start from stale `master` for 2.1 work.
-- Do **not** merge this line to live/default until the 2.0 port is settled and 2.1 APIs stabilize.
+- Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
+- Do **not** merge this 2.1 line back to live/`master`.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.1` |
+| `info.json` `version` | `2.0.0` | `2.1.2` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
+
+## Ported from 2.0 (`master` / PR #3)
+
+- README zip name: `Red-Alert-Harvester_<version>` matching singular `info.json` `name`.
+- Drive scoop **frequency** 320 ticks (~5.33s, 1.875× vs 600). Volume per scoop still 4.
+- Inventory-full / blocked-harvest toasts: `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
 
 ## Feature 1 — Modular Ore Truck
 
@@ -56,7 +61,7 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
 4. Resource drain from Layer A; efficiency modules (`consumption < 0`) shave a little more drain (`drain * (1 + consumption * 0.25)`).
 5. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
-6. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **60 ticks** (1 s).
+6. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s, same as the 2.0 tester-approved cadence). Volume per scoop stays 4.
 7. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)`.
 8. Pollution effect, if any, adds a tiny `surface.pollute`.
 
@@ -89,7 +94,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW even with ful
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as `Red-Alert-Harvester_2.1.1`. Confirm data stage loads.
+1. Install as **`Red-Alert-Harvester_2.1.2`** (singular `info.json` name — see README). Confirm data stage loads.
 2. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. Insert speed/quality/productivity modules. Confirm they are not left behind when the truck is mined (modules return to you).
 3. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
 4. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better.

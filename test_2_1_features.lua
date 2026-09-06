@@ -39,8 +39,11 @@ expect(with_eff < 1 and with_eff > 0.8, "efficiency slightly reduces drain")
 expect(Scoop.radius(1, 0) == 1, "normal radius")
 expect(Scoop.radius(1, 2) == 1.5, "rare radius +0.5")
 
-local interval = Scoop.interval_ticks(60, 0.5, 2)
-expect(interval < 60 and interval >= Scoop.MIN_INTERVAL_TICKS, "speed+quality shortens interval")
+expect(Scoop.BASE_DRIVE_INTERVAL_TICKS == 320, "drive base is 320 ticks (1.875× vs 600)")
+expect(Scoop.interval_ticks(320, 0, 0) == 320, "unmodified drive interval 320")
+expect(Scoop.DRIVE_ITEMS_PER_SCOOP == 4, "volume per scoop unchanged")
+local interval = Scoop.interval_ticks(320, 0.5, 2)
+expect(interval < 320 and interval >= Scoop.MIN_INTERVAL_TICKS, "speed+quality shortens from 320")
 
 local q = {name = "normal", next = {name = "uncommon", next_probability = 0, next = nil}}
 local always = Scoop.roll_quality_fallback(q, 1, function() return 0 end)

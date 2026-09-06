@@ -9,7 +9,9 @@ Scoop = Scoop or {}
 -- Modest quality bonuses (not vanilla drill +1 tile/level).
 Scoop.QUALITY_RADIUS_PER_LEVEL = 0.25
 Scoop.QUALITY_SPEED_PER_LEVEL = 0.05
-Scoop.BASE_DRIVE_INTERVAL_TICKS = 60
+-- 320 ticks = tester-approved 1.875× vs the original 600-tick cadence (~5.33s).
+-- Frequency only; DRIVE_ITEMS_PER_SCOOP stays 4.
+Scoop.BASE_DRIVE_INTERVAL_TICKS = 320
 Scoop.MIN_INTERVAL_TICKS = 12
 Scoop.DRIVE_ITEMS_PER_SCOOP = 4
 Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25

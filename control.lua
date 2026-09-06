@@ -18,6 +18,13 @@ local HARVESTER_MINE_RADIUS = {
 	["cncharvester-type2"] = 2,
 }
 
+-- Player-in-vehicle scoop cadence (frequency only — not ore per scoop).
+-- First 2.0 drop: on_nth_tick(60) × 10 = 600 ticks = 10s.
+-- 320 ticks ≈ 5.33s at 60 UPS → 600/320 = 1.875× (tester-approved).
+-- 2.1: countdown is equivalent to on_nth_tick(320); speed/quality may shorten from this base.
+-- Volume stays Scoop.DRIVE_ITEMS_PER_SCOOP (4). Unload stays on a 60-tick poll.
+local DRIVE_MINE_PERIOD_TICKS = 320
+
 local function ensure_storage()
 	storage.tibchunk = storage.tibchunk or {}
 	storage.orechunk = storage.orechunk or {}
@@ -214,8 +221,9 @@ local function drive_harvest(player, vehicle)
 
 	local effects = Scoop.read_effects(vehicle)
 	local qlevel = Scoop.quality_level(vehicle.quality)
+	-- Base 320 ticks (= on_nth_tick(320)); modules/quality may shorten.
 	storage.drive_scoop_wait[player.index] = Scoop.interval_ticks(
-		Scoop.BASE_DRIVE_INTERVAL_TICKS,
+		DRIVE_MINE_PERIOD_TICKS,
 		effects.speed,
 		qlevel
 	)
@@ -236,10 +244,12 @@ local function drive_harvest(player, vehicle)
 	end
 	local result = Scoop.harvest_area(vehicle, harvestable, Scoop.DRIVE_ITEMS_PER_SCOOP)
 	if result.full and not result.inserted then
-		DrawFloatingText(vehicle.surface, vehicle, "Inventory full", {r = 1, g = 1, b = 1, a = 1}, 20)
+		DrawFloatingText(vehicle.surface, vehicle, "Inventory full", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 	end
 end
 
+-- Hybrid-drive and module-bay sync need every tick. Drive scoop uses a 320-tick
+-- countdown (same cadence as master's on_nth_tick(320) when unmodified).
 script.on_nth_tick(1, function()
 	ensure_storage()
 
@@ -264,7 +274,7 @@ script.on_nth_tick(1, function()
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
 			drive_harvest(player, vehicle)
-			if game.tick % 20 == 0 then
+			if game.tick % 60 == 0 then
 				unload_near_refinery(vehicle)
 			end
 		end
