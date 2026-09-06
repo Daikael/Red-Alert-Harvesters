@@ -1,4 +1,16 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.1.8
+Date: 2026-09-06
+  Info:
+    - Unreleased 2.1 experimental packs now use 2.1.1.<test_revision> (this is test revision 8). Not a released 2.1.8. Zip/folder is Red-Alert-Harvester_2.1.1.8. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Out of fuel no longer fires just because solid-fuel slots are empty. Drive/mine use the hybrid-charge pool, fed by burnables, stored grid energy, and the baked-in trickle. A full charged grid can pay; a token spark still cannot.
+    - Grid→pool conversion runs before/alongside the fuel gate. Scoop spend may pull stored grid energy to cover the action cost (90% conversion). Per-tick refill stays rate-capped.
+    - Tiberium harvester uses the same pool/grid/burnable gate as the Ore Truck (no perpetual Out of fuel when charged).
+  Balancing:
+    - Drive scoop is a total budget of 8 (Ore Truck) / 16 (Tiberium) items per ~5.3 s period, not 4 per ore tile. Fuel cost still scales with items, efficiency, speed, and quality.
+    - Intrinsic idle trickle is 18 kW, +20%/quality level, and efficiency modules boost it. Parked high-quality loadouts charge clearly faster. Sustained driving+mining without extra equipment still net-drains.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.7
 Date: 2026-09-06
   Changes:

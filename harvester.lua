@@ -4,6 +4,7 @@ require "refinery"
 require "specialOres"
 require "modulebay"
 require "scoop"
+require "hybriddrive"
 
 local States = {
 	Animating = 0,
@@ -135,24 +136,24 @@ cncharvester = {
 	end,
 
 	CheckFuel = function(self)
-		if self.currentEnergy <= 0 then
-			self:UseFuel()
+		if not (self.vehicle and self.vehicle.valid) then
+			return false
 		end
-
-		local fuelInv = vehicle_fuel_inventory(self.vehicle)
-		if
-			not self.refueling
-			and self.state ~= States.Animating
-			and self.vehicle.valid
-			and fuelInv
-			and fuelInv.get_item_count() < 5
-		then
-			self:FloatingText({"cncharvester.heading-for-refuel"}, {r = 0.2, g = 0.8, b = 0.2})
-			self.state = States.FindingRefuelRefinery
-			self.refueling = true
+		-- Same gate as the Ore Truck: hybrid pool, charged grid, or burnables.
+		-- Empty solid slots are fine while the pool/grid can still run.
+		if HybridDrive.has_usable_energy(self.vehicle) then
+			self.currentEnergy = math.max(self.currentEnergy or 0, 1)
+			return true
 		end
-
-		return self.currentEnergy > 0
+		self:UseFuel()
+		if HybridDrive.has_usable_energy(self.vehicle) then
+			self.currentEnergy = math.max(self.currentEnergy or 0, 1)
+			return true
+		end
+		if game and game.tick and (game.tick % FLOATING_TEXT_ERROR_TTL) == 0 then
+			self:FloatingText({"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		end
+		return false
 	end,
 
 	UseFuel = function(self)
@@ -372,8 +373,7 @@ cncharvester = {
 				return
 			end
 
-			local amountPerOre = math.ceil(Stats.OreMinedPerScoop / #ores)
-			local result = Scoop.harvest_area(self.vehicle, ores, amountPerOre)
+			local result = Scoop.harvest_area(self.vehicle, ores, Scoop.scoop_items(self.vehicle))
 			if result.no_fuel then
 				self:FloatingText({"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				return

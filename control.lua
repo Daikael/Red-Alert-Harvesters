@@ -22,7 +22,7 @@ local HARVESTER_MINE_RADIUS = {
 -- First 2.0 drop: on_nth_tick(60) × 10 = 600 ticks = 10s.
 -- 320 ticks ≈ 5.33s at 60 UPS → 600/320 = 1.875× (tester-approved).
 -- 2.1: countdown is equivalent to on_nth_tick(320); speed/quality may shorten from this base.
--- Volume stays Scoop.DRIVE_ITEMS_PER_SCOOP (4). Unload stays on a 60-tick poll.
+-- Volume is Scoop.scoop_items (8 Ore Truck / 16 type-2). Unload stays on a 60-tick poll.
 local DRIVE_MINE_PERIOD_TICKS = 320
 
 local function ensure_storage()
@@ -257,7 +257,7 @@ local function drive_harvest(player, vehicle)
 	if #harvestable == 0 then
 		return
 	end
-	local result = Scoop.harvest_area(vehicle, harvestable, Scoop.DRIVE_ITEMS_PER_SCOOP)
+	local result = Scoop.harvest_area(vehicle, harvestable, Scoop.scoop_items(vehicle))
 	if result.no_fuel then
 		DrawFloatingText(vehicle.surface, vehicle, {"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 		return
@@ -283,9 +283,27 @@ script.on_nth_tick(1, function()
 		ModuleBay.sync_all()
 	end
 
+	local ticked = {}
+	local function tick_hybrid(vehicle)
+		if not (vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name]) then
+			return
+		end
+		local id = vehicle.unit_number
+		if ticked[id] then
+			return
+		end
+		ticked[id] = true
+		HybridDrive.tick(vehicle)
+	end
 	for _, rec in pairs(storage.module_bays or {}) do
-		if rec.vehicle and rec.vehicle.valid then
-			HybridDrive.tick(rec.vehicle)
+		tick_hybrid(rec.vehicle)
+	end
+	for _, player in pairs(game.connected_players) do
+		tick_hybrid(player.vehicle)
+	end
+	if storage.cncharvesters then
+		for _, harvester in pairs(storage.cncharvesters) do
+			tick_hybrid(harvester.vehicle)
 		end
 	end
 

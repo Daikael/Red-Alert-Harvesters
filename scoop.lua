@@ -11,17 +11,23 @@ Scoop = Scoop or {}
 Scoop.QUALITY_RADIUS_PER_LEVEL = 0.25
 Scoop.QUALITY_SPEED_PER_LEVEL = 0.05
 -- 320 ticks = tester-approved 1.875× vs the original 600-tick cadence (~5.33s).
--- Frequency only; DRIVE_ITEMS_PER_SCOOP stays 4.
+-- Budget is total items per period (8 Ore Truck / 16 type-2), not per ore entity.
 Scoop.BASE_DRIVE_INTERVAL_TICKS = 320
 Scoop.MIN_INTERVAL_TICKS = 12
-Scoop.DRIVE_ITEMS_PER_SCOOP = 4
+Scoop.DRIVE_ITEMS_PER_SCOOP = 8
+Scoop.TYPE2_ITEMS_PER_SCOOP = 16
 Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
--- Parasitic burner tax per successful harvest_area (drive or auto).
--- Empty truck: 1.2 MJ (~3 scoops per coal). 2× efficiency-3 (−80%): 0.24 MJ.
-Scoop.PARASITIC_JOULES_BASE = 1200000
+-- Parasitic burner tax: 300 kJ/item so 8 items = 2.4 MJ (same rate as the old 4-item 1.2 MJ).
+Scoop.PARASITIC_JOULES_BASE = 2400000
 Scoop.PARASITIC_MIN_FACTOR = 0.2
--- 4 items at this rate = 1.2 MJ (old flat tax). Cost scales with yield and speed.
 Scoop.JOULES_PER_ITEM = 300000
+
+function Scoop.scoop_items(vehicle)
+	if vehicle and vehicle.name == "cncharvester-type2" then
+		return Scoop.TYPE2_ITEMS_PER_SCOOP
+	end
+	return Scoop.DRIVE_ITEMS_PER_SCOOP
+end
 
 local EMPTY_EFFECTS = {
 	speed = 0,
@@ -252,23 +258,22 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 	return {inserted = inserted, full = full}
 end
 
-function Scoop.harvest_area(vehicle, ores, units_each)
+function Scoop.harvest_area(vehicle, ores, total_items)
 	local valid = {}
 	for _, ore in pairs(ores or {}) do
 		if ore.valid then
 			table.insert(valid, ore)
 		end
 	end
-	units_each = math.max(1, math.floor(units_each or 1))
-	local planned = #valid * units_each
-	if planned <= 0 then
+	if #valid <= 0 then
 		return {inserted = false, full = false}
 	end
+	total_items = math.max(1, math.floor(total_items or Scoop.scoop_items(vehicle)))
 	local effects = Scoop.read_effects(vehicle)
 	local qlevel = Scoop.quality_level(vehicle and vehicle.quality)
-	local cost = Scoop.action_joules(planned, effects.consumption, effects.speed, qlevel)
-	-- Full planned action must be in the hybrid pool. Grid charge / spark
-	-- leftover must not authorize a scoop by themselves.
+	local cost = Scoop.action_joules(total_items, effects.consumption, effects.speed, qlevel)
+	-- Pool + stored grid + burnables must cover the full budget. A spark or
+	-- token leftover still cannot buy the scoop; a charged grid can.
 	if not HybridDrive.can_afford(vehicle, cost) then
 		return {inserted = false, full = false, no_fuel = true}
 	end
@@ -279,16 +284,28 @@ function Scoop.harvest_area(vehicle, ores, units_each)
 	if not HybridDrive.spend(vehicle, cost) then
 		return {inserted = false, full = false, no_fuel = true}
 	end
+	local left = total_items
 	local any = false
 	local full = false
-	for _, ore in pairs(valid) do
-		if ore.valid then
-			local result = Scoop.harvest_resource(vehicle, ore, trunk, units_each)
-			any = any or result.inserted
+	for _, ore in ipairs(valid) do
+		while left > 0 and ore.valid do
+			local result = Scoop.harvest_resource(vehicle, ore, trunk, 1)
+			if result.inserted then
+				any = true
+				left = left - 1
+			else
+				if result.full then
+					full = true
+				end
+				break
+			end
 			if result.full then
 				full = true
 				break
 			end
+		end
+		if full or left <= 0 then
+			break
 		end
 	end
 	-- Inventory-full / missed insert: do not keep the tax.

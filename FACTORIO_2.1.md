@@ -11,7 +11,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.7` |
+| `info.json` `version` | `2.0.0` | `2.1.1.8` (test rev 8; not a released 2.1.8) |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -60,31 +60,29 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 2. Quality chance → `LuaQualityPrototype.roll_quality(effect, seed, force)` on 2.1; else `next` / `next_probability` chain.
 3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
 4. Resource drain from Layer A; efficiency modules (`consumption < 0`) still shave a little drain (`drain * (1 + consumption * 0.25)`).
-5. **Parasitic harvest fuel tax** (2.1.6): `harvest_area` (drive or auto) must **afford the full planned action** from the hybrid-charge pool **before** any ore is inserted. Cost is `items × 300 kJ × max(0.2, 1 + consumption) × (1 + max(0, speed) + 0.05×quality_level)`. Four items with no modules is still **1.2 MJ**. A 100-item place-on-ore scoop costs **30 MJ**. Speed modules and quality raise the cost so a token spark cannot buy a max-speed full scoop. Grid charge is converted separately and does not authorize the scoop.
+5. **Parasitic harvest fuel tax:** `harvest_area` (drive or auto) must **afford the full planned budget** from the hybrid pool **before** any ore is inserted. Cost is `items × 300 kJ × max(0.2, 1 + consumption) × (1 + max(0, speed) + 0.05×quality_level)`. The budget is **8** (Ore Truck) / **16** (type-2) items per period — not 4 per ore tile. A token spark still cannot buy a scoop; a charged grid can pay by draining stored energy into the pool (90%).
 6. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
-7. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s, same as the 2.0 tester-approved cadence). Volume per scoop stays 4.
+7. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s). Volume per period is **8 / 16**.
 8. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)` (animation stand-in; the parasitic tax above is the real harvest fuel cost).
 9. Pollution effect, if any, adds a tiny `surface.pollute`.
 
 ### Harvest parasitic tax numbers
 
-Costs below are for **4 items** (one drive resource at `DRIVE_ITEMS_PER_SCOOP`). Multiply by `planned items / 4` for a multi-patch scoop. Speed modules multiply further via the speed term (not shown).
+Costs below use **300 kJ/item**. Speed modules multiply further via the speed term (not shown).
 
-| Bay modules | `consumption` | Cost per 4 items |
-| --- | --- | --- |
-| None | 0 | **1.2 MJ** (~3 of these per coal) |
-| 1× efficiency-3 | −40% | 0.72 MJ |
-| 2× efficiency-3 (Ore Truck full) | −80% | **0.24 MJ** (floor) |
-| 3× efficiency-3 (type-2 full) | −80% (floored) | **0.24 MJ** |
-| 100 items, no modules | 0 | **30 MJ** |
+| Scoop | Items | No modules | 2× efficiency-3 (−80%) |
+| --- | --- | --- | --- |
+| Ore Truck period | **8** | **2.4 MJ** | 0.48 MJ |
+| Tiberium period | **16** | **4.8 MJ** | 0.96 MJ |
+| 4 items (formula check) | 4 | 1.2 MJ | 0.24 MJ |
 
-Tax is taken from the hybrid-charge pool (`can_afford` / `spend`). Insufficient pool → no ore, localized `Out of fuel`. Inventory-full refunds the tax.
+`can_afford` counts pool + 90% of stored grid energy + convertible tank solids. `spend` pulls from the pool, then from stored grid if needed. Out of fuel only when that sum cannot cover the action. Inventory-full refunds the tax.
 
 ## Feature 2 — Hybrid energy pool
 
-Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are **consumed at craft**, not placed into the module bay or equipment grid. New trucks spawn with an **empty grid** and **empty module bay**. Those ingredients grant a **slow built-in recharge** (`INTRINSIC_SOLAR_W` = 4 kW, ~1/15 of a 60 kW panel, quality-scaled with refill). That trickle is not removable equipment.
+Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are **consumed at craft**, not placed into the module bay or equipment grid. New trucks spawn with an **empty grid** and **empty module bay**. Those ingredients grant a **built-in recharge** (`INTRINSIC_SOLAR_W` = 18 kW, +20% per quality level, efficiency modules boost). That trickle is not removable equipment. Legendary + efficiency should idle-charge clearly faster than a normal empty truck.
 
-Hybrid also converts **actual stored electric energy** from player-installed grid equipment (portable solar, battery, fusion, …) at the existing rate cap. Having stored electric energy does **not** by itself authorize a scoop. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
+Hybrid also converts **actual stored electric energy** from player-installed grid equipment at the per-tick rate cap. A **charged grid can pay a scoop** by draining stored energy into the pool (90%); a token leftover still cannot. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
 
 **Recycler exploit (blocked):** place → strip gifted solar/battery/modules → recycle the truck for a full ingredient refund + the stripped loot. Nothing removable is script-inserted on place (`HybridDrive.on_built` / `ModuleBay.create`). Recycling the vehicle item may return the recipe’s solar+battery (vanilla recycle of craft cost) — that is fair, not a duplicate gift.
 
@@ -93,8 +91,8 @@ Every tick, `HybridDrive.maintain` then `tick`:
 1. Strip nuclear-tier **items** from the fuel inventory. If `currently_burning` is nuclear-fuel / uranium-fuel-cell / fusion-power-cell, wipe remaining and lock to hybrid-charge.
 2. Convert remaining chemical fuels (coal, wood, solid fuel, …) into the hybrid pool: consume the items, add `fuel_value` joules, cap **80 MJ**.
 3. `currently_burning` is **always** hidden `cncharvester-hybrid-charge` (`fuel_category` `cncharvester-hybrid`). Writing it fills remaining to 80 MJ; `lock_charge` immediately writes the intended remaining. This is what stopped Factorio latching `nuclear-fuel` (empty-looking bar, still driving).
-4. If the pool is **0 J**, `has_energy` is false: car `speed` forced to 0. A scoop additionally requires `available_joules >=` the full planned action (`can_afford`). A 2 kJ spark or one tick of solar conversion cannot buy a 1.2 MJ+ scoop.
-5. Incoming joules = grid pull (if any stored energy) + intrinsic solar. Convert at 90%, then **clamp to `refill_j_per_tick`**. Electric/intrinsic refill never shrinks a solid-converted pool and never inserts items. Empty grid still gets the slow intrinsic trickle.
+4. `has_usable_energy` is true when the pool, stored grid energy, or convertible tank solids can run the truck. Empty solid slots are OK. `enforce_empty` only zeros speed when none of those can supply energy. Scoops use `can_afford` / `spend` (pool + 90% stored grid).
+5. Per-tick: grid pull is rate-capped; intrinsic is added on top while parked. While moving, combined conversion stays at or below refill so driving still net-drains. Electric refill never shrinks a solid-converted pool and never inserts items.
 6. On mine, clear `currently_burning` and strip charge/nuclear from the mine buffer.
 
 Vehicle `fuel_categories` are `cncharvester-hybrid` then `chemical` so the tank still accepts coal, but the engine’s burn identity is only hybrid-charge.
@@ -128,7 +126,7 @@ Prototype `consumption` is 150 kW / 175 kW with `effectivity = 2`. Actual burner
 | Driving draw (consumption / 2) | **75.0 kW** | **87.5 kW** |
 | Max electric→burner refill | 68.18 kW (10% below draw) | 79.55 kW |
 | Grid pull (90% conversion) | 75.76 kW | 88.38 kW |
-| Intrinsic solar (baked-in) | **4.0 kW** | **4.0 kW** |
+| Intrinsic solar (baked-in, normal) | **18.0 kW** | **18.0 kW** |
 | Max idle buffer | 300 kJ (4 s) | 350 kJ |
 
 Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal** truck even with a charged grid. Quality raises refill slightly (+1.5%/level) and the parked electric cap (+25%/level → legendary ~9 s). Idle or slow driving can refill that cap, then stops.
@@ -145,7 +143,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvester_2.1.7`** (singular `info.json` name — see README). Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvester_2.1.1.8`** (singular `info.json` name — see README). Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Cost matches yield/speed:** A 2 kJ spark or leftover sliver cannot buy a full max-speed scoop. More ores / speed modules / quality cost more. One personal solar’s stored charge must not authorize an underpriced full scoop (grid→pool stays rate-capped and separate).
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
