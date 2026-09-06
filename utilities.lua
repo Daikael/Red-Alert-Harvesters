@@ -1,44 +1,10 @@
---[[function Error(text)
-	for _, cncharvester in pairs(global.cncharvesters) do
-		cncharvester:ErrorDump()
-	end
-	for _, refinery in pairs(global.refineries) do
-		refinery:ErrorDump()
-	end
-	for _, player in pairs(game.players) do
-		if text then
-			player.print(text)
-		end
-		player.print("Active cncharvesters/refineries: " .. #global.cncharvesters .. "/" .. #global.refineries)
-	end
-	game.speed = 0
-end		]]
-function on_init()
-	global.sortedFuels = getFuelsSortedByValue(items, function(a, b) return a > b end)
-end
+require "specialOres"
 
-
-function getFuelsSortedByValue(tbl, sortFunction)
-	local fuelname = {}
-	local fuelvalue = {}
-	local fuel_list = {}
-
-	for _, proto in pairs(game.get_filtered_item_prototypes({{filter = "fuel-category", ["fuel-category"] = "chemical"}})) do
-		if proto.fuel_value > 0 then
-			fuel_list[proto.name] = proto.stack_size
-		end
+function Error(text)
+	log("Red-Alert-Harvester: " .. tostring(text or "unknown error"))
+	if game and game.print then
+		game.print({"", "[C&C Harvesters] ", text or "unknown error"})
 	end
-
-	for fuel_name in pairs(fuel_list) do
-		if contents[fuel_name] then
-			table.sort(fuelvalue, function(a, b)
-				return sortFunction(tbl[a], tbl[b])
-			end)
-			break
-		end
-	end
-
-	return fuelvalue
 end
 
 function DeltaposToOrientation(dPos)
@@ -56,7 +22,10 @@ function DeltaposToOrientation(dPos)
 end
 
 function GetBoundingBox(position, radius)
-	return {{position.x - radius, position.y - radius}, {position.x + radius, position.y + radius}}
+	return {
+		{position.x - radius, position.y - radius},
+		{position.x + radius, position.y + radius}
+	}
 end
 
 function FindNearestEntity(baseEntity, entList)
@@ -65,7 +34,7 @@ function FindNearestEntity(baseEntity, entList)
 	for _, entity in pairs(entList) do
 		local dPos = Vector.subtract(baseEntity.position, entity.position)
 		local dist = Vector.length(dPos)
-		
+
 		if dist < minDist then
 			closestEntity = entity
 			minDist = dist
@@ -74,12 +43,87 @@ function FindNearestEntity(baseEntity, entList)
 	return closestEntity
 end
 
-function GetOccupiedSlots(inventory)
-	local slotsOccupied = 0	
-	for itemName, count in pairs(inventory.get_contents()) do
-		slotsOccupied = slotsOccupied + math.ceil(count / game.item_prototypes[itemName].stack_size)
+function ItemPrototype(name)
+	return prototypes.item[name]
+end
+
+function EntityPrototype(name)
+	return prototypes.entity[name]
+end
+
+-- 2.0 get_contents() returns { {name=, count=, quality=}, ... } instead of a name->count map.
+function EachInventoryItem(inventory, callback)
+	if not (inventory and inventory.valid) then
+		return
 	end
+	for _, item in pairs(inventory.get_contents()) do
+		callback(item.name, item.count, item.quality)
+	end
+end
+
+function InventoryItemStack(name, count, quality)
+	local stack = {name = name, count = count}
+	if quality then
+		stack.quality = quality
+	end
+	return stack
+end
+
+function GetOccupiedSlots(inventory)
+	local slotsOccupied = 0
+	EachInventoryItem(inventory, function(itemName, count)
+		local proto = ItemPrototype(itemName)
+		local stack_size = proto and proto.stack_size or 50
+		slotsOccupied = slotsOccupied + math.ceil(count / stack_size)
+	end)
 	return slotsOccupied
+end
+
+function IsHarvestableResource(entity)
+	if not (entity and entity.valid) then
+		return false
+	end
+	local category = entity.prototype.resource_category
+	if category ~= "basic-solid" and category ~= "basic-solid-tiberium" then
+		return false
+	end
+	local props = entity.prototype.mineable_properties
+	return props and props.minable and props.products
+end
+
+function ResourceProductItemName(entity)
+	if SpecialOres and SpecialOres[entity.name] then
+		return SpecialOres[entity.name]()
+	end
+	local props = entity.prototype.mineable_properties
+	if props and props.products then
+		for _, product in pairs(props.products) do
+			if (not product.type or product.type == "item") and product.name then
+				return product.name
+			end
+		end
+	end
+	return entity.name
+end
+
+-- Error-red harvest warnings (trunk full / blocked scoop). 150 ticks ≈ 2.5s at 60 UPS.
+-- Informational text (refuel, etc.) must pass its own color and must not use these.
+FLOATING_TEXT_ERROR_RED = {r = 1, g = 0.2, b = 0.2, a = 1}
+FLOATING_TEXT_ERROR_TTL = 150
+
+function DrawFloatingText(surface, target, text, color, ttl)
+	if not (surface and surface.valid) then
+		return
+	end
+	rendering.draw_text{
+		text = text,
+		surface = surface,
+		target = target,
+		color = color or {r = 1, g = 1, b = 1, a = 1},
+		scale = 1.4,
+		scale_with_zoom = true,
+		time_to_live = ttl or 20
+	}
 end
 
 Vector = {
@@ -96,33 +140,33 @@ Vector = {
 		end
 		return {x = p1.x - p2.x, y = p1.y - p2.y}
 	end,
-	
+
 	mul = function(p1, c)
 		return {x = p1.x * c, y = p1.y * c}
 	end,
-	
+
 	div = function(p1, c)
 		return {x = p1.x / c, y = p1.y / c}
 	end,
-	
+
 	dist = function(p1, p2)
 		return Vector.length(Vector.subtract(p1, p2))
 	end,
-	
+
 	distsq = function(p1, p2)
 		return Vector.lengthsq(Vector.subtract(p1, p2))
 	end,
-	
-	length = function(Vector)
-		return math.sqrt((Vector.x * Vector.x) + (Vector.y * Vector.y))
+
+	length = function(vec)
+		return math.sqrt((vec.x * vec.x) + (vec.y * vec.y))
 	end,
-	
-	lengthsq = function(Vector)
-		return (Vector.x * Vector.x) + (Vector.y * Vector.y)
+
+	lengthsq = function(vec)
+		return (vec.x * vec.x) + (vec.y * vec.y)
 	end,
-	
-	normalized = function(Vector)
-		local length = Vector.length(Vector)
-		return {x = Vector.x / length, y = Vector.y / length}
+
+	normalized = function(vec)
+		local length = Vector.length(vec)
+		return {x = vec.x / length, y = vec.y / length}
 	end,
 }

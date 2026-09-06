@@ -13,19 +13,6 @@ data:extend(
 		selection_box = {{-2, -3}, {3.5, 1.2}},
  		--{{left,up}{right,down}},--
 		inventory_size = 160,
-		connection_point =
-		{
-			shadow =
-			{
-				red = {2.6, -1.5},
-				green = {2.6, -1.5}
-			},
-			wire =
-			{
-				red = {2.0, -2.6},
-				green = {2.0, -2.6}
-			}
-		},
 		picture =
 		{
 			filename = "__Red-Alert-Harvester__/graphics/entity/refinery/refinery.png",

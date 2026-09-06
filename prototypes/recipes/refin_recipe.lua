@@ -3,14 +3,16 @@ data:extend(
 	{
 		type = "recipe",
 		name = "refinery",
-		enabled = "false",
+		enabled = false,
 		ingredients =
 		{
-			{"stone-brick", 100},
-			{"steel-plate", 10},
+			{type = "item", name = "stone-brick", amount = 100},
+			{type = "item", name = "steel-plate", amount = 10}
 		},
-		result = "refinery",
-		result_count = 1
-	},
+		results =
+		{
+			{type = "item", name = "refinery", amount = 1}
+		}
+	}
 }
 )

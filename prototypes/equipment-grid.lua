@@ -5,7 +5,6 @@ data:extend(
 			name = "cncharvester-grid",
 			width = 1,
 			height = 2,
-			locked = false,
 			equipment_categories = {"armor"}
 		},
 		{
