@@ -14,6 +14,8 @@ data:extend(
 			setting_type = "startup",
 			default_value = false
 		}
+		-- Runtime cncharvester-chunk-index removed: the M1 scanner follows
+		-- Auto-cncharvester-testing only (one clear gate; restart required).
 		--[[ ,
 		{
 			type = "int-setting",
