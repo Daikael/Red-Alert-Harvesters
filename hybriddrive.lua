@@ -4,6 +4,8 @@
 
 HybridDrive = HybridDrive or {}
 
+-- Deprecated Hybrid-drive / Hybrid-drive-battery equipment was removed in 2.1.10.
+-- Names stay on NEVER_GIFT so leftover scripts cannot re-insert them.
 HybridDrive.CONVERTER_NAME = "Hybrid-drive"
 HybridDrive.BATTERY_NAME = "Hybrid-drive-battery"
 HybridDrive.CHARGE_ITEM = "cncharvester-hybrid-charge"
@@ -585,7 +587,7 @@ end
 
 -- Pull stored electric energy from any grid equipment (solar, battery, fusion…).
 -- Batteries first so a charged cell is the obvious idle refill source.
--- Empty grid → 0. Does not require Hybrid-drive to be installed.
+-- Empty grid → 0. Uses vanilla portable solar/battery (or any stored equipment energy).
 function HybridDrive.take_from_grid(grid, joules)
 	if joules <= 0 or not grid then
 		return 0

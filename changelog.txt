@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.10
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.10. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.10. Git branch is 2.1.10 (renamed in place from 2.1.9). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Changes:
+    - Ore Truck equipment grid is 2×2. Tiberium harvester grid is 3×3. Common baseline; quality does not enlarge these grids.
+    - Removed deprecated Hybrid-drive and Hybrid-drive-battery items, equipment, recipes, and tech unlocks. Scripted hybrid pool (intrinsic trickle, vanilla portable solar/battery → pool, burnables → pool) is unchanged. Truck recipes still cost vanilla solar-panel + battery.
+    - Tiberium harvester is unlocked by new technology Tiberium-Harvesting (requires Old-World-Harvesting and electric-engine). Recipe uses electric-engine-unit instead of engine-unit.
+    - Old World Harvesting now requires solar-energy (matches the solar panel already in the Ore Truck recipe).
+---------------------------------------------------------------------------------------------------
 Version: 2.1.9
 Date: 2026-09-06
   Info:

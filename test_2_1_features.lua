@@ -239,8 +239,15 @@ expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skippe
 
 local rec_src = assert(io.open("prototypes/recipes/harv_recipe.lua", "r")):read("*a")
 expect(rec_src:find('name = "solar-panel"', 1, true) ~= nil, "truck recipes include solar-panel")
-expect(rec_src:find('name = "battery"', 1, true) ~= nil, "truck recipes include battery")
+expect(rec_src:find('name = "battery"', 1, true) ~= nil, "truck recipes include vanilla battery")
 expect(select(2, rec_src:gsub('name = "solar%-panel"', "")) >= 2, "both harvester recipes list solar-panel")
+expect(rec_src:find("Hybrid-drive", 1, true) == nil, "recipes do not include deprecated Hybrid-drive")
+expect(rec_src:find("Hybrid-drive-battery", 1, true) == nil, "recipes do not include deprecated Hybrid-drive-battery")
+expect(rec_src:find('name = "electric-engine-unit"', 1, true) ~= nil, "Tiberium recipe uses electric-engine-unit")
+local type2_block = rec_src:match('name = "cncharvester%-type2".-results')
+expect(type2_block ~= nil, "type-2 recipe block exists")
+expect(type2_block:find('name = "engine-unit"', 1, true) == nil, "type-2 recipe does not use regular engines")
+expect(type2_block:find('name = "electric-engine-unit"', 1, true) ~= nil, "type-2 recipe requires electric engines")
 
 expect(HybridDrive.NEVER_GIFT["solar-panel"] and HybridDrive.NEVER_GIFT["battery"], "craft-cost solar/battery are never gifted")
 expect(HybridDrive.NEVER_GIFT["Hybrid-drive"] and HybridDrive.NEVER_GIFT["Hybrid-drive-battery"], "Hybrid-drive is never gifted")
@@ -438,6 +445,8 @@ expect(loc:find("out%-of%-fuel=Out of fuel", 1) ~= nil, "out-of-fuel is localize
 expect(loc:find("inventory%-full=Inventory full", 1) ~= nil, "inventory-full is localized")
 expect(loc:find("heading%-for%-refuel=Heading for refuel", 1) ~= nil, "heading-for-refuel is localized")
 expect(loc:find("no%-empty%-refinery=Cannot find unoccupied empty refinery", 1) ~= nil, "no-empty-refinery is localized")
+expect(loc:find("Hybrid-drive=", 1, true) == nil, "locale has no Hybrid-drive item name")
+expect(loc:find("Tiberium-Harvesting=Tiberium Harvesting", 1, true) ~= nil, "Tiberium Harvesting tech is localized")
 expect(loc:find("no%-fuel%-refinery=Cannot find refinery with fuel", 1) ~= nil, "no-fuel-refinery is localized")
 expect(loc:find("Fuel inserted in the tank charges this electrical capacity", 1, true) ~= nil, "fuel→electrical capacity string is localized")
 
@@ -459,7 +468,7 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.9"', 1, true) ~= nil, "pack version is 2.1.9")
+expect(info_src:find('"version": "2.1.10"', 1, true) ~= nil, "pack version is 2.1.10")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
 expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")
@@ -485,6 +494,30 @@ expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "ba
 expect(bay_src:find('module_bay("cncharvester-module-bay", 2', 1, true) ~= nil, "ore truck bay is 2 slots")
 expect(bay_src:find('module_bay("cncharvester-type2-module-bay", 3', 1, true) ~= nil, "type-2 bay is 3 slots")
 expect(not bay_src:find("quality_affects_module_slots = true", 1, true), "no quality-scaled slot flag")
+
+local grid_src = assert(io.open("prototypes/equipment-grid.lua", "r")):read("*a")
+expect(grid_src:find("width = 2", 1, true) ~= nil, "ore truck grid is 2 wide")
+expect(grid_src:find("height = 2", 1, true) ~= nil, "ore truck grid is 2 tall")
+expect(grid_src:find("width = 3", 1, true) ~= nil, "tiberium grid is 3 wide")
+expect(grid_src:find("height = 3", 1, true) ~= nil, "tiberium grid is 3 tall")
+expect(grid_src:find("width = 4", 1, true) == nil, "no leftover 4-wide grid")
+expect(grid_src:find("width = 5", 1, true) == nil, "no leftover 5-wide grid")
+
+local tech_src = assert(io.open("prototypes/technology/technology.lua", "r")):read("*a")
+expect(tech_src:find('"solar-energy"', 1, true) ~= nil, "Old World Harvesting requires solar-energy")
+expect(tech_src:find('"electric-engine"', 1, true) ~= nil, "Tiberium Harvesting requires electric-engine")
+expect(tech_src:find('name = "Tiberium-Harvesting"', 1, true) ~= nil, "Tiberium-Harvesting tech exists")
+expect(tech_src:find("Hybrid-drive", 1, true) == nil, "tech does not unlock Hybrid-drive")
+local old_world = tech_src:match('name = "Old%-World%-Harvesting".-unit =')
+expect(old_world ~= nil, "Old-World-Harvesting block exists")
+expect(old_world:find('recipe = "cncharvester-type2"', 1, true) == nil, "Old World Harvesting does not unlock Tiberium harvester")
+expect(old_world:find('"solar-energy"', 1, true) ~= nil, "Old World prereqs include solar-energy")
+
+local data_src = assert(io.open("data.lua", "r")):read("*a")
+expect(data_src:find("prototypes.items.equipment", 1, true) == nil, "data.lua does not load Hybrid-drive items")
+expect(data_src:find("prototypes.equipment.equipment", 1, true) == nil, "data.lua does not load Hybrid-drive equipment")
+expect(io.open("prototypes/items/equipment.lua") == nil, "Hybrid-drive item file is removed")
+expect(io.open("prototypes/equipment/equipment.lua") == nil, "Hybrid-drive equipment file is removed")
 
 if fails > 0 then
 	print(fails .. " failed")

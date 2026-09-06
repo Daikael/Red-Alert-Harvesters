@@ -267,7 +267,7 @@ local function drive_harvest(player, vehicle)
 	end
 end
 
--- Hybrid-drive and module-bay sync need every tick. Drive scoop uses a 320-tick
+-- Hybrid pool and module-bay sync need every tick. Drive scoop uses a 320-tick
 -- countdown (same cadence as master's on_nth_tick(320) when unmodified).
 script.on_nth_tick(1, function()
 	ensure_storage()

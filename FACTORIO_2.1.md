@@ -6,15 +6,15 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch is the three-part version (`2.1.9`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.9`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.9` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
-- **Bump by renaming in place** (`2.1.9` → `2.1.10`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
+- Tester-facing git branch is the three-part version (`2.1.10`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.10`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.10` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
+- **Bump by renaming in place** (`2.1.10` → `2.1.11`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
 | `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.0.0` | `2.1.9` |
+| `info.json` `version` | `2.0.0` | `2.1.10` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -85,7 +85,9 @@ Costs below use **30 kJ/item** (2.1.9; was 300 kJ/item). Speed modules multiply 
 
 Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are **consumed at craft**, not placed into the module bay or equipment grid. New trucks spawn with an **empty grid** and **empty module bay**. Those ingredients grant a **built-in recharge** (`INTRINSIC_SOLAR_W` = 18 kW, +20% per quality level, efficiency modules boost). That trickle is not removable equipment. Legendary + efficiency should idle-charge clearly faster than a normal empty truck.
 
-Hybrid also converts **actual stored electric energy** from player-installed grid equipment at the per-tick rate cap. A **charged grid can pay a scoop** by draining stored energy into the pool (90%); a token leftover still cannot. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
+Hybrid also converts **actual stored electric energy** from player-installed **vanilla** portable solar/batteries (or any grid equipment) at the per-tick rate cap. A **charged grid can pay a scoop** by draining stored energy into the pool (90%); a token leftover still cannot. The deprecated Hybrid-drive / Hybrid-drive-battery items were **removed** in 2.1.10.
+
+Common equipment grids are **2×2** (Ore Truck) and **3×3** (Tiberium). Quality does not enlarge those baselines.
 
 **Recycler exploit (blocked):** place → strip gifted solar/battery/modules → recycle the truck for a full ingredient refund + the stripped loot. Nothing removable is script-inserted on place (`HybridDrive.on_built` / `ModuleBay.create`). Recycling the vehicle item may return the recipe’s solar+battery (vanilla recycle of craft cost) — that is fair, not a duplicate gift.
 
@@ -147,7 +149,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.9`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.9` → `Red-Alert-Harvesters_2.1.9`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvesters_2.1.10`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.10` → `Red-Alert-Harvesters_2.1.10`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Cost matches yield/speed:** A 2 kJ spark or leftover sliver cannot buy a full max-speed scoop. More ores / speed modules / quality cost more. One personal solar’s stored charge must not authorize an underpriced full scoop (grid→pool stays rate-capped and separate).
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
@@ -156,9 +158,10 @@ This environment has **no Factorio client**. Static checks: `luac -p` and `lua t
 7. **Harvest fuel tax:** Drive-harvest with an empty bay and real fuel — pool should drop with ore count. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
 8. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
 9. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better. Slot count must stay 2 / 3.
-10. **Craft / grid / recycle:** Recipe lists solar panel + battery. A freshly placed truck has an **empty grid** and empty module bay (no free solar/battery/Hybrid-drive/modules). Strip-recycle-recraft must not mint extra modules or equipment beyond a normal recycle of the craft cost.
+10. **Craft / grid / recycle:** Recipe lists vanilla solar panel + battery. A freshly placed truck has an **empty 2×2** (Ore Truck) or **3×3** (Tiberium) grid and empty module bay (no free solar/battery/modules; no Hybrid-drive item exists). Strip-recycle-recraft must not mint extra modules or equipment beyond a normal recycle of the craft cost.
 11. **Quality hybrid:** A rare/legendary truck should refill faster and hold a larger electric cap than normal. Driving still net-drains. Module slots stay 2 / 3.
 12. **Drain empty:** Stuck until fueled or recharged. Type stays hybrid-charge, never nuclear.
+13. **Tech gates:** Old World Harvesting lists **solar-energy**. Tiberium Harvesting lists **electric-engine** and unlocks the type-2 recipe (electric-engine-unit, not engine-unit). No Hybrid-drive recipe.
 
 ## Remaining 2.1 unknowns
 

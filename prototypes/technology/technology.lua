@@ -2,7 +2,8 @@ data:extend({
 	{
 		type = "technology",
 		name = "Old-World-Harvesting",
-		prerequisites = {"steel-processing", "engine"},
+		-- solar-energy matches the solar-panel already in the Ore Truck recipe.
+		prerequisites = {"steel-processing", "engine", "solar-energy"},
 		icon = "__Red-Alert-Harvesters__/graphics/icons/refin_icon.png",
 		icon_size = 32,
 		effects =
@@ -14,23 +15,7 @@ data:extend({
 			{
 				type = "unlock-recipe",
 				recipe = "refinery"
-			},
-			{
-				type = "unlock-recipe",
-				recipe = "cncharvester-type2"
-			},
-			{
-				type = "unlock-recipe",
-				recipe = "Hybrid-drive"
-			},
-			{
-				type = "unlock-recipe",
-				recipe = "Hybrid-drive-battery"
 			}
-			--[[{
-				type = "unlock-recipe",
-				recipe = "cncharvester-remote"
-			}]]
 		},
 		unit =
 		{
@@ -43,29 +28,30 @@ data:extend({
 			},
 			time = 20
 		}
-	}
-	--[[{
+	},
+	{
 		type = "technology",
-		name = "Hybrid-Electric_Engines",
-			prerequisites = {"Old-World-Harvesting"},
-		icon = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
-		icon_size = 64,
-		effects = 
+		name = "Tiberium-Harvesting",
+		prerequisites = {"Old-World-Harvesting", "electric-engine"},
+		icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon-type2.png",
+		icon_size = 32,
+		effects =
 		{
 			{
 				type = "unlock-recipe",
-				recipe = "Hybrid-drive"
+				recipe = "cncharvester-type2"
 			}
 		},
 		unit =
 		{
-			count = 50,
+			count = 150,
 			ingredients =
 			{
 				{"automation-science-pack", 1},
-				{"logistic-science-pack", 1}
+				{"logistic-science-pack", 1},
+				{"chemical-science-pack", 1}
 			},
-			time = 20
+			time = 30
 		}
-	}]]
+	}
 })
