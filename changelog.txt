@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.14
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.14. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.14. Git branch is 2.1.14 (renamed in place from 2.1.13). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Factorio 2.1 `LuaEntity.active` is read-only. Loading a 2.1.12-migrated save crashed on `on_nth_tick(1)` in `ModuleBay.starve` (`modulebay.lua` assigning `bay.active`). Starve/feed no longer write `.active`. The slave drill is gated with `disabled_by_script` and by cutting the private EEI (`power_production` / energy 0) so an empty hybrid pool still cannot mine.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.13
 Date: 2026-09-06
   Info:

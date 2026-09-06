@@ -59,9 +59,6 @@ local function harden(ent)
 	if ent.destructible ~= nil then
 		ent.destructible = false
 	end
-	if ent.active ~= nil and ModuleBay.HELPER_NAMES[ent.name] then
-		-- Helpers stay active so the micro-grid exists. The drill is gated.
-	end
 end
 
 local function transfer_modules(from_inv, to_inv)
@@ -203,7 +200,6 @@ function ModuleBay.create(vehicle)
 		return nil
 	end
 	harden(bay)
-	bay.active = false
 
 	local pole = create_helper(surface, "cncharvester-drill-pole", position, force)
 	local supply = create_helper(surface, "cncharvester-drill-supply", position, force)
@@ -219,6 +215,7 @@ function ModuleBay.create(vehicle)
 		mining = false,
 		supply_energy_was = 0,
 	}
+	ModuleBay.starve(vehicle)
 	return bay
 end
 
@@ -517,16 +514,32 @@ local function set_supply_watts(supply, watts)
 	end
 end
 
+-- Factorio 2.1: LuaEntity.active is read-only (nth_tick crash in 2.1.13).
+-- Gate the drill with disabled_by_script when present; always cut/restore
+-- the private EEI so an empty hybrid pool cannot mine.
+local function set_drill_enabled(bay, enabled)
+	if not (bay and bay.valid) then
+		return
+	end
+	pcall(function()
+		bay.disabled_by_script = not enabled
+	end)
+	if enabled then
+		if bay.electric_buffer_size then
+			bay.energy = bay.electric_buffer_size
+		end
+	else
+		bay.energy = 0
+	end
+end
+
 function ModuleBay.starve(vehicle)
 	local rec = record(vehicle)
 	if not rec then
 		return
 	end
 	rec.mining = false
-	if rec.bay and rec.bay.valid then
-		rec.bay.active = false
-		rec.bay.energy = 0
-	end
+	set_drill_enabled(rec.bay, false)
 	set_supply_watts(rec.supply, 0)
 	rec.supply_energy_was = 0
 end
@@ -561,11 +574,8 @@ function ModuleBay.feed_energy(vehicle)
 	end
 
 	rec.mining = true
-	rec.bay.active = true
 	set_supply_watts(supply, math.min(ModuleBay.SUPPLY_WATTS_CAP, math.max(draw_w * 2, 180000)))
-	if rec.bay.electric_buffer_size then
-		rec.bay.energy = rec.bay.electric_buffer_size
-	end
+	set_drill_enabled(rec.bay, true)
 	if supply and supply.valid then
 		rec.supply_energy_was = supply.energy or 0
 	end

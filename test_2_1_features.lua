@@ -476,7 +476,7 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.13"', 1, true) ~= nil, "pack version is 2.1.13")
+expect(info_src:find('"version": "2.1.14"', 1, true) ~= nil, "pack version is 2.1.14")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
 expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")
@@ -539,7 +539,23 @@ expect(scoop_src:find("function Scoop.tick_slave", 1, true) ~= nil, "tick_slave 
 expect(io.open("control.lua"):read("*a"):find("Scoop.tick_slave", 1, true) ~= nil, "drive harvest uses tick_slave")
 expect(io.open("harvester.lua"):read("*a"):find("Scoop.tick_slave", 1, true) ~= nil, "auto harvest uses tick_slave")
 expect(io.open("control.lua"):read("*a"):find("Scoop.harvest_area", 1, true) == nil, "drive harvest does not script-insert via harvest_area")
-expect(io.open("modulebay.lua"):read("*a"):find("function ModuleBay.feed_energy", 1, true) ~= nil, "hybrid feeds the slave-miner micro-grid")
+local mb_src = assert(io.open("modulebay.lua", "r")):read("*a")
+expect(mb_src:find("function ModuleBay.feed_energy", 1, true) ~= nil, "hybrid feeds the slave-miner micro-grid")
+expect(mb_src:find(".active =", 1, true) == nil, "modulebay does not write LuaEntity.active")
+expect(mb_src:find("disabled_by_script", 1, true) ~= nil, "2.1 drill gate uses disabled_by_script")
+expect(mb_src:find("set_supply_watts", 1, true) ~= nil, "starve/feed still cut or restore EEI watts")
+local active_scan = {
+	"modulebay.lua",
+	"control.lua",
+	"scoop.lua",
+	"hybriddrive.lua",
+	"harvester.lua",
+	"migrations/Red-Alert-Harvesters_2.1.12.lua",
+}
+for _, path in ipairs(active_scan) do
+	local src = assert(io.open(path, "r")):read("*a")
+	expect(src:find(".active =", 1, true) == nil, path .. " does not write .active")
+end
 expect(io.open("data-final-fixes.lua", "r") ~= nil, "data-final-fixes exists for optional Tiberium categories")
 
 expect(loc:find("mining%-draw%-title=Hybrid mining draw", 1) ~= nil, "hybrid mining draw title is localized")
