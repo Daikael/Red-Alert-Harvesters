@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.7
+Date: 2026-09-06
+  Changes:
+    - Localized remaining scoop/UI floating text: Inventory full, Heading for refuel, and the two auto-harvester blocked-refinery warnings. Colors and TTLs are unchanged (error red / 150 ticks for harvest errors).
+    - Pack version 2.1.7. Zip/folder name is Red-Alert-Harvester_2.1.7. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.6
 Date: 2026-09-06
   Bugfixes:

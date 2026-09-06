@@ -263,7 +263,7 @@ local function drive_harvest(player, vehicle)
 		return
 	end
 	if result.full and not result.inserted then
-		DrawFloatingText(vehicle.surface, vehicle, "Inventory full", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		DrawFloatingText(vehicle.surface, vehicle, {"cncharvester.inventory-full"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 	end
 end
 

@@ -147,7 +147,7 @@ cncharvester = {
 			and fuelInv
 			and fuelInv.get_item_count() < 5
 		then
-			self:FloatingText("Heading for refuel", {r = 0.2, g = 0.8, b = 0.2})
+			self:FloatingText({"cncharvester.heading-for-refuel"}, {r = 0.2, g = 0.8, b = 0.2})
 			self.state = States.FindingRefuelRefinery
 			self.refueling = true
 		end
@@ -396,7 +396,7 @@ cncharvester = {
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find unoccupied empty refinery", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+					self:FloatingText({"cncharvester.no-empty-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end
@@ -485,7 +485,7 @@ cncharvester = {
 			local refinery = Refinery.NearestWithFuel(self.vehicle)
 			if not refinery then
 				if (game.tick % 120) == 0 then
-					self:FloatingText("Cannot find refinery with fuel", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+					self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end

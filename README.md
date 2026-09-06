@@ -2,10 +2,10 @@
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
-This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.6`). It is **not** the live 2.0 stable pack on `master`.
+This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.7`). It is **not** the live 2.0 stable pack on `master`.
 
 - **2.0 stable players:** use `master` / `Red-Alert-Harvester_2.0.0`.
-- **2.1 experimental:** this branch / `Red-Alert-Harvester_2.1.6`.
+- **2.1 experimental:** this branch / `Red-Alert-Harvester_2.1.7`.
 
 ## Install naming (Factorio will refuse the wrong zip)
 
@@ -13,30 +13,30 @@ Factorio checks the **file or folder name** against `info.json`. The check is **
 
 ```text
 Failed to load mod "Red-Alert-Harvesters": Filename of mod .../Red-Alert-Harvesters.zip
-doesn't match the expected Red-Alert-Harvester_2.1.6.zip (case sensitive!)
+doesn't match the expected Red-Alert-Harvester_2.1.7.zip (case sensitive!)
 ```
 
 | What | Exact value |
 | --- | --- |
 | GitHub repo | `Red-Alert-Harvesters` (plural) — **do not use this as the zip name** |
 | `info.json` `name` | `Red-Alert-Harvester` (singular, no trailing `s`) |
-| `info.json` `version` | `2.1.6` |
-| Folder in `mods/` | `Red-Alert-Harvester_2.1.6` |
-| Zip in `mods/` | `Red-Alert-Harvester_2.1.6.zip` |
+| `info.json` `version` | `2.1.7` |
+| Folder in `mods/` | `Red-Alert-Harvester_2.1.7` |
+| Zip in `mods/` | `Red-Alert-Harvester_2.1.7.zip` |
 
-The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvester_2.1.6`**.
+The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvester_2.1.7`**.
 
 `info.json` must sit at the **zip root** or **one folder deep** with that same folder name:
 
 ```text
-Red-Alert-Harvester_2.1.6.zip
-  Red-Alert-Harvester_2.1.6/
+Red-Alert-Harvester_2.1.7.zip
+  Red-Alert-Harvester_2.1.7/
     info.json
     control.lua
     ...
 ```
 
-or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester.zip`, or `Red-Alert-Harvesters_2.1.6.zip` will fail to load.
+or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester.zip`, or `Red-Alert-Harvesters_2.1.7.zip` will fail to load.
 
 ### Where to put it
 
@@ -50,18 +50,18 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 
 ```bash
 # from a clone of this branch
-rm -rf /tmp/Red-Alert-Harvester_2.1.6 /tmp/Red-Alert-Harvester_2.1.6.zip
-mkdir /tmp/Red-Alert-Harvester_2.1.6
-rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.1.6/
-cd /tmp && zip -r Red-Alert-Harvester_2.1.6.zip Red-Alert-Harvester_2.1.6
-# copy Red-Alert-Harvester_2.1.6.zip into your Factorio mods folder
+rm -rf /tmp/Red-Alert-Harvester_2.1.7 /tmp/Red-Alert-Harvester_2.1.7.zip
+mkdir /tmp/Red-Alert-Harvester_2.1.7
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.1.7/
+cd /tmp && zip -r Red-Alert-Harvester_2.1.7.zip Red-Alert-Harvester_2.1.7
+# copy Red-Alert-Harvester_2.1.7.zip into your Factorio mods folder
 ```
 
-On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1.6`, then zip that folder (not the GitHub repo folder name).
+On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1.7`, then zip that folder (not the GitHub repo folder name).
 
 ## Smoke test (2.1 experimental)
 
-1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.6** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
+1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.7** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
 2. New Freeplay / sandbox. Research **Old World Harvesting**. Craft an Ore Truck and a Refinery.
 3. Fuel the truck, drive onto iron/copper/coal/stone. It should scoop into the trunk about every **5.3 seconds** (320 ticks) with no speed modules, then unload when you sit next to the refinery.
 4. SHIFT+E (or click the hitch) opens the companion **module bay** (starts empty). The truck recipe spends a solar panel + battery at craft; they are **not** in the grid or bay (no strip-recycle extra loot). Those ingredients give a **slow built-in recharge**. Install your own portable solar/battery for faster Hybrid refill. An empty or undercharged pool will not scoop.
@@ -82,7 +82,7 @@ On 2.1, speed modules and entity quality may **shorten** that 320-tick base. Aut
 
 ## Inventory-full warning
 
-When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red** `"Inventory full"` floating text for **150 ticks** (~2.5 seconds at 60 UPS). Auto-harvester blocked warnings (“Cannot find unoccupied empty refinery”, “Cannot find refinery with fuel”) use the same red/TTL. Informational lines such as green “Heading for refuel” are unchanged.
+When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red** localized `Inventory full` floating text (`cncharvester.inventory-full`) for **150 ticks** (~2.5 seconds at 60 UPS). Auto-harvester blocked warnings (`no-empty-refinery`, `no-fuel-refinery`) use the same red/TTL. Informational green `Heading for refuel` is also localized. Colors and TTLs are unchanged.
 
 ## 2.1-only features
 

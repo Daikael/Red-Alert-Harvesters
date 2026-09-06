@@ -350,10 +350,38 @@ expect(loc:find("cncharvester%-hybrid%-charge=Hybrid charge", 1) ~= nil, "hybrid
 expect(loc:find("%[fuel%-category%-name%]", 1) ~= nil, "fuel-category-name section exists")
 expect(loc:find("cncharvester%-hybrid=Hybrid charge", 1) ~= nil, "hybrid fuel category is localized")
 expect(loc:find("out%-of%-fuel=Out of fuel", 1) ~= nil, "out-of-fuel is localized")
+expect(loc:find("inventory%-full=Inventory full", 1) ~= nil, "inventory-full is localized")
+expect(loc:find("heading%-for%-refuel=Heading for refuel", 1) ~= nil, "heading-for-refuel is localized")
+expect(loc:find("no%-empty%-refinery=Cannot find unoccupied empty refinery", 1) ~= nil, "no-empty-refinery is localized")
+expect(loc:find("no%-fuel%-refinery=Cannot find refinery with fuel", 1) ~= nil, "no-fuel-refinery is localized")
 expect(loc:find("Fuel inserted in the tank charges this electrical capacity", 1, true) ~= nil, "fuel→electrical capacity string is localized")
 
+local toast_scan = {
+	["control.lua"] = {
+		[["Inventory full"]] = true,
+		[["Heading for refuel"]] = true,
+		[["Cannot find unoccupied empty refinery"]] = true,
+		[["Cannot find refinery with fuel"]] = true,
+	},
+	["harvester.lua"] = {
+		[["Inventory full"]] = true,
+		[["Heading for refuel"]] = true,
+		[["Cannot find unoccupied empty refinery"]] = true,
+		[["Cannot find refinery with fuel"]] = true,
+	},
+}
+for path, banned in pairs(toast_scan) do
+	local src = assert(io.open(path, "r")):read("*a")
+	for needle, _ in pairs(banned) do
+		expect(src:find(needle, 1, true) == nil, path .. " does not hard-code " .. needle)
+	end
+	if path == "control.lua" then
+		expect(src:find('{"cncharvester.inventory-full"}', 1, true) ~= nil, "control.lua uses inventory-full locale key")
+	end
+end
+
 local info_src = assert(io.open("info.json", "r")):read("*a")
-expect(info_src:find('"version": "2.1.6"', 1, true) ~= nil, "pack version is 2.1.6")
+expect(info_src:find('"version": "2.1.7"', 1, true) ~= nil, "pack version is 2.1.7")
 
 local charge_src = assert(io.open("prototypes/items/hybrid_charge.lua", "r")):read("*a")
 expect(charge_src:find('localised_name = {"item-name.cncharvester-hybrid-charge"}', 1, true) ~= nil, "charge item sets localised_name")
