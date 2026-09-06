@@ -10,7 +10,7 @@ data:extend({
 
 local function bay_animation()
 	local frame = {
-		filename = "__Red-Alert-Harvester__/graphics/icons/harv_icon.png",
+		filename = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png",
 		width = 32,
 		height = 32,
 		scale = 0.45,
@@ -69,6 +69,6 @@ local function module_bay(name, slots, icon)
 end
 
 data:extend({
-	module_bay("cncharvester-module-bay", 2, "__Red-Alert-Harvester__/graphics/icons/harv_icon.png"),
-	module_bay("cncharvester-type2-module-bay", 3, "__Red-Alert-Harvester__/graphics/icons/harv_icon-type2.png"),
+	module_bay("cncharvester-module-bay", 2, "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"),
+	module_bay("cncharvester-type2-module-bay", 3, "__Red-Alert-Harvesters__/graphics/icons/harv_icon-type2.png"),
 })

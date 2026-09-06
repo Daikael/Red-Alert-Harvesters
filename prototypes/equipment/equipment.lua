@@ -7,7 +7,7 @@ data:extend (
 			name = "Hybrid-drive",
 			sprite =
 			{
-				filename = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+				filename = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 				width = 64,
 				height = 64,
 				priority = "medium"
@@ -31,7 +31,7 @@ data:extend (
 			name = "Hybrid-drive-battery",
 			sprite =
 			{
-				filename = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+				filename = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 				width = 64,
 				height = 64,
 				priority = "medium"

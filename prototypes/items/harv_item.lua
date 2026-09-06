@@ -5,7 +5,7 @@ for i=1,2 do
 		{
 			type = "item-with-entity-data",
 			name = "cncharvester"..suffix,
-			icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon"..suffix..".png",
+			icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon"..suffix..".png",
 			icon_size = 32,
 			subgroup = "transport",
 			order = "b[personal-transport]-a[cncharvester]-b[car]",

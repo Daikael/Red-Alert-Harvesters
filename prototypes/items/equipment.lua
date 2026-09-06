@@ -3,7 +3,7 @@ data:extend (
 		{
 			type = "item",
 			name = "Hybrid-drive",
-			icon = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+			icon = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 			icon_size = 64,
 			place_as_equipment_result = "Hybrid-drive",
 			subgroup = "equipment",
@@ -13,7 +13,7 @@ data:extend (
 		{
 			type = "item",
 			name = "Hybrid-drive-battery",
-			icon = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+			icon = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 			icon_size = 64,
 			place_as_equipment_result = "Hybrid-drive-battery",
 			subgroup = "equipment",

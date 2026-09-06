@@ -3,7 +3,7 @@ data:extend(
 	{
 		type = "item",
 		name = "refinery",
-		icon = "__Red-Alert-Harvester__/graphics/icons/refin_icon.png",
+		icon = "__Red-Alert-Harvesters__/graphics/icons/refin_icon.png",
 		icon_size = 32,
 		flags = {},
 		subgroup = "storage",

@@ -3,7 +3,7 @@ data:extend({
 		type = "technology",
 		name = "Old-World-Harvesting",
 		prerequisites = {"steel-processing", "engine"},
-		icon = "__Red-Alert-Harvester__/graphics/icons/refin_icon.png",
+		icon = "__Red-Alert-Harvesters__/graphics/icons/refin_icon.png",
 		icon_size = 32,
 		effects =
 		{
@@ -48,7 +48,7 @@ data:extend({
 		type = "technology",
 		name = "Hybrid-Electric_Engines",
 			prerequisites = {"Old-World-Harvesting"},
-		icon = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+		icon = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 		icon_size = 64,
 		effects = 
 		{

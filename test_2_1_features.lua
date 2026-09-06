@@ -410,7 +410,18 @@ expect(io.open("control.lua"):read("*a"):find('{"cncharvester.inventory-full"}',
 expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refinery"}', 1, true) ~= nil, "harvester.lua uses no-empty-refinery locale key")
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
+expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
 expect(info_src:find('"version": "2.1.8"', 1, true) ~= nil, "pack version is 2.1.8")
+local proto_scan = {
+	"prototypes/items/hybrid_charge.lua",
+	"prototypes/entities/harv_entity.lua",
+	"prototypes/entities/module_bay.lua",
+}
+for _, path in ipairs(proto_scan) do
+	local src = assert(io.open(path, "r")):read("*a")
+	expect(src:find("__Red-Alert-Harvester__/", 1, true) == nil, path .. " does not use singular asset prefix")
+	expect(src:find("__Red-Alert-Harvesters__/", 1, true) ~= nil, path .. " uses plural asset prefix")
+end
 
 local charge_src = assert(io.open("prototypes/items/hybrid_charge.lua", "r")):read("*a")
 expect(charge_src:find('localised_name = {"item-name.cncharvester-hybrid-charge"}', 1, true) ~= nil, "charge item sets localised_name")

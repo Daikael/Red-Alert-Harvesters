@@ -125,7 +125,7 @@ cncharvester = {
 	end,
 
 	ErrorDump = function(self)
-		log("Red-Alert-Harvester harvester state=" .. tostring(self.state) .. " orientation=" .. tostring(self.currentOrientation))
+		log("Red-Alert-Harvesters harvester state=" .. tostring(self.state) .. " orientation=" .. tostring(self.currentOrientation))
 	end,
 
 	FloatingText = function(self, text, color, ttl)

@@ -6,12 +6,13 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch name matches the pack folder: **`Red-Alert-Harvester_<version>`** (this rev: `Red-Alert-Harvester_2.1.8`). Not `cursor/…`. GitHub source zips may be prefixed `Red-Alert-Harvesters-…`; rename the extracted folder to `Red-Alert-Harvester_2.1.8` before install.
+- Tester-facing git branch is the three-part version (`2.1.8`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.8`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.8` (hyphen); rename to underscore before install.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
+| `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
 | `info.json` `version` | `2.0.0` | `2.1.8` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
@@ -19,7 +20,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 ## Ported from 2.0 (`master` / PR #3)
 
-- README zip name: `Red-Alert-Harvester_<version>` matching singular `info.json` `name`.
+- README zip name: `Red-Alert-Harvesters_<version>` matching plural `info.json` `name` (2.1 experimental). The 2.0 line on `master` still uses singular `Red-Alert-Harvester`.
 - Drive scoop **frequency** 320 ticks (~5.33s, 1.875× vs 600). Volume per scoop still 4.
 - Inventory-full / blocked-harvest toasts: locale keys (`cncharvester.inventory-full` and related), `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
 
@@ -144,7 +145,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvester_2.1.8`** (singular `info.json` name — see README). Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvesters_2.1.8`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.8` → `Red-Alert-Harvesters_2.1.8`. Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Cost matches yield/speed:** A 2 kJ spark or leftover sliver cannot buy a full max-speed scoop. More ores / speed modules / quality cost more. One personal solar’s stored charge must not authorize an underpriced full scoop (grid→pool stays rate-capped and separate).
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.

@@ -1,7 +1,7 @@
 require "specialOres"
 
 function Error(text)
-	log("Red-Alert-Harvester: " .. tostring(text or "unknown error"))
+	log("Red-Alert-Harvesters: " .. tostring(text or "unknown error"))
 	if game and game.print then
 		game.print({"", "[C&C Harvesters] ", text or "unknown error"})
 	end

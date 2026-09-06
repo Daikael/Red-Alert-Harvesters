@@ -18,7 +18,7 @@ data:extend({
 		name = "cncharvester-hybrid-charge",
 		localised_name = {"item-name.cncharvester-hybrid-charge"},
 		localised_description = {"item-description.cncharvester-hybrid-charge"},
-		icon = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
+		icon = "__Red-Alert-Harvesters__/graphics/equipment/Hybrid-drive.png",
 		icon_size = 64,
 		hidden = true,
 		hidden_in_factoriopedia = true,
