@@ -20,7 +20,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - README zip name: `Red-Alert-Harvester_<version>` matching singular `info.json` `name`.
 - Drive scoop **frequency** 320 ticks (~5.33s, 1.875× vs 600). Volume per scoop still 4.
-- Inventory-full / blocked-harvest toasts: `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
+- Inventory-full / blocked-harvest toasts: locale keys (`cncharvester.inventory-full` and related), `FLOATING_TEXT_ERROR_RED`, 150 tick TTL. Greens unchanged.
 
 ## Feature 1 — Modular Ore Truck
 
