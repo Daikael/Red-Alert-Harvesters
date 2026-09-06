@@ -77,20 +77,22 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 
 Tax is taken from `remaining_burning_fuel` first, then cheap fuel items in the tank.
 
-## Feature 2 — Hybrid-drive converter
+## Feature 2 — Hybrid energy pool
 
-Hybrid-drive is **battery-equipment** (converter identity), not a 0.4 kW solar panel. Hybrid-drive-battery remains 7 MJ storage. Auto-equip both on **first enter only**; later removals are left alone. Grids are 4×4 / 5×5 so a third-party armor generator can fit.
+Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are not placed into the module bay or equipment grid. New trucks spawn with an **empty grid**. Hybrid converts **actual stored electric energy** from player-installed grid equipment (portable solar, battery, fusion, …). Empty grid → no refill. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
 
-Every tick, `HybridDrive.maintain`:
+Every tick, `HybridDrive.maintain` then `tick`:
 
 1. Strip nuclear-tier **items** from the fuel inventory. If `currently_burning` is nuclear-fuel / uranium-fuel-cell / fusion-power-cell, wipe remaining and lock to hybrid-charge.
 2. Convert remaining chemical fuels (coal, wood, solid fuel, …) into the hybrid pool: consume the items, add `fuel_value` joules, cap **80 MJ**.
 3. `currently_burning` is **always** hidden `cncharvester-hybrid-charge` (`fuel_category` `cncharvester-hybrid`). Writing it fills remaining to 80 MJ; `lock_charge` immediately writes the intended remaining. This is what stopped Factorio latching `nuclear-fuel` (empty-looking bar, still driving).
 4. If the pool is **0 J**, `has_energy` is false: no drive scoop, no auto scoop, car `speed` forced to 0.
-5. If Hybrid-drive is installed, pull grid energy and add `pulled * 0.90` only while remaining is below the **4 s** electric cap. Electric refill never shrinks a solid-converted pool and never inserts items.
+5. If the grid has stored energy, pull up to `grid_j_per_tick` from batteries first, then other equipment, and add `pulled * 0.90` while remaining is below the electric cap. Electric refill never shrinks a solid-converted pool and never inserts items.
 6. On mine, clear `currently_burning` and strip charge/nuclear from the mine buffer.
 
 Vehicle `fuel_categories` are `cncharvester-hybrid` then `chemical` so the tank still accepts coal, but the engine’s burn identity is only hybrid-charge.
+
+**Quality** (entity quality, not module slots): refill rate +1.5% per level, electric cap +25% per level. Refill stays below driving draw at every quality. Module bay stays **2 / 3** slots (`quality_affects_module_slots = false`).
 
 ### Kickoff fuel (2.1.5 — hybrid pool only)
 
@@ -103,7 +105,7 @@ Otherwise (no coal/wood, or robot/script/clone): **2 kJ spark** of hybrid-charge
 | Source | Energy | Notes |
 | --- | --- | --- |
 | Empty-tank spark | **2 kJ** | Hybrid-charge identity; sliver on an 80 MJ bar |
-| Hybrid idle cap | 300 / 350 kJ | Paid from grid, 10% below drive draw |
+| Hybrid idle cap (normal) | 300 / 350 kJ | Paid from grid, 10% below drive draw; quality enlarges this |
 | 1 coal converted | 4 MJ | Player-paid; tank stays empty of items |
 | Pool cap | 80 MJ | 20× coal; hidden item `fuel_value` |
 
@@ -121,7 +123,15 @@ Prototype `consumption` is 150 kW / 175 kW with `effectivity = 2`. Actual burner
 | Grid pull (90% conversion) | 75.76 kW | 88.38 kW |
 | Max idle buffer | 300 kJ (4 s) | 350 kJ |
 
-Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW even with full batteries and a huge generator. Idle or slow driving can refill the 4 s buffer, then stops.
+Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal** truck even with a charged grid. Quality raises refill slightly (+1.5%/level) and the parked electric cap (+25%/level → legendary ~9 s). Idle or slow driving can refill that cap, then stops.
+
+| Quality | Refill vs normal | Electric cap vs normal |
+| --- | --- | --- |
+| 0 normal | 1.00× | 4.0 s |
+| 1 uncommon | 1.015× | 5.0 s |
+| 2 rare | 1.030× | 6.0 s |
+| 3 epic | 1.045× | 7.0 s |
+| 5 legendary | 1.075× | 9.0 s |
 
 ## How to test (Factorio 2.1 experimental)
 
@@ -133,7 +143,9 @@ This environment has **no Factorio client**. Static checks: `luac -p` and `lua t
 4. **Harvest fuel tax:** Drive-harvest with an empty bay — coal should drop clearly. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
 5. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
 6. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better. Slot count must stay 2 / 3.
-7. **Hybrid drain-while-driving:** First enter auto-inserts Hybrid-drive + battery. Fill the grid with a high-power armor generator if you have one, and fill batteries. Drive at full throttle: burner fuel / remaining burn should slowly fall. Park: remaining burn should climb back toward the 4 s cap, then hold.
+7. **Craft / grid:** Recipe lists solar panel + battery. A freshly placed truck has an **empty grid** and empty module bay (no free solar/battery/Hybrid-drive). Install portable solar/battery (or any charged equipment). Hybrid should refill hybrid-charge from that stored energy. Remove/uncharge the grid: no refill.
+8. **Quality hybrid:** A rare/legendary truck should refill faster and hold a larger electric cap than normal. Driving still net-drains. Module slots stay 2 / 3.
+9. **Hybrid drain-while-driving:** With a charged grid, drive at full throttle: pool should slowly fall. Park: remaining should climb toward the (quality-scaled) cap, then hold.
 
 ## Remaining 2.1 unknowns
 

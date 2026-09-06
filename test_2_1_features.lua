@@ -75,6 +75,23 @@ local tib = HybridDrive.rates("cncharvester-type2")
 expect(math.abs(tib.drive_w - 87500) < 1, "type2 drive draw 87.5 kW")
 expect(tib.drive_w > tib.refill_w, "type2 driving outstrips refill")
 
+local rare = HybridDrive.rates("cncharvester", {level = 2})
+expect(rare.refill_w > ore.refill_w, "rare hybrid refill is faster")
+expect(rare.max_buffer_j > ore.max_buffer_j, "rare hybrid electric cap is larger")
+expect(rare.refill_w < rare.drive_w, "rare refill still below drive")
+local legendary = HybridDrive.rates("cncharvester", {level = 5})
+expect(legendary.refill_w > rare.refill_w, "legendary refill beats rare")
+expect(legendary.max_buffer_j > rare.max_buffer_j, "legendary cap beats rare")
+expect(legendary.refill_w < legendary.drive_w, "legendary driving still net-drains")
+expect(math.abs(legendary.max_buffer_j / ore.max_buffer_j - 2.25) < 1e-6, "legendary electric cap is 2.25× (9 s)")
+
+local cell = {energy = 10000, valid = true, type = "battery-equipment"}
+local pulled = HybridDrive.take_from_grid({equipment = {cell}}, 4000)
+expect(pulled == 4000, "hybrid pulls stored grid energy")
+expect(cell.energy == 6000, "pulled energy is removed from the equipment")
+expect(HybridDrive.take_from_grid({equipment = {{energy = 0, valid = true}}}, 4000) == 0, "empty grid does not refill")
+expect(HybridDrive.grid_stored_energy({equipment = {{energy = 0, valid = true}}}) == 0, "empty stored energy is 0")
+
 expect(Scoop.PARASITIC_JOULES_BASE == 1200000, "parasitic base 1.2 MJ")
 expect(math.abs(Scoop.parasitic_joules(0) - 1200000) < 1, "no efficiency = 1.2 MJ tax")
 expect(math.abs(Scoop.parasitic_joules(-0.4) - 720000) < 1, "1x eff-3 = 0.72 MJ")
@@ -200,6 +217,48 @@ expect(convert_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "con
 expect(convert_vehicle.burner.remaining_burning_fuel == 8000000, "pool received both coal")
 expect(HybridDrive.has_energy(convert_vehicle), "converted coal can drive")
 expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skipped when the pool has energy")
+
+local rec_src = assert(io.open("prototypes/recipes/harv_recipe.lua", "r")):read("*a")
+expect(rec_src:find('name = "solar-panel"', 1, true) ~= nil, "truck recipes include solar-panel")
+expect(rec_src:find('name = "battery"', 1, true) ~= nil, "truck recipes include battery")
+expect(select(2, rec_src:gsub('name = "solar%-panel"', "")) >= 2, "both harvester recipes list solar-panel")
+
+local gifted = {put = {}}
+HybridDrive.auto_equip({valid = true, grid = {
+	find = function() return nil end,
+	put = function(spec) table.insert(gifted.put, spec.name) end,
+}})
+expect(#gifted.put == 0, "auto_equip does not insert free grid equipment")
+
+local tick_cell = {energy = 50000, valid = true, type = "solar-panel-equipment"}
+local tick_burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0}
+local tick_vehicle = {
+	valid = true,
+	name = "cncharvester",
+	quality = {level = 0},
+	burner = tick_burner,
+	grid = {equipment = {tick_cell}, available_in_batteries = 50000},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+HybridDrive.tick(tick_vehicle)
+expect(tick_burner.currently_burning == HybridDrive.CHARGE_ITEM, "tick refill stays hybrid-charge")
+expect(tick_burner.remaining_burning_fuel > 0, "charged grid refills the hybrid pool")
+expect(tick_cell.energy < 50000, "tick consumes grid energy")
+
+local empty_tick = {
+	valid = true,
+	name = "cncharvester",
+	quality = {level = 0},
+	burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0},
+	grid = {equipment = {{energy = 0, valid = true}}, available_in_batteries = 0},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+HybridDrive.tick(empty_tick)
+expect(empty_tick.burner.remaining_burning_fuel == 0, "empty grid does not add hybrid energy")
 
 local bay_src = assert(io.open("prototypes/entities/module_bay.lua", "r")):read("*a")
 expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality")

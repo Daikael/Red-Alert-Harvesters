@@ -28,6 +28,10 @@ HybridDrive.SPARK_JOULES = 2000
 HybridDrive.CONVERSION_EFFICIENCY = 0.90
 HybridDrive.DRIVE_OVER_REFILL = 1.10
 HybridDrive.BUFFER_SECONDS = 4
+-- Quality: faster refill + larger electric cap. Refill stays below drive so
+-- sustained driving still net-drains at every quality.
+HybridDrive.QUALITY_REFILL_PER_LEVEL = 0.015
+HybridDrive.QUALITY_BUFFER_PER_LEVEL = 0.25
 
 HybridDrive.VEHICLE = {
 	["cncharvester"] = {
@@ -40,21 +44,35 @@ HybridDrive.VEHICLE = {
 	},
 }
 
-function HybridDrive.rates(vehicle_name)
+function HybridDrive.quality_level(quality)
+	if not quality then
+		return 0
+	end
+	return quality.level or 0
+end
+
+function HybridDrive.rates(vehicle_name, quality)
 	local spec = HybridDrive.VEHICLE[vehicle_name]
 	if not spec then
 		return nil
 	end
+	local q = HybridDrive.quality_level(quality)
 	local drive_w = spec.consumption_w / spec.effectivity
-	local refill_w = drive_w / HybridDrive.DRIVE_OVER_REFILL
+	local refill_w = (drive_w / HybridDrive.DRIVE_OVER_REFILL) * (1 + HybridDrive.QUALITY_REFILL_PER_LEVEL * q)
+	if refill_w >= drive_w then
+		refill_w = drive_w / HybridDrive.DRIVE_OVER_REFILL
+	end
 	local grid_pull_w = refill_w / HybridDrive.CONVERSION_EFFICIENCY
+	local buffer_s = HybridDrive.BUFFER_SECONDS * (1 + HybridDrive.QUALITY_BUFFER_PER_LEVEL * q)
 	return {
 		drive_w = drive_w,
 		refill_w = refill_w,
 		grid_pull_w = grid_pull_w,
 		refill_j_per_tick = refill_w / 60,
 		grid_j_per_tick = grid_pull_w / 60,
-		max_buffer_j = drive_w * HybridDrive.BUFFER_SECONDS,
+		max_buffer_j = drive_w * buffer_s,
+		buffer_s = buffer_s,
+		quality_level = q,
 		consumption_w = spec.consumption_w,
 		effectivity = spec.effectivity,
 	}
@@ -317,26 +335,9 @@ function HybridDrive.prepare_vehicle(vehicle)
 	end
 end
 
-function HybridDrive.auto_equip(vehicle)
-	if not (vehicle and vehicle.valid) then
-		return
-	end
-	local grid = vehicle.grid
-	if not grid then
-		return
-	end
-	HybridDrive.ensure_storage()
-	local id = vehicle.unit_number
-	if storage.hybrid_greeted[id] then
-		return
-	end
-	storage.hybrid_greeted[id] = true
-	if not grid.find(HybridDrive.CONVERTER_NAME) then
-		grid.put{name = HybridDrive.CONVERTER_NAME}
-	end
-	if not grid.find(HybridDrive.BATTERY_NAME) then
-		grid.put{name = HybridDrive.BATTERY_NAME}
-	end
+-- No free grid loot. Solar-panel + battery are recipe ingredients of the truck;
+-- the player installs their own equipment. Hybrid reads actual stored energy.
+function HybridDrive.auto_equip(_vehicle)
 end
 
 function HybridDrive.forget(unit_number)
@@ -363,14 +364,41 @@ function HybridDrive.enforce_empty(vehicle)
 	end
 end
 
-local function take_from_grid(grid, joules)
+function HybridDrive.grid_stored_energy(grid)
+	if not grid then
+		return 0
+	end
+	local sum = 0
+	if grid.available_in_batteries then
+		sum = grid.available_in_batteries
+	end
+	if grid.equipment then
+		local from_eq = 0
+		for _, eq in pairs(grid.equipment) do
+			if eq.valid ~= false and eq.energy and eq.energy > 0 then
+				from_eq = from_eq + eq.energy
+			end
+		end
+		if from_eq > sum then
+			sum = from_eq
+		end
+	end
+	return sum
+end
+
+-- Pull stored electric energy from any grid equipment (solar, battery, fusion…).
+-- Empty grid → 0. Does not require Hybrid-drive to be installed.
+function HybridDrive.take_from_grid(grid, joules)
 	if joules <= 0 or not grid then
 		return 0
 	end
 	local batteries = {}
 	local others = {}
+	if not grid.equipment then
+		return 0
+	end
 	for _, eq in pairs(grid.equipment) do
-		if eq.valid and eq.energy and eq.energy > 0 then
+		if eq.valid ~= false and eq.energy and eq.energy > 0 then
 			local eq_type = eq.type or (eq.prototype and eq.prototype.type)
 			if eq_type == "battery-equipment" then
 				table.insert(batteries, eq)
@@ -437,19 +465,22 @@ function HybridDrive.tick(vehicle)
 		return
 	end
 	HybridDrive.maintain(vehicle)
-	local rates = HybridDrive.rates(vehicle.name)
+	local rates = HybridDrive.rates(vehicle.name, vehicle.quality)
 	if not rates then
 		return
 	end
 	local grid = vehicle.grid
-	if not grid or not grid.find(HybridDrive.CONVERTER_NAME) then
+	if not grid then
+		return
+	end
+	if HybridDrive.grid_stored_energy(grid) <= 0 then
 		return
 	end
 	local burner = vehicle.burner
 	if not burner then
 		return
 	end
-	local pulled = take_from_grid(grid, rates.grid_j_per_tick)
+	local pulled = HybridDrive.take_from_grid(grid, rates.grid_j_per_tick)
 	if pulled <= 0 then
 		return
 	end

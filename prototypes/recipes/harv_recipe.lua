@@ -12,7 +12,9 @@ data:extend(
 			{type = "item", name = "iron-plate", amount = 20},
 			{type = "item", name = "steel-plate", amount = 5},
 			{type = "item", name = "iron-chest", amount = 1},
-			{type = "item", name = "steel-chest", amount = 1}
+			{type = "item", name = "steel-chest", amount = 1},
+			{type = "item", name = "solar-panel", amount = 1},
+			{type = "item", name = "battery", amount = 1}
 		},
 		results =
 		{
@@ -30,7 +32,9 @@ data:extend(
 			{type = "item", name = "engine-unit", amount = 10},
 			{type = "item", name = "iron-plate", amount = 100},
 			{type = "item", name = "steel-plate", amount = 25},
-			{type = "item", name = "steel-chest", amount = 2}
+			{type = "item", name = "steel-chest", amount = 2},
+			{type = "item", name = "solar-panel", amount = 1},
+			{type = "item", name = "battery", amount = 1}
 		},
 		results =
 		{

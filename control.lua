@@ -185,7 +185,6 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	if ent and ent.valid and HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
 		HybridDrive.prepare_vehicle(ent)
-		HybridDrive.auto_equip(ent)
 	end
 end)
 

@@ -1,7 +1,7 @@
 data:extend (
 	{
-		-- Converter identity. Script pulls grid energy when this is installed.
-		-- Battery-equipment (not solar): generation is not the conversion path.
+		-- Optional extra grid buffer. Hybrid conversion reads any stored
+		-- equipment energy and does not require this item to be installed.
 		{
 			type = "battery-equipment",
 			name = "Hybrid-drive",

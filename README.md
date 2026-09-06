@@ -64,7 +64,7 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1
 1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.5** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
 2. New Freeplay / sandbox. Research **Old World Harvesting**. Craft an Ore Truck and a Refinery.
 3. Fuel the truck, drive onto iron/copper/coal/stone. It should scoop into the trunk about every **5.3 seconds** (320 ticks) with no speed modules, then unload when you sit next to the refinery.
-4. SHIFT+E (or click the hitch) opens the companion **module bay**. First enter auto-inserts Hybrid-drive + battery.
+4. SHIFT+E (or click the hitch) opens the companion **module bay** (modules only). The truck recipe spends a solar panel + battery; the grid starts empty — install your own portable solar/battery for Hybrid refill.
 5. Optional: Mods → Startup → **Automatic harvester testing**, place a fueled truck near ore and a refinery, then save/reload.
 
 ## Drive-and-harvest scoop rate
@@ -86,7 +86,7 @@ When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red*
 
 ## 2.1-only features
 
-See `FACTORIO_2.1.md`: companion module bay (fixed 2 / 3 slots), quality/drain scooping, harvest parasitic fuel tax (efficiency modules), Hybrid-drive pool (`cncharvester-hybrid-charge` only — never nuclear). New trucks get a 2 kJ hybrid spark or 1 placer coal/wood converted into that pool.
+See `FACTORIO_2.1.md`: companion module bay (fixed 2 / 3 slots), quality/drain scooping, harvest parasitic fuel tax, hybrid-charge pool (never nuclear). Truck recipes cost solar panel + battery; Hybrid converts player-installed grid energy (quality scales refill).
 
 ## Optional dependency
 
