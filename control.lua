@@ -147,6 +147,11 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	end
 end)
 
+-- Player-in-vehicle scoop cadence at 60 UPS:
+-- on_nth_tick(60) * DRIVE_MINE_INTERVAL seconds between scoops.
+-- First 2.0 drop used 10 (one scoop / 10s). 6 is just under doubled (10/6 ≈ 1.67×).
+-- An exact 2× would be 5; keep 6 so it stays "just under 2×".
+local DRIVE_MINE_INTERVAL = 6
 local mine_timer = 0
 local function On_Tick_Driving_Players()
 	for _, player in pairs(game.connected_players) do
@@ -160,7 +165,7 @@ local function On_Tick_Driving_Players()
 			}
 
 			mine_timer = mine_timer + 1
-			if mine_timer >= 10 then
+			if mine_timer >= DRIVE_MINE_INTERVAL then
 				mine_timer = 0
 				local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
 				if trunk then

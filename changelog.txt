@@ -8,6 +8,8 @@ Date: 2026-09-05
     - Runtime storage renamed from global to storage; prototype lookups use the prototypes table.
     - Inventory transfers preserve quality (get_contents is now an array).
     - Drive-and-harvest only runs on Ore Truck / Tiberium harvester vehicles.
+    - Player-in-vehicle scoop interval is 6s at 60 UPS (was 10s; just under 2×).
+    - README documents the required mods-folder name Red-Alert-Harvester_2.0.0 (not the GitHub repo name).
     - Automatic harvesting (startup setting) no longer depends on missing animation assets or a hidden refinery chest.
     - Optional Factorio-Tiberium dependency accepts 2.0 releases.
   Bugfixes:
