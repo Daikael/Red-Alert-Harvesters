@@ -7,6 +7,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
 - Tester-facing git branch is the three-part version (`2.1.9`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.9`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.9` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
+- **Bump by renaming in place** (`2.1.9` → `2.1.10`): `git branch -m`, push the new name, delete the old remote. Do not leave the previous version branch as a parallel head. Prefer retargeting the open draft PR; if GitHub cannot retarget, open a new draft, close the old PR with a pointer, and still delete the old branch.
 
 ## Packaging
 

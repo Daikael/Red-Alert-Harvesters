@@ -13,6 +13,8 @@ Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2
 
 Tester-facing development branches are **just the three-part version**: `2.1.9`, then `2.1.10`, … Do not use `cursor/…` names. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
 
+**Version bumps rename the branch in place.** Do not open a parallel `2.1.10` next to `2.1.9`. Rename (`git branch -m 2.1.10`, push the new name, delete the old remote). Prefer retargeting the open draft PR; if GitHub cannot retarget the head, open a new draft PR, close the old one with a pointer, and still delete the old version branch.
+
 GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.9`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.9`**.
 
 ## Install naming (Factorio will refuse the wrong zip)
