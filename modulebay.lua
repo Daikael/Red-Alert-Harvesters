@@ -1,5 +1,5 @@
 -- Slave mining-drill teleported with each Ore Truck.
--- Players open it (click hitch or SHIFT+E) for the vanilla module + energy GUI.
+-- Players open it (SHIFT+E or click the truck) for the vanilla module + energy GUI.
 -- 2.1.12: the drill mines natively. Hybrid pool feeds a private micro-grid.
 
 require "utilities"

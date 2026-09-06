@@ -5,21 +5,37 @@
 
 require("util")
 
-local function bay_animation()
-	local frame = {
-		filename = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png",
-		width = 32,
-		height = 32,
-		scale = 0.45,
-		shift = {0.85, 0.85},
-		frame_count = 1,
-		priority = "extra-high"
-	}
+-- World-invisible 1×1. Never reuse one table across 4-way directions
+-- (AtlasBuilder can walk x += width and leave the sheet).
+local function empty_world_sprite()
+	local sprite = util.empty_sprite()
+	sprite.filename = "__core__/graphics/empty.png"
+	sprite.x = 0
+	sprite.y = 0
+	sprite.width = 1
+	sprite.height = 1
+	sprite.frame_count = 1
+	sprite.line_length = 1
+	sprite.direction_count = 1
+	sprite.hr_version = nil
+	sprite.shift = {0, 0}
+	return sprite
+end
+
+-- 2.1.16 leftover: slave-drill graphics_set.animation was harv_icon.png
+-- (32×32 ore-truck still) at shift {0.85, 0.85} on BOTH bays. That is the
+-- floating bottom-right square testers saw idle and mining. Unused sheets
+-- graphics/entity/harv-anim/1.png and harvester/harvester-up-*.png are not
+-- referenced by any prototype.
+local function empty_4way_animation()
+	local function frame()
+		return {layers = {empty_world_sprite()}}
+	end
 	return {
-		north = {layers = {frame}},
-		east = {layers = {frame}},
-		south = {layers = {frame}},
-		west = {layers = {frame}}
+		north = frame(),
+		east = frame(),
+		south = frame(),
+		west = frame()
 	}
 end
 
@@ -45,7 +61,7 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 		name = name,
 		icon = icon,
 		icon_size = 32,
-		-- Visible enough to open (SHIFT+E / click hitch) so the energy bar shows.
+		-- Selectable for SHIFT+E / click (modules + energy bar) but no world sprite.
 		hidden = false,
 		hidden_in_factoriopedia = true,
 		flags = {
@@ -55,6 +71,7 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 			"not-deconstructable",
 			"not-repairable",
 			"not-flammable",
+			"hide-alt-info",
 			"no-automated-item-removal",
 			"no-automated-item-insertion"
 		},
@@ -88,8 +105,9 @@ local function module_bay(name, slots, icon, mining_speed, energy_usage, search_
 		module_slots = slots,
 		quality_affects_module_slots = false,
 		allowed_effects = {"speed", "productivity", "consumption", "pollution", "quality"},
+		radius_visualisation_picture = empty_world_sprite(),
 		graphics_set = {
-			animation = bay_animation()
+			animation = empty_4way_animation()
 		}
 	}
 end
@@ -112,26 +130,6 @@ data:extend({
 		3.5
 	),
 })
-
--- 2.1.15 painted helpers with graphics/entity/transparent.png (256×256)
--- plus direction_count=4 / a shared 4-way table. AtlasBuilder then asked
--- for left_top=256x0, which is outside that sheet (Factorio 2.1.16 crash).
--- Use core empty.png at 1×1, x=0, y=0, one direction — same as util.empty_sprite().
-
-local function empty_world_sprite()
-	local sprite = util.empty_sprite()
-	sprite.filename = "__core__/graphics/empty.png"
-	sprite.x = 0
-	sprite.y = 0
-	sprite.width = 1
-	sprite.height = 1
-	sprite.frame_count = 1
-	sprite.line_length = 1
-	sprite.direction_count = 1
-	sprite.hr_version = nil
-	sprite.shift = {0, 0}
-	return sprite
-end
 
 local function strip_world_graphics(ent)
 	ent.pictures = nil

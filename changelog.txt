@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.17
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.17. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.17. Git branch is 2.1.17 (renamed in place from 2.1.16). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Slave-drill hitch no longer draws graphics/icons/harv_icon.png at shift {0.85, 0.85}. That 32×32 ore-truck still sat on both trucks (idle and mining) as the floating bottom-right square. The drill stays selectable for SHIFT+E / modules / energy bar; its graphics_set uses util.empty_sprite(). Unused graphics/entity/transparent.png is removed. Unused mining sheets (harv-anim, harvester-up-*) were not referenced.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.16
 Date: 2026-09-06
   Info:
