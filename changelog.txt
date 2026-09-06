@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.15
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.15. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.15. Git branch is 2.1.15 (renamed in place from 2.1.14). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Private hitch micro-grid helpers (power pole, electric-energy-interface, output hopper) no longer show vanilla sprites while the truck moves. They use the pack's transparent sheet, empty selection boxes, and hide-alt-info. The slave-drill hitch stays selectable so SHIFT+E still opens the energy bar / modules. Helpers still power and catch ore.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.14
 Date: 2026-09-06
   Info:

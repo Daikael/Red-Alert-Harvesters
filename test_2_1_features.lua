@@ -476,7 +476,7 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.14"', 1, true) ~= nil, "pack version is 2.1.14")
+expect(info_src:find('"version": "2.1.15"', 1, true) ~= nil, "pack version is 2.1.15")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
 expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")
@@ -522,6 +522,10 @@ expect(bay_src:find("cncharvester-drill-pole", 1, true) ~= nil, "private micro-g
 expect(bay_src:find("cncharvester-drill-supply", 1, true) ~= nil, "hybrid-fed electric-energy-interface exists")
 expect(bay_src:find("cncharvester-scoop-hopper", 1, true) ~= nil, "output hopper exists")
 expect(bay_src:find("maximum_wire_distance = 0", 1, true) ~= nil, "private pole does not copper-join the factory")
+expect(bay_src:find("function strip_world_graphics", 1, true) ~= nil, "helpers strip vanilla world graphics")
+expect(bay_src:find("graphics/entity/transparent.png", 1, true) ~= nil, "helpers use the pack transparent sheet")
+expect(bay_src:find("scale = 0.001", 1, true) ~= nil, "helper sprites are scaled off the map")
+expect(io.open("graphics/entity/transparent.png", "r") ~= nil, "transparent.png exists for invisible helpers")
 
 expect(Scoop.USES_SLAVE_MINER == true, "runtime mining is flagged as slave-miner")
 expect(Scoop.ORE_MINING_SPEED == 1.5, "ore slave mining_speed is 1.5")

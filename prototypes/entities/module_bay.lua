@@ -111,45 +111,108 @@ data:extend({
 	),
 })
 
+-- Invisible 256×256 sheet already in the pack. Scale ~0 so the hitch
+-- micro-grid (pole / EEI / hopper) does not paint moving tiles.
+local TRANSPARENT = "__Red-Alert-Harvesters__/graphics/entity/transparent.png"
+
+local function invisible_sprite(extra)
+	local sprite = {
+		filename = TRANSPARENT,
+		width = 256,
+		height = 256,
+		scale = 0.001,
+		priority = "very-low",
+		flags = {"no-crop"}
+	}
+	if extra then
+		for key, value in pairs(extra) do
+			sprite[key] = value
+		end
+	end
+	return sprite
+end
+
+local function invisible_4way()
+	local frame = invisible_sprite()
+	return {
+		north = frame,
+		east = frame,
+		south = frame,
+		west = frame
+	}
+end
+
+local function strip_world_graphics(ent)
+	ent.pictures = nil
+	ent.picture = invisible_sprite()
+	ent.animation = nil
+	ent.animations = nil
+	ent.idle_animation = nil
+	ent.working_visualisations = nil
+	ent.graphics_set = nil
+	ent.light = nil
+	ent.light1 = nil
+	ent.light2 = nil
+	ent.light_when_powered = nil
+	ent.water_reflection = nil
+	ent.radius_visualisation_picture = invisible_sprite()
+	ent.integration_patch = nil
+	ent.circuit_connector = nil
+	ent.circuit_connector_sprites = nil
+	ent.corpse = nil
+	ent.dying_explosion = nil
+	ent.damaged_trigger_effect = nil
+	ent.alert_icon_scale = 0
+	ent.draw_copper_wires = false
+	ent.draw_circuit_wires = false
+	ent.selectable_in_game = false
+	ent.selection_box = {{0, 0}, {0, 0}}
+	ent.hidden = true
+	ent.hidden_in_factoriopedia = true
+	ent.flags = HIDDEN_FLAGS
+end
+
 -- Private pole: supply_area covers the slaved drill; wire distance 0 so it
 -- never joins the factory copper grid (that would dump hybrid power out).
 local pole = table.deepcopy(data.raw["electric-pole"]["small-electric-pole"])
 pole.name = "cncharvester-drill-pole"
 pole.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
 pole.icon_size = 32
-pole.hidden = true
-pole.hidden_in_factoriopedia = true
-pole.flags = HIDDEN_FLAGS
 pole.minable = nil
 pole.max_health = 1
 pole.collision_box = {{-0.1, -0.1}, {0.1, 0.1}}
 pole.collision_mask = {layers = {}}
-pole.selection_box = {{-0.1, -0.1}, {0.1, 0.1}}
-pole.selectable_in_game = false
 pole.maximum_wire_distance = 0
 pole.supply_area_distance = 1
-pole.draw_copper_wires = false
-pole.draw_circuit_wires = false
 pole.next_upgrade = nil
 pole.fast_replaceable_group = nil
 pole.placeable_by = nil
+strip_world_graphics(pole)
+-- ElectricPolePrototype requires pictures (not picture).
+pole.pictures = {
+	layers = {
+		invisible_sprite{direction_count = 4}
+	}
+}
+pole.connection_points = pole.connection_points or {
+	{
+		shadow = {copper = {0, 0}},
+		wire = {copper = {0, 0}}
+	}
+}
 data:extend({pole})
 
 local supply = table.deepcopy(data.raw["electric-energy-interface"]["electric-energy-interface"])
 supply.name = "cncharvester-drill-supply"
 supply.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
 supply.icon_size = 32
-supply.hidden = true
-supply.hidden_in_factoriopedia = true
-supply.flags = HIDDEN_FLAGS
 supply.minable = nil
 supply.max_health = 1
 supply.collision_box = {{-0.1, -0.1}, {0.1, 0.1}}
 supply.collision_mask = {layers = {}}
-supply.selection_box = {{-0.1, -0.1}, {0.1, 0.1}}
-supply.selectable_in_game = false
 supply.gui_mode = "none"
 supply.allow_copy_paste = false
+supply.continuous_animation = false
 supply.energy_production = "0W"
 supply.energy_usage = "0W"
 supply.energy_source = {
@@ -163,25 +226,25 @@ supply.energy_source = {
 }
 supply.next_upgrade = nil
 supply.placeable_by = nil
+strip_world_graphics(supply)
+supply.picture = invisible_sprite()
+supply.pictures = invisible_4way()
 data:extend({supply})
 
 local hopper = table.deepcopy(data.raw.container["wooden-chest"])
 hopper.name = "cncharvester-scoop-hopper"
 hopper.icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon.png"
 hopper.icon_size = 32
-hopper.hidden = true
-hopper.hidden_in_factoriopedia = true
-hopper.flags = HIDDEN_FLAGS
 hopper.minable = nil
 hopper.max_health = 1
 hopper.collision_box = {{-0.15, -0.15}, {0.15, 0.15}}
 hopper.collision_mask = {layers = {}}
-hopper.selection_box = {{-0.15, -0.15}, {0.15, 0.15}}
-hopper.selectable_in_game = false
 hopper.inventory_size = 20
 hopper.inventory_type = "normal"
 hopper.circuit_wire_max_distance = 0
 hopper.next_upgrade = nil
 hopper.fast_replaceable_group = nil
 hopper.placeable_by = nil
+strip_world_graphics(hopper)
+hopper.picture = invisible_sprite()
 data:extend({hopper})
