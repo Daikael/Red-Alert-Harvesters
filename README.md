@@ -2,18 +2,18 @@
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
-This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.8`). It is **not** the live 2.0 stable pack on `master`.
+This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.9`). It is **not** the live 2.0 stable pack on `master`.
 
-Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.8`**. Later unreleased test revs stay on three-part patch bumps (`2.1.9`, `2.1.10`, …).
+Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.9`**. Later unreleased test revs stay on three-part patch bumps (`2.1.10`, `2.1.11`, …). `factorio_version` is **`2.1`** (not 2.0).
 
 - **2.0 stable players:** use `master` / `Red-Alert-Harvester_2.0.0` (that line still uses the singular `info.json` name).
-- **2.1 experimental:** this branch / pack **`Red-Alert-Harvesters_2.1.8`**.
+- **2.1 experimental:** this branch / pack **`Red-Alert-Harvesters_2.1.9`**.
 
 ## Development branch names
 
-Tester-facing development branches are **just the three-part version**: `2.1.8`, then `2.1.9`, … Do not use `cursor/…` names. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
+Tester-facing development branches are **just the three-part version**: `2.1.9`, then `2.1.10`, … Do not use `cursor/…` names. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
 
-GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.8`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.8`**.
+GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.9`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.9`**.
 
 ## Install naming (Factorio will refuse the wrong zip)
 
@@ -22,26 +22,27 @@ Factorio checks the **file or folder name** against `info.json`. The check is **
 | What | Exact value |
 | --- | --- |
 | GitHub repo | `Red-Alert-Harvesters` |
-| Git branch (this pack) | `2.1.8` |
+| Git branch (this pack) | `2.1.9` |
 | `info.json` `name` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.1.8` |
-| Folder in `mods/` | `Red-Alert-Harvesters_2.1.8` |
-| Zip in `mods/` | `Red-Alert-Harvesters_2.1.8.zip` |
-| GitHub archive folder | `Red-Alert-Harvesters-2.1.8` (hyphen — **rename to underscore**) |
+| `info.json` `version` | `2.1.9` |
+| `info.json` `factorio_version` | `2.1` |
+| Folder in `mods/` | `Red-Alert-Harvesters_2.1.9` |
+| Zip in `mods/` | `Red-Alert-Harvesters_2.1.9.zip` |
+| GitHub archive folder | `Red-Alert-Harvesters-2.1.9` (hyphen — **rename to underscore**) |
 
-The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvesters_2.1.8`**.
+The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvesters_2.1.9`**.
 
 `info.json` must sit at the **zip root** or **one folder deep** with that same folder name:
 
 ```text
-Red-Alert-Harvesters_2.1.8.zip
-  Red-Alert-Harvesters_2.1.8/
+Red-Alert-Harvesters_2.1.9.zip
+  Red-Alert-Harvesters_2.1.9/
     info.json
     control.lua
     ...
 ```
 
-or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester_2.1.8.zip`, or `Red-Alert-Harvesters-2.1.8.zip` will fail to load.
+or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester_2.1.9.zip`, or `Red-Alert-Harvesters-2.1.9.zip` will fail to load.
 
 ### Where to put it
 
@@ -55,21 +56,21 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 
 ```bash
 # from a clone of this branch
-rm -rf /tmp/Red-Alert-Harvesters_2.1.8 /tmp/Red-Alert-Harvesters_2.1.8.zip
-mkdir /tmp/Red-Alert-Harvesters_2.1.8
-rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvesters_2.1.8/
-cd /tmp && zip -r Red-Alert-Harvesters_2.1.8.zip Red-Alert-Harvesters_2.1.8
-# copy Red-Alert-Harvesters_2.1.8.zip into your Factorio mods folder
+rm -rf /tmp/Red-Alert-Harvesters_2.1.9 /tmp/Red-Alert-Harvesters_2.1.9.zip
+mkdir /tmp/Red-Alert-Harvesters_2.1.9
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvesters_2.1.9/
+cd /tmp && zip -r Red-Alert-Harvesters_2.1.9.zip Red-Alert-Harvesters_2.1.9
+# copy Red-Alert-Harvesters_2.1.9.zip into your Factorio mods folder
 ```
 
-On Windows: copy the repo into a folder literally named `Red-Alert-Harvesters_2.1.8`, then zip that folder.
+On Windows: copy the repo into a folder literally named `Red-Alert-Harvesters_2.1.9`, then zip that folder.
 
 ## Smoke test (2.1 experimental)
 
-1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.8** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
+1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.9** with no load error. Use a **2.1 experimental** client, not 2.0 stable. `factorio_version` must be **2.1**.
 2. New Freeplay / sandbox. Research **Old World Harvesting**. Craft an Ore Truck and a Refinery.
 3. Fuel the truck, drive onto iron/copper/coal/stone. It should scoop into the trunk about every **5.3 seconds** (320 ticks) with no speed modules, then unload when you sit next to the refinery.
-4. SHIFT+E (or click the hitch) opens the companion **module bay** (starts empty). The truck recipe spends a solar panel + battery at craft; they are **not** in the grid or bay (no strip-recycle extra loot). Those ingredients give a **slow built-in recharge**. Install your own portable solar/battery for faster Hybrid refill. An empty or undercharged pool will not scoop.
+4. SHIFT+E (or click the hitch) opens the companion **module bay** (starts empty). The truck recipe spends a solar panel + battery at craft; they are **not** in the grid or bay (no strip-recycle extra loot). Those ingredients give a **slow built-in recharge**. Install a charged portable battery — parked, the hybrid bar should climb clearly. An empty or undercharged pool will not scoop.
 5. Optional: Mods → Startup → **Automatic harvester testing**, place a fueled truck near ore and a refinery, then save/reload.
 
 ## Drive-and-harvest scoop rate
@@ -91,7 +92,7 @@ When a drive-harvest scoop cannot fit in the trunk, the truck shows **error-red*
 
 ## 2.1-only features
 
-See `FACTORIO_2.1.md`: companion module bay (fixed 2 / 3 slots), quality/drain scooping, yield-scaled harvest fuel tax, hybrid-charge pool (never nuclear). Truck recipes cost solar panel + battery and grant a slow built-in recharge (not removable). Hybrid also converts player-installed grid energy (rate-capped; quality scales refill). A scoop requires enough pool energy for the full action.
+See `FACTORIO_2.1.md`: companion module bay (fixed 2 / 3 slots), quality/drain scooping, yield-scaled harvest fuel tax (30 kJ/item), hybrid-charge pool (never nuclear). Truck recipes cost solar panel + battery and grant a slow built-in recharge (not removable). Hybrid converts player-installed grid/battery energy (parked pull is faster; moving stays below drive). A scoop requires enough pool energy for the full action.
 
 ## Optional dependency
 

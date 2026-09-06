@@ -5,7 +5,8 @@
 --
 -- fuel_value 80 MJ = 20 coal: remaining can hold converted solids. Writing
 -- currently_burning fills remaining to this value; HybridDrive.lock_charge
--- always clamps afterward. Spark is 2 kJ; electric refill caps at 4 s of drive.
+-- always clamps afterward. Spark is 2 kJ. Grid/battery refill is rate-capped
+-- but can fill up to the 80 MJ pool (the old 4 s / 300 kJ cap hid the bar).
 data:extend({
 	{
 		type = "fuel-category",

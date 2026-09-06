@@ -29,8 +29,15 @@ HybridDrive.SPARK_JOULES = 2000
 HybridDrive.INTRINSIC_SOLAR_W = 18000
 HybridDrive.CONVERSION_EFFICIENCY = 0.90
 HybridDrive.DRIVE_OVER_REFILL = 1.10
+-- Moving: grid→pool stays 10% below drive. Parked: pull much harder so a
+-- charged battery visibly climbs the 80 MJ hybrid bar (old 4 s / 300 kJ cap
+-- was 0.4% of the bar and felt dead).
 HybridDrive.BUFFER_SECONDS = 4
--- Grid refill stays below drive so sustained driving still net-drains.
+HybridDrive.PARKED_GRID_MULT = 6
+-- Convert tank solids on demand instead of dumping the whole stack into the
+-- pool (that hid battery charge and looked like several fuel per scoop).
+HybridDrive.CONVERT_FLOOR_J = 4000000
+-- Grid refill stays below drive while moving so sustained driving net-drains.
 -- Intrinsic idle trickle scales harder with quality and efficiency modules.
 HybridDrive.QUALITY_REFILL_PER_LEVEL = 0.015
 HybridDrive.QUALITY_INTRINSIC_PER_LEVEL = 0.20
@@ -74,15 +81,22 @@ function HybridDrive.rates(vehicle_name, quality, effects)
 		module_scale = 1 - (effects.consumption * HybridDrive.MODULE_INTRINSIC_FROM_EFFICIENCY)
 	end
 	local intrinsic_w = HybridDrive.INTRINSIC_SOLAR_W * q_intrinsic * module_scale
+	local parked_grid_pull_w = grid_pull_w * HybridDrive.PARKED_GRID_MULT
+	local parked_refill_w = parked_grid_pull_w * HybridDrive.CONVERSION_EFFICIENCY
 	return {
 		drive_w = drive_w,
 		refill_w = refill_w,
 		grid_pull_w = grid_pull_w,
+		parked_grid_pull_w = parked_grid_pull_w,
+		parked_refill_w = parked_refill_w,
 		refill_j_per_tick = refill_w / 60,
 		grid_j_per_tick = grid_pull_w / 60,
+		parked_grid_j_per_tick = parked_grid_pull_w / 60,
+		parked_refill_j_per_tick = parked_refill_w / 60,
 		intrinsic_w = intrinsic_w,
 		intrinsic_j_per_tick = intrinsic_w / 60,
 		max_buffer_j = drive_w * buffer_s,
+		electric_cap_j = HybridDrive.POOL_CAP,
 		buffer_s = buffer_s,
 		quality_level = q,
 		consumption_w = spec.consumption_w,
@@ -225,14 +239,27 @@ function HybridDrive.has_usable_energy(vehicle)
 	return HybridDrive.has_convertible_fuel(vehicle)
 end
 
+function HybridDrive.tank_convertible_joules(vehicle)
+	local inv = fuel_inventory(vehicle)
+	if not (inv and inv.valid) then
+		return 0
+	end
+	local sum = 0
+	EachInventoryItem(inv, function(name, count)
+		if count and count > 0 then
+			sum = sum + HybridDrive.convertible_joules(name) * count
+		end
+	end)
+	return sum
+end
+
 function HybridDrive.potential_joules(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return 0
 	end
-	HybridDrive.convert_inventory_fuels(vehicle)
 	local pool = HybridDrive.available_joules(vehicle)
 	local grid = HybridDrive.grid_stored_energy(vehicle.grid)
-	return pool + grid * HybridDrive.CONVERSION_EFFICIENCY
+	return pool + grid * HybridDrive.CONVERSION_EFFICIENCY + HybridDrive.tank_convertible_joules(vehicle)
 end
 
 -- Dry check: pool + convertible solids + stored grid (90%). Does not drain
@@ -271,6 +298,7 @@ function HybridDrive.spend(vehicle, joules)
 	if not HybridDrive.can_afford(vehicle, joules) then
 		return false
 	end
+	HybridDrive.convert_inventory_fuels(vehicle, joules)
 	local current = HybridDrive.available_joules(vehicle)
 	if current < joules then
 		HybridDrive.cover_from_grid(vehicle, joules - current)
@@ -302,7 +330,10 @@ function HybridDrive.strip_banned_fuel(vehicle)
 	end)
 end
 
-function HybridDrive.convert_inventory_fuels(vehicle)
+-- Convert tank solids into the pool until `target_joules` (default: a 4 MJ
+-- working floor). Leaves the rest in the tank so a stack does not vanish
+-- on the first tick and battery charge can still climb the bar.
+function HybridDrive.convert_inventory_fuels(vehicle, target_joules)
 	if not (vehicle and vehicle.valid and vehicle.burner) then
 		return 0
 	end
@@ -310,10 +341,17 @@ function HybridDrive.convert_inventory_fuels(vehicle)
 	if not (inv and inv.valid) then
 		return 0
 	end
+	local want = target_joules or HybridDrive.CONVERT_FLOOR_J
+	if want < 0 then
+		want = 0
+	end
+	if want > HybridDrive.POOL_CAP then
+		want = HybridDrive.POOL_CAP
+	end
 	local added = 0
 	local current = HybridDrive.lock_charge(vehicle.burner)
 	EachInventoryItem(inv, function(name, count, quality)
-		if count <= 0 then
+		if count <= 0 or current >= want then
 			return
 		end
 		if HybridDrive.is_banned_fuel(name) then
@@ -325,7 +363,7 @@ function HybridDrive.convert_inventory_fuels(vehicle)
 			return
 		end
 		local left = count
-		while left > 0 do
+		while left > 0 and current < want do
 			if current + fv > HybridDrive.POOL_CAP then
 				break
 			end
@@ -525,7 +563,28 @@ function HybridDrive.grid_stored_energy(grid)
 	return sum
 end
 
+local function equipment_type(eq)
+	if not eq then
+		return nil
+	end
+	if eq.type then
+		return eq.type
+	end
+	if eq.prototype and eq.prototype.type then
+		return eq.prototype.type
+	end
+	return nil
+end
+
+local function equipment_energy(eq)
+	if not eq or eq.valid == false then
+		return 0
+	end
+	return eq.energy or 0
+end
+
 -- Pull stored electric energy from any grid equipment (solar, battery, fusion…).
+-- Batteries first so a charged cell is the obvious idle refill source.
 -- Empty grid → 0. Does not require Hybrid-drive to be installed.
 function HybridDrive.take_from_grid(grid, joules)
 	if joules <= 0 or not grid then
@@ -537,9 +596,8 @@ function HybridDrive.take_from_grid(grid, joules)
 		return 0
 	end
 	for _, eq in pairs(grid.equipment) do
-		if eq.valid ~= false and eq.energy and eq.energy > 0 then
-			local eq_type = eq.type or (eq.prototype and eq.prototype.type)
-			if eq_type == "battery-equipment" then
+		if equipment_energy(eq) > 0 then
+			if equipment_type(eq) == "battery-equipment" then
 				table.insert(batteries, eq)
 			else
 				table.insert(others, eq)
@@ -549,9 +607,12 @@ function HybridDrive.take_from_grid(grid, joules)
 	local left = joules
 	for _, list in ipairs({batteries, others}) do
 		for _, eq in ipairs(list) do
-			local take = math.min(eq.energy, left)
-			eq.energy = eq.energy - take
-			left = left - take
+			local have = equipment_energy(eq)
+			local take = math.min(have, left)
+			if take > 0 then
+				eq.energy = have - take
+				left = left - take
+			end
 			if left <= 0 then
 				return joules
 			end
@@ -560,17 +621,15 @@ function HybridDrive.take_from_grid(grid, joules)
 	return joules - left
 end
 
--- Electric refill only. Never shrinks a solid-converted pool. Never changes
--- identity away from hybrid-charge. Never fills a full charge/nuclear bar.
+-- Electric refill only. Never shrinks an existing pool. Never changes
+-- identity away from hybrid-charge. Caps at the 80 MJ hybrid pool so a
+-- charged battery can fill a visible fraction of the bar.
 function HybridDrive.add_burner_energy(burner, joules, electric_cap)
 	if not (burner and joules > 0) then
 		return 0
 	end
 	local current = HybridDrive.lock_charge(burner)
-	local cap = electric_cap
-	if not cap then
-		return 0
-	end
+	local cap = electric_cap or HybridDrive.POOL_CAP
 	if current >= cap then
 		return 0
 	end
@@ -610,25 +669,31 @@ function HybridDrive.tick(vehicle)
 	local rates = HybridDrive.rates(vehicle.name, vehicle.quality, effects)
 	local burner = vehicle.burner
 	if rates and burner then
+		local moving = vehicle.speed and math.abs(vehicle.speed) > 0.001
+		local pull_j = rates.grid_j_per_tick
+		local cap_j = rates.refill_j_per_tick
+		if not moving then
+			pull_j = rates.parked_grid_j_per_tick or pull_j
+			cap_j = rates.parked_refill_j_per_tick or cap_j
+		end
 		local from_grid = 0
 		local grid = vehicle.grid
 		if grid and HybridDrive.grid_stored_energy(grid) > 0 then
-			from_grid = HybridDrive.take_from_grid(grid, rates.grid_j_per_tick)
+			from_grid = HybridDrive.take_from_grid(grid, pull_j)
 		end
 		local grid_converted = from_grid * HybridDrive.CONVERSION_EFFICIENCY
-		if rates.refill_j_per_tick and grid_converted > rates.refill_j_per_tick then
-			grid_converted = rates.refill_j_per_tick
+		if cap_j and grid_converted > cap_j then
+			grid_converted = cap_j
 		end
 		local intrinsic_converted = (rates.intrinsic_j_per_tick or 0) * HybridDrive.CONVERSION_EFFICIENCY
 		local converted = grid_converted + intrinsic_converted
 		-- Moving: keep conversion below drive so driving still net-drains.
-		-- Parked: intrinsic stacks on top of grid refill so idle charge is visible.
-		local moving = vehicle.speed and math.abs(vehicle.speed) > 0.001
+		-- Parked: battery/grid is allowed the higher parked cap; intrinsic stacks.
 		if moving and rates.refill_j_per_tick and converted > rates.refill_j_per_tick then
 			converted = rates.refill_j_per_tick
 		end
 		if converted > 0 then
-			HybridDrive.add_burner_energy(burner, converted, rates.max_buffer_j)
+			HybridDrive.add_burner_energy(burner, converted, rates.electric_cap_j or HybridDrive.POOL_CAP)
 		end
 	end
 	HybridDrive.enforce_empty(vehicle)

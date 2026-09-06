@@ -1,4 +1,16 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.9
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.9. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.9. Git branch is 2.1.9. factorio_version is 2.1 (not 2.0). Do not merge this 2.1 line to master.
+  Bugfixes:
+    - factorio_version / base / Factorio-Tiberium dependencies stay on the 2.1 experimental line. Nothing on this pack pins Factorio 2.0.
+    - Grid/battery → hybrid pool was capped at 4 s of drive (~300 kJ, invisible on the 80 MJ bar). Electric refill can now fill the 80 MJ pool. Parked battery pull is 6× the moving rate so a charged cell visibly raises the bar.
+    - Tank solids convert on demand (4 MJ floor / scoop target) instead of dumping the whole stack into the pool on the first tick.
+  Balancing:
+    - Scoop tax is 30 kJ/item (was 300 kJ). Ore Truck ~240 kJ per 8-item scoop (~50 scoops per solid fuel). Tiberium ~480 kJ per 16-item scoop (~25 scoops per solid fuel). Cost still scales with yield, efficiency, speed, and quality.
+    - Moving grid refill stays 10% below drive. Sustained drive+mine without extra gear still net-drains. Empty pool is still Out of fuel; a charged grid can still pay.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.8
 Date: 2026-09-06
   Info:

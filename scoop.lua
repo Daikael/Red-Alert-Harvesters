@@ -17,10 +17,12 @@ Scoop.MIN_INTERVAL_TICKS = 12
 Scoop.DRIVE_ITEMS_PER_SCOOP = 8
 Scoop.TYPE2_ITEMS_PER_SCOOP = 16
 Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
--- Parasitic burner tax: 300 kJ/item so 8 items = 2.4 MJ (same rate as the old 4-item 1.2 MJ).
-Scoop.PARASITIC_JOULES_BASE = 2400000
+-- 30 kJ/item: Ore Truck 8-item scoop = 240 kJ (~1/50 of one solid fuel).
+-- Tiberium 16-item scoop = 480 kJ (~1/25 of one solid fuel). Still scales
+-- with yield / efficiency / speed / quality; empty pool is still OOF.
+Scoop.PARASITIC_JOULES_BASE = 240000
 Scoop.PARASITIC_MIN_FACTOR = 0.2
-Scoop.JOULES_PER_ITEM = 300000
+Scoop.JOULES_PER_ITEM = 30000
 
 function Scoop.scoop_items(vehicle)
 	if vehicle and vehicle.name == "cncharvester-type2" then

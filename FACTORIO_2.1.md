@@ -6,14 +6,14 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 - Branched from `cursor/factorio-2.0-compat-98d9` at `c765378`, then **merged `master`** after PR #3 landed (2.0 tester UX/install fixes).
 - Do **not** merge this 2.1 line back to live/`master`.
-- Tester-facing git branch is the three-part version (`2.1.8`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.8`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.8` (hyphen); rename to underscore before install.
+- Tester-facing git branch is the three-part version (`2.1.9`). Mod `info.json` name is plural **`Red-Alert-Harvesters`**. Pack folder is **`Red-Alert-Harvesters_2.1.9`**. GitHub archive folder is `Red-Alert-Harvesters-2.1.9` (hyphen); rename to underscore before install. `factorio_version` is **`2.1`**.
 
 ## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
 | `info.json` `name` | `Red-Alert-Harvester` | `Red-Alert-Harvesters` |
-| `info.json` `version` | `2.0.0` | `2.1.8` |
+| `info.json` `version` | `2.0.0` | `2.1.9` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -62,7 +62,7 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 2. Quality chance → `LuaQualityPrototype.roll_quality(effect, seed, force)` on 2.1; else `next` / `next_probability` chain.
 3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
 4. Resource drain from Layer A; efficiency modules (`consumption < 0`) still shave a little drain (`drain * (1 + consumption * 0.25)`).
-5. **Parasitic harvest fuel tax:** `harvest_area` (drive or auto) must **afford the full planned budget** from the hybrid pool **before** any ore is inserted. Cost is `items × 300 kJ × max(0.2, 1 + consumption) × (1 + max(0, speed) + 0.05×quality_level)`. The budget is **8** (Ore Truck) / **16** (type-2) items per period — not 4 per ore tile. A token spark still cannot buy a scoop; a charged grid can pay by draining stored energy into the pool (90%).
+5. **Parasitic harvest fuel tax:** `harvest_area` (drive or auto) must **afford the full planned budget** from the hybrid pool **before** any ore is inserted. Cost is `items × 30 kJ × max(0.2, 1 + consumption) × (1 + max(0, speed) + 0.05×quality_level)`. The budget is **8** (Ore Truck) / **16** (type-2) items per period — not 4 per ore tile. A token spark still cannot buy a scoop; a charged grid can pay by draining stored energy into the pool (90%).
 6. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
 7. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s). Volume per period is **8 / 16**.
 8. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)` (animation stand-in; the parasitic tax above is the real harvest fuel cost).
@@ -70,13 +70,13 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 
 ### Harvest parasitic tax numbers
 
-Costs below use **300 kJ/item**. Speed modules multiply further via the speed term (not shown).
+Costs below use **30 kJ/item** (2.1.9; was 300 kJ/item). Speed modules multiply further via the speed term (not shown). One solid fuel is 12 MJ.
 
-| Scoop | Items | No modules | 2× efficiency-3 (−80%) |
-| --- | --- | --- | --- |
-| Ore Truck period | **8** | **2.4 MJ** | 0.48 MJ |
-| Tiberium period | **16** | **4.8 MJ** | 0.96 MJ |
-| 4 items (formula check) | 4 | 1.2 MJ | 0.24 MJ |
+| Scoop | Items | No modules | 2× efficiency-3 (−80%) | vs 1 solid fuel |
+| --- | --- | --- | --- | --- |
+| Ore Truck period | **8** | **240 kJ** | 48 kJ | ~50 scoops |
+| Tiberium period | **16** | **480 kJ** | 96 kJ | ~25 scoops |
+| 4 items (formula check) | 4 | 120 kJ | 24 kJ | |
 
 `can_afford` counts pool + 90% of stored grid energy + convertible tank solids. `spend` pulls from the pool, then from stored grid if needed. Out of fuel only when that sum cannot cover the action. Inventory-full refunds the tax.
 
@@ -91,15 +91,15 @@ Hybrid also converts **actual stored electric energy** from player-installed gri
 Every tick, `HybridDrive.maintain` then `tick`:
 
 1. Strip nuclear-tier **items** from the fuel inventory. If `currently_burning` is nuclear-fuel / uranium-fuel-cell / fusion-power-cell, wipe remaining and lock to hybrid-charge.
-2. Convert remaining chemical fuels (coal, wood, solid fuel, …) into the hybrid pool: consume the items, add `fuel_value` joules, cap **80 MJ**.
+2. Convert chemical fuels (coal, wood, solid fuel, …) **on demand**: consume items until the pool reaches a 4 MJ working floor (or the scoop/spend target). Leftover tank stacks stay in the tank. Cap **80 MJ**.
 3. `currently_burning` is **always** hidden `cncharvester-hybrid-charge` (`fuel_category` `cncharvester-hybrid`). Writing it fills remaining to 80 MJ; `lock_charge` immediately writes the intended remaining. This is what stopped Factorio latching `nuclear-fuel` (empty-looking bar, still driving).
 4. `has_usable_energy` is true when the pool, stored grid energy, or convertible tank solids can run the truck. Empty solid slots are OK. `enforce_empty` only zeros speed when none of those can supply energy. Scoops use `can_afford` / `spend` (pool + 90% stored grid).
-5. Per-tick: grid pull is rate-capped; intrinsic is added on top while parked. While moving, combined conversion stays at or below refill so driving still net-drains. Electric refill never shrinks a solid-converted pool and never inserts items.
+5. Per-tick: moving grid pull stays 10% below drive. Parked grid/battery pull is **6×** that so a charged battery visibly climbs the 80 MJ bar. Intrinsic solar stacks on top while parked. Electric refill can fill up to the **80 MJ** pool (the old 4 s / 300 kJ cap hid the bar). Never shrinks an existing pool and never inserts items.
 6. On mine, clear `currently_burning` and strip charge/nuclear from the mine buffer.
 
 Vehicle `fuel_categories` are `cncharvester-hybrid` then `chemical` so the tank still accepts coal, but the engine’s burn identity is only hybrid-charge.
 
-**Quality** (entity quality, not module slots): refill rate +1.5% per level, electric cap +25% per level. Refill stays below driving draw at every quality. Module bay stays **2 / 3** slots (`quality_affects_module_slots = false`).
+**Quality** (entity quality, not module slots): moving refill rate +1.5% per level. Moving refill stays below driving draw at every quality. Electric add cap is the 80 MJ pool. Module bay stays **2 / 3** slots (`quality_affects_module_slots = false`).
 
 ### Kickoff fuel (2.1.5 — hybrid pool only)
 
@@ -112,9 +112,10 @@ Otherwise (no coal/wood, or robot/script/clone): **2 kJ spark** of hybrid-charge
 | Source | Energy | Notes |
 | --- | --- | --- |
 | Empty-tank spark | **2 kJ** | Hybrid-charge identity; sliver on an 80 MJ bar |
-| Hybrid idle cap (normal) | 300 / 350 kJ | Paid from grid, 10% below drive draw; quality enlarges this |
-| 1 coal converted | 4 MJ | Player-paid; tank stays empty of items |
-| Pool cap | 80 MJ | 20× coal; hidden item `fuel_value` |
+| Moving grid refill | 68 / 80 kW | 10% below drive; sustained drive still net-drains |
+| Parked battery/grid refill | ~409 / 477 kW | 6× moving pull; charged battery climbs the bar |
+| 1 coal converted | 4 MJ | Converted when the pool is below the 4 MJ floor |
+| Pool / electric cap | 80 MJ | 20× coal; hidden item `fuel_value` |
 
 Empty / insufficient pool = cannot drive or scoop until the player inserts burnable fuel (converted) or the pool is recharged (intrinsic trickle and/or player-installed grid). The 2 kJ spark does not grant a mining tick.
 
@@ -129,27 +130,27 @@ Prototype `consumption` is 150 kW / 175 kW with `effectivity = 2`. Actual burner
 | Max electric→burner refill | 68.18 kW (10% below draw) | 79.55 kW |
 | Grid pull (90% conversion) | 75.76 kW | 88.38 kW |
 | Intrinsic solar (baked-in, normal) | **18.0 kW** | **18.0 kW** |
-| Max idle buffer | 300 kJ (4 s) | 350 kJ |
+| Parked battery/grid refill | **~409 kW** | **~477 kW** |
 
-Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal** truck even with a charged grid. Quality raises refill slightly (+1.5%/level) and the parked electric cap (+25%/level → legendary ~9 s). Idle or slow driving can refill that cap, then stops.
+Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal** truck even with a charged grid. Parked with a charged battery, the hybrid bar should rise by several MJ over a few seconds. Quality raises moving refill slightly (+1.5%/level). Idle charge is no longer stuck at a 300 kJ sliver.
 
-| Quality | Refill vs normal | Electric cap vs normal |
-| --- | --- | --- |
-| 0 normal | 1.00× | 4.0 s |
-| 1 uncommon | 1.015× | 5.0 s |
-| 2 rare | 1.030× | 6.0 s |
-| 3 epic | 1.045× | 7.0 s |
-| 5 legendary | 1.075× | 9.0 s |
+| Quality | Moving refill vs normal |
+| --- | --- |
+| 0 normal | 1.00× |
+| 1 uncommon | 1.015× |
+| 2 rare | 1.030× |
+| 3 epic | 1.045× |
+| 5 legendary | 1.075× |
 
 ## How to test (Factorio 2.1 experimental)
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.8`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.8` → `Red-Alert-Harvesters_2.1.8`. Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvesters_2.1.9`** (plural `info.json` name — see README). If you downloaded a GitHub archive, rename `Red-Alert-Harvesters-2.1.9` → `Red-Alert-Harvesters_2.1.9`. Confirm `factorio_version` is **2.1** and the Mods list loads on a 2.1 client. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Cost matches yield/speed:** A 2 kJ spark or leftover sliver cannot buy a full max-speed scoop. More ores / speed modules / quality cost more. One personal solar’s stored charge must not authorize an underpriced full scoop (grid→pool stays rate-capped and separate).
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.
-5. **Intrinsic solar:** Fresh truck, empty grid, no removable solar/battery to strip. Parked pool should climb slowly from the baked-in 4 kW trickle. Recipe still costs solar+battery. Player-installed equipment still matters; sustained driving/mining still net-drains.
+5. **Intrinsic solar + battery:** Fresh truck, empty grid — parked pool climbs slowly from the baked-in 18 kW trickle. Install a charged portable battery: the hybrid bar should rise clearly (several MJ in a few seconds). Recipe still costs solar+battery. Sustained driving+mining still net-drains.
 6. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. **2 slots** on Ore Truck / **3** on Tiberium, including uncommon+ quality trucks. Insert speed/quality/productivity/efficiency modules. Confirm they are not left behind when the truck is mined (modules return to you).
 7. **Harvest fuel tax:** Drive-harvest with an empty bay and real fuel — pool should drop with ore count. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
 8. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).

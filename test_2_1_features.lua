@@ -73,6 +73,10 @@ expect(math.abs(ore.drive_w - 75000) < 1, "drive draw 75 kW (150kW / effectivity
 expect(ore.drive_w > ore.refill_w, "driving outstrips refill")
 expect(math.abs(ore.drive_w / ore.refill_w - 1.10) < 1e-6, "drive is 10% above refill")
 expect(math.abs(ore.grid_pull_w * HybridDrive.CONVERSION_EFFICIENCY - ore.refill_w) < 1e-6, "90% conversion")
+expect(HybridDrive.PARKED_GRID_MULT == 6, "parked grid pull is 6× the moving refill")
+expect(ore.parked_refill_w > ore.refill_w, "parked battery pull is faster than moving refill")
+expect(ore.parked_refill_w > ore.intrinsic_w, "battery idle rate beats intrinsic trickle")
+expect(ore.electric_cap_j == HybridDrive.POOL_CAP, "electric refill cap is the 80 MJ pool")
 
 local tib = HybridDrive.rates("cncharvester-type2")
 expect(math.abs(tib.drive_w - 87500) < 1, "type2 drive draw 87.5 kW")
@@ -95,15 +99,17 @@ expect(cell.energy == 6000, "pulled energy is removed from the equipment")
 expect(HybridDrive.take_from_grid({equipment = {{energy = 0, valid = true}}}, 4000) == 0, "empty grid does not refill")
 expect(HybridDrive.grid_stored_energy({equipment = {{energy = 0, valid = true}}}) == 0, "empty stored energy is 0")
 
-expect(Scoop.JOULES_PER_ITEM == 300000, "300 kJ per item")
-expect(math.abs(Scoop.action_joules(4, 0, 0) - 1200000) < 1, "4 items no modules = 1.2 MJ")
-expect(math.abs(Scoop.action_joules(8, 0, 0) - 2400000) < 1, "8-item Ore Truck scoop = 2.4 MJ")
-expect(math.abs(Scoop.action_joules(16, 0, 0) - 4800000) < 1, "16-item type-2 scoop = 4.8 MJ")
+expect(Scoop.JOULES_PER_ITEM == 30000, "30 kJ per item")
+expect(math.abs(Scoop.action_joules(4, 0, 0) - 120000) < 1, "4 items no modules = 120 kJ")
+expect(math.abs(Scoop.action_joules(8, 0, 0) - 240000) < 1, "8-item Ore Truck scoop = 240 kJ")
+expect(math.abs(Scoop.action_joules(16, 0, 0) - 480000) < 1, "16-item type-2 scoop = 480 kJ")
+expect(Scoop.action_joules(8, 0, 0) < 12000000 / 20, "ore scoop is a small fraction of one solid fuel")
+expect(Scoop.action_joules(16, 0, 0) < 12000000 / 10, "tiberium scoop is far below 1 solid fuel")
 expect(Scoop.action_joules(8, 0, 1) > Scoop.action_joules(8, 0, 0), "speed modules raise scoop cost")
 expect(Scoop.action_joules(8, 0, 0, 5) > Scoop.action_joules(8, 0, 0, 0), "quality level raises scoop cost")
-expect(math.abs(Scoop.parasitic_joules(0) - 2400000) < 1, "no efficiency = 2.4 MJ tax for 8 items")
-expect(math.abs(Scoop.parasitic_joules(-0.4) - 1440000) < 1, "1x eff-3 = 1.44 MJ for 8 items")
-expect(math.abs(Scoop.parasitic_joules(-0.8) - 480000) < 1, "2x eff-3 = 0.48 MJ floor for 8 items")
+expect(math.abs(Scoop.parasitic_joules(0) - 240000) < 1, "no efficiency = 240 kJ tax for 8 items")
+expect(math.abs(Scoop.parasitic_joules(-0.4) - 144000) < 1, "1x eff-3 = 144 kJ for 8 items")
+expect(math.abs(Scoop.parasitic_joules(-0.8) - 48000) < 1, "2x eff-3 = 48 kJ floor for 8 items")
 expect(Scoop.parasitic_joules(0.5) > Scoop.parasitic_joules(0), "speed-consumption raises tax")
 
 expect(HybridDrive.is_banned_fuel("nuclear-fuel"), "nuclear-fuel banned")
@@ -149,9 +155,12 @@ expect(nuclear.remaining_burning_fuel == 0, "nuclear remaining is discarded")
 expect(not HybridDrive.has_energy({valid = true, burner = nuclear}), "nuclear latch is treated as empty")
 
 local leftover = {currently_burning = "cncharvester-hybrid-charge", remaining_burning_fuel = 1000000}
-expect(HybridDrive.add_burner_energy(leftover, 500, 300000) == 0, "electric refill does not add above 4s cap")
+expect(HybridDrive.add_burner_energy(leftover, 500) == 500, "grid refill continues above the old 4s / 300 kJ cap")
 expect(leftover.currently_burning == HybridDrive.CHARGE_ITEM, "charge identity kept")
-expect(leftover.remaining_burning_fuel == 1000000, "solid/pool energy above 4s is not deflated")
+expect(leftover.remaining_burning_fuel == 1000500, "pool above 4s of drive still accepts battery charge")
+local full_pool = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = HybridDrive.POOL_CAP}
+expect(HybridDrive.add_burner_energy(full_pool, 500) == 0, "electric refill does not add above the 80 MJ pool cap")
+expect(full_pool.remaining_burning_fuel == HybridDrive.POOL_CAP, "full pool is not deflated")
 
 local empty_pool = {valid = true, burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0}}
 expect(not HybridDrive.has_energy(empty_pool), "0 remaining cannot drive/scoop")
@@ -218,9 +227,12 @@ local convert_vehicle = {
 		}
 	end,
 }
-expect(HybridDrive.convert_inventory_fuels(convert_vehicle) == 8000000, "2 coal convert to 8 MJ")
-expect((tank_items.coal or 0) == 0, "converted coal is removed from the tank")
+expect(HybridDrive.convert_inventory_fuels(convert_vehicle) == 4000000, "1 coal converts to reach the 4 MJ floor")
+expect((tank_items.coal or 0) == 1, "second coal stays in the tank")
 expect(convert_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "convert keeps hybrid-charge")
+expect(convert_vehicle.burner.remaining_burning_fuel == 4000000, "pool received one coal")
+expect(HybridDrive.convert_inventory_fuels(convert_vehicle, 8000000) == 4000000, "higher target converts the second coal")
+expect((tank_items.coal or 0) == 0, "both coal convert when the target needs them")
 expect(convert_vehicle.burner.remaining_burning_fuel == 8000000, "pool received both coal")
 expect(HybridDrive.has_energy(convert_vehicle), "converted coal can drive")
 expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skipped when the pool has energy")
@@ -266,6 +278,42 @@ expect(tick_burner.currently_burning == HybridDrive.CHARGE_ITEM, "tick refill st
 expect(tick_burner.remaining_burning_fuel > 0, "charged grid refills the hybrid pool")
 expect(tick_cell.energy < 50000, "tick consumes grid energy")
 
+local parked_cell = {energy = 20000000, valid = true, type = "battery-equipment"}
+local parked_burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 1000000}
+local parked_vehicle = {
+	valid = true,
+	name = "cncharvester",
+	quality = {level = 0},
+	speed = 0,
+	burner = parked_burner,
+	grid = {equipment = {parked_cell}, available_in_batteries = 20000000},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+local before_parked = parked_burner.remaining_burning_fuel
+HybridDrive.tick(parked_vehicle)
+expect(parked_burner.remaining_burning_fuel > before_parked, "parked battery raises the hybrid pool")
+expect(parked_burner.remaining_burning_fuel - before_parked > ore.refill_j_per_tick, "parked battery refill beats the moving cap")
+expect(parked_cell.energy < 20000000, "parked tick drains the battery")
+expect(parked_burner.remaining_burning_fuel > 300000, "battery charge is not stuck at the old 300 kJ cap")
+
+local moving_cell = {energy = 20000000, valid = true, type = "battery-equipment"}
+local moving_burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 1000000}
+local moving_vehicle = {
+	valid = true,
+	name = "cncharvester",
+	quality = {level = 0},
+	speed = 0.2,
+	burner = moving_burner,
+	grid = {equipment = {moving_cell}, available_in_batteries = 20000000},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+HybridDrive.tick(moving_vehicle)
+expect(moving_burner.remaining_burning_fuel - 1000000 <= ore.refill_j_per_tick + 1, "moving grid refill stays rate-capped")
+
 local empty_tick = {
 	valid = true,
 	name = "cncharvester",
@@ -295,16 +343,16 @@ local spark_pool = {
 	valid = true,
 	name = "cncharvester",
 	burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = HybridDrive.SPARK_JOULES},
-	grid = {equipment = {{energy = 1000000, valid = true, type = "solar-panel-equipment"}}, available_in_batteries = 1000000},
+	grid = {equipment = {{energy = 50000, valid = true, type = "solar-panel-equipment"}}, available_in_batteries = 50000},
 	get_inventory = function()
 		return {valid = true, get_item_count = function() return 0 end, _items = {}}
 	end,
 }
-expect(not HybridDrive.can_afford(spark_pool, 2400000), "2 kJ spark + 1 MJ solar cannot afford an 8-item scoop")
+expect(not HybridDrive.can_afford(spark_pool, 240000), "2 kJ spark + 50 kJ solar cannot afford an 8-item scoop")
 expect(HybridDrive.can_afford(spark_pool, 2000), "spark can afford its own 2 kJ")
-expect(not HybridDrive.spend(spark_pool, 2400000), "failed spend does not take a token drain")
+expect(not HybridDrive.spend(spark_pool, 240000), "failed spend does not take a token drain")
 expect(spark_pool.burner.remaining_burning_fuel == 2000, "unaffected remaining after rejected spend")
-expect(spark_pool.grid.equipment[1].energy == 1000000, "rejected spend does not drain the grid")
+expect(spark_pool.grid.equipment[1].energy == 50000, "rejected spend does not drain the grid")
 
 local charged_grid = {
 	valid = true,
@@ -316,9 +364,9 @@ local charged_grid = {
 	end,
 }
 expect(HybridDrive.has_usable_energy(charged_grid), "empty solids + charged grid is usable energy")
-expect(HybridDrive.can_afford(charged_grid, 2400000), "5 MJ grid can pay a 2.4 MJ scoop")
+expect(HybridDrive.can_afford(charged_grid, 240000), "5 MJ grid can pay a 240 kJ scoop")
 expect(charged_grid.grid.equipment[1].energy == 5000000, "can_afford does not drain the grid")
-expect(HybridDrive.spend(charged_grid, 2400000), "spend pulls stored grid energy into the pool")
+expect(HybridDrive.spend(charged_grid, 240000), "spend pulls stored grid energy into the pool")
 expect(charged_grid.grid.equipment[1].energy < 5000000, "scoop spend drains the grid")
 expect(math.abs(charged_grid.burner.remaining_burning_fuel) < 1, "spend leaves the pool empty after paying from grid")
 expect(not HybridDrive.has_usable_energy({
@@ -411,7 +459,12 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) ~= nil, "mod name is plural Red-Alert-Harvesters")
-expect(info_src:find('"version": "2.1.8"', 1, true) ~= nil, "pack version is 2.1.8")
+expect(info_src:find('"version": "2.1.9"', 1, true) ~= nil, "pack version is 2.1.9")
+expect(info_src:find('"factorio_version": "2.1"', 1, true) ~= nil, "factorio_version is 2.1")
+expect(info_src:find('"factorio_version": "2.0"', 1, true) == nil, "factorio_version is not 2.0")
+expect(info_src:find("base >= 2.1.0", 1, true) ~= nil, "base dependency is 2.1")
+expect(info_src:find("base >= 2.0", 1, true) == nil, "base dependency is not pinned to 2.0")
+expect(info_src:find("Factorio%-Tiberium >= 2%.1%.0") ~= nil, "optional Tiberium dep is 2.1")
 local proto_scan = {
 	"prototypes/items/hybrid_charge.lua",
 	"prototypes/entities/harv_entity.lua",
