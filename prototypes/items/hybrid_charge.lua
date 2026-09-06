@@ -9,11 +9,15 @@
 data:extend({
 	{
 		type = "fuel-category",
-		name = "cncharvester-hybrid"
+		name = "cncharvester-hybrid",
+		localised_name = {"fuel-category-name.cncharvester-hybrid"},
+		localised_description = {"fuel-category-description.cncharvester-hybrid"}
 	},
 	{
 		type = "item",
 		name = "cncharvester-hybrid-charge",
+		localised_name = {"item-name.cncharvester-hybrid-charge"},
+		localised_description = {"item-description.cncharvester-hybrid-charge"},
 		icon = "__Red-Alert-Harvester__/graphics/equipment/Hybrid-drive.png",
 		icon_size = 64,
 		hidden = true,

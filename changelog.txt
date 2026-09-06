@@ -1,4 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.6
+Date: 2026-09-06
+  Bugfixes:
+    - Placing a truck on ore no longer grants a free first scoop (100 / 80). The first tick in a seat waits a full period, and a scoop only runs if the hybrid-charge pool can pay the full action.
+    - Any leftover spark or grid joule no longer bypasses the fuel gate. Stored electric energy is converted into the pool at the existing rate cap; it does not authorize a scoop by itself.
+    - Scoop energy now scales with ore count, speed modules, and quality. A token drain cannot buy a full max-speed scoop.
+    - Fuel charging the hybrid electrical capacity has locale strings (en): item-name / item-description / fuel-category-name for cncharvester-hybrid-charge.
+  Balancing:
+    - Recipe solar panel + battery stay as craft cost and now grant a slow built-in recharge (~4 kW, quality-scaled) that is not removable equipment. Player-installed grid gear still matters; sustained driving/mining still net-drains.
+    - Empty / insufficient hybrid-charge: no drive, no scoop, localized Out of fuel. No free ore first.
+  Changes:
+    - Pack version 2.1.6. Zip/folder name is Red-Alert-Harvester_2.1.6. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.5
 Date: 2026-09-06
   Bugfixes:

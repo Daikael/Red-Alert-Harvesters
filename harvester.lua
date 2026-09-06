@@ -372,11 +372,12 @@ cncharvester = {
 				return
 			end
 
-			if HybridDrive and HybridDrive.has_energy and not HybridDrive.has_energy(self.vehicle) then
-				return
-			end
 			local amountPerOre = math.ceil(Stats.OreMinedPerScoop / #ores)
 			local result = Scoop.harvest_area(self.vehicle, ores, amountPerOre)
+			if result.no_fuel then
+				self:FloatingText({"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+				return
+			end
 			if result.full then
 				self:SetIsFilled(true)
 			end

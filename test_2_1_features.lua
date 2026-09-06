@@ -8,7 +8,7 @@ package.loaded.utilities = true
 package.loaded.modulebay = true
 package.loaded.specialOres = true
 prototypes = {quality = {}, item = {coal = {fuel_value = 4000000}, wood = {fuel_value = 2000000}, ["rocket-fuel"] = {fuel_value = 100000000}, ["nuclear-fuel"] = {fuel_value = 1210000000}}}
-defines = {inventory = {fuel = "fuel"}}
+defines = {inventory = {fuel = "fuel", car_trunk = "car_trunk"}}
 function EachInventoryItem(inv, cb)
 	if not inv then
 		return
@@ -93,6 +93,11 @@ expect(HybridDrive.take_from_grid({equipment = {{energy = 0, valid = true}}}, 40
 expect(HybridDrive.grid_stored_energy({equipment = {{energy = 0, valid = true}}}) == 0, "empty stored energy is 0")
 
 expect(Scoop.PARASITIC_JOULES_BASE == 1200000, "parasitic base 1.2 MJ")
+expect(Scoop.JOULES_PER_ITEM == 300000, "300 kJ per item (4 items = 1.2 MJ)")
+expect(math.abs(Scoop.action_joules(4, 0, 0) - 1200000) < 1, "4 items no modules = 1.2 MJ")
+expect(math.abs(Scoop.action_joules(100, 0, 0) - 30000000) < 1, "100 items = 30 MJ")
+expect(Scoop.action_joules(4, 0, 1) > Scoop.action_joules(4, 0, 0), "speed modules raise scoop cost")
+expect(Scoop.action_joules(4, 0, 0, 5) > Scoop.action_joules(4, 0, 0, 0), "quality level raises scoop cost")
 expect(math.abs(Scoop.parasitic_joules(0) - 1200000) < 1, "no efficiency = 1.2 MJ tax")
 expect(math.abs(Scoop.parasitic_joules(-0.4) - 720000) < 1, "1x eff-3 = 0.72 MJ")
 expect(math.abs(Scoop.parasitic_joules(-0.8) - 240000) < 1, "2x eff-3 = 0.24 MJ floor")
@@ -270,7 +275,89 @@ local empty_tick = {
 	end,
 }
 HybridDrive.tick(empty_tick)
-expect(empty_tick.burner.remaining_burning_fuel == 0, "empty grid does not add hybrid energy")
+local intrinsic_tick = HybridDrive.INTRINSIC_SOLAR_W / 60 * HybridDrive.CONVERSION_EFFICIENCY
+expect(empty_tick.burner.remaining_burning_fuel > 0, "intrinsic solar ticks with an empty grid")
+expect(math.abs(empty_tick.burner.remaining_burning_fuel - intrinsic_tick) < 1, "empty-grid refill is the baked-in solar trickle")
+
+expect(HybridDrive.INTRINSIC_SOLAR_W == 4000, "baked-in solar is 4 kW")
+expect(math.abs(ore.intrinsic_w - 4000) < 1, "normal intrinsic solar is 4 kW")
+expect(legendary.intrinsic_w > ore.intrinsic_w, "legendary intrinsic solar is faster")
+expect(ore.intrinsic_w < ore.drive_w, "intrinsic solar is far below drive draw")
+expect(legendary.refill_w * HybridDrive.DRIVE_OVER_REFILL > legendary.refill_w, "legendary refill still rate-capped vs drive")
+
+local spark_pool = {
+	valid = true,
+	burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = HybridDrive.SPARK_JOULES},
+	grid = {equipment = {{energy = 1000000, valid = true, type = "solar-panel-equipment"}}, available_in_batteries = 1000000},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+expect(not HybridDrive.can_afford(spark_pool, 1200000), "2 kJ spark cannot afford a 1.2 MJ scoop")
+expect(not HybridDrive.can_afford(spark_pool, 30000000), "spark cannot afford a 100-item scoop")
+expect(HybridDrive.can_afford(spark_pool, 2000), "spark can afford its own 2 kJ")
+expect(not HybridDrive.spend(spark_pool, 1200000), "failed spend does not take a token drain")
+expect(spark_pool.burner.remaining_burning_fuel == 2000, "unaffected remaining after rejected spend")
+expect(not HybridDrive.can_afford(spark_pool, 1200000), "1 MJ stored in a personal solar does not authorize a scoop")
+
+local paid_pool = {
+	valid = true,
+	burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 2000000},
+	get_inventory = function()
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
+	end,
+}
+expect(HybridDrive.spend(paid_pool, 1200000), "2 MJ pool can pay a 1.2 MJ scoop")
+expect(math.abs(paid_pool.burner.remaining_burning_fuel - 800000) < 1, "spend deducts the full action cost")
+
+local inserted = 0
+local function harvest_vehicle(remaining)
+	return {
+		valid = true,
+		quality = {level = 0},
+		burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = remaining},
+		get_inventory = function(kind)
+			if kind == defines.inventory.fuel then
+				return {valid = true, get_item_count = function() return 0 end, _items = {}}
+			end
+			return {
+				valid = true,
+				can_insert = function() return true end,
+				insert = function(stack)
+					inserted = inserted + (stack.count or 1)
+					return stack.count or 1
+				end,
+			}
+		end,
+		surface = {valid = true, pollute = function() end},
+	}
+end
+local patch = {valid = true, amount = 50, name = "iron-ore", prototype = {}, destroy = function() end}
+inserted = 0
+local denied = Scoop.harvest_area(harvest_vehicle(2000), {patch}, 4)
+expect(denied.no_fuel == true, "harvest_area refuses a scoop the pool cannot pay")
+expect(inserted == 0, "refused scoop inserts no ore")
+
+inserted = 0
+local rich = harvest_vehicle(40000000)
+local allowed = Scoop.harvest_area(rich, {patch}, 4)
+expect(allowed.no_fuel ~= true, "funded scoop is allowed")
+expect(inserted == 4, "funded scoop inserts the planned items")
+expect(rich.burner.remaining_burning_fuel < 40000000, "funded scoop spends pool energy")
+
+local loc = assert(io.open("locale/en/all.cfg", "r")):read("*a")
+expect(loc:find("cncharvester%-hybrid%-charge=Hybrid charge", 1) ~= nil, "hybrid-charge item-name is localized")
+expect(loc:find("%[fuel%-category%-name%]", 1) ~= nil, "fuel-category-name section exists")
+expect(loc:find("cncharvester%-hybrid=Hybrid charge", 1) ~= nil, "hybrid fuel category is localized")
+expect(loc:find("out%-of%-fuel=Out of fuel", 1) ~= nil, "out-of-fuel is localized")
+expect(loc:find("Fuel inserted in the tank charges this electrical capacity", 1, true) ~= nil, "fuel→electrical capacity string is localized")
+
+local info_src = assert(io.open("info.json", "r")):read("*a")
+expect(info_src:find('"version": "2.1.6"', 1, true) ~= nil, "pack version is 2.1.6")
+
+local charge_src = assert(io.open("prototypes/items/hybrid_charge.lua", "r")):read("*a")
+expect(charge_src:find('localised_name = {"item-name.cncharvester-hybrid-charge"}', 1, true) ~= nil, "charge item sets localised_name")
+expect(charge_src:find('localised_name = {"fuel-category-name.cncharvester-hybrid"}', 1, true) ~= nil, "fuel category sets localised_name")
 
 local bay_src = assert(io.open("prototypes/entities/module_bay.lua", "r")):read("*a")
 expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality")

@@ -31,6 +31,7 @@ local function ensure_storage()
 	storage.cncharvesters = storage.cncharvesters or {}
 	storage.refineries = storage.refineries or {}
 	storage.drive_scoop_wait = storage.drive_scoop_wait or {}
+	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
 	ModuleBay.ensure_storage()
 	HybridDrive.ensure_storage()
 end
@@ -219,12 +220,17 @@ end
 
 local function drive_harvest(player, vehicle)
 	storage.drive_scoop_wait = storage.drive_scoop_wait or {}
+	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
+	local vehicle_id = vehicle.unit_number
+	if storage.drive_scoop_wait[player.index] == nil or storage.drive_scoop_vehicle[player.index] ~= vehicle_id then
+		-- First tick in this seat must not scoop (place-on-ore free yield).
+		storage.drive_scoop_wait[player.index] = DRIVE_MINE_PERIOD_TICKS
+		storage.drive_scoop_vehicle[player.index] = vehicle_id
+		return
+	end
 	local wait = storage.drive_scoop_wait[player.index] or 0
 	if wait > 0 then
 		storage.drive_scoop_wait[player.index] = wait - 1
-		return
-	end
-	if not HybridDrive.has_energy(vehicle) then
 		return
 	end
 
@@ -252,6 +258,10 @@ local function drive_harvest(player, vehicle)
 		return
 	end
 	local result = Scoop.harvest_area(vehicle, harvestable, Scoop.DRIVE_ITEMS_PER_SCOOP)
+	if result.no_fuel then
+		DrawFloatingText(vehicle.surface, vehicle, {"cncharvester.out-of-fuel"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+		return
+	end
 	if result.full and not result.inserted then
 		DrawFloatingText(vehicle.surface, vehicle, "Inventory full", FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 	end

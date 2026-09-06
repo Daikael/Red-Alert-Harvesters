@@ -3,6 +3,7 @@
 
 require "utilities"
 require "modulebay"
+require "hybriddrive"
 
 Scoop = Scoop or {}
 
@@ -19,6 +20,8 @@ Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
 -- Empty truck: 1.2 MJ (~3 scoops per coal). 2× efficiency-3 (−80%): 0.24 MJ.
 Scoop.PARASITIC_JOULES_BASE = 1200000
 Scoop.PARASITIC_MIN_FACTOR = 0.2
+-- 4 items at this rate = 1.2 MJ (old flat tax). Cost scales with yield and speed.
+Scoop.JOULES_PER_ITEM = 300000
 
 local EMPTY_EFFECTS = {
 	speed = 0,
@@ -63,11 +66,20 @@ function Scoop.radius(base_radius, quality_level)
 end
 
 function Scoop.parasitic_joules(consumption_effect)
-	local factor = 1 + (consumption_effect or 0)
-	if factor < Scoop.PARASITIC_MIN_FACTOR then
-		factor = Scoop.PARASITIC_MIN_FACTOR
+	return Scoop.action_joules(Scoop.DRIVE_ITEMS_PER_SCOOP, consumption_effect, 0)
+end
+
+function Scoop.action_joules(item_count, consumption_effect, speed_effect, quality_level)
+	local n = math.max(0, math.floor(item_count or 0))
+	if n <= 0 then
+		return 0
 	end
-	return Scoop.PARASITIC_JOULES_BASE * factor
+	local eff = 1 + (consumption_effect or 0)
+	if eff < Scoop.PARASITIC_MIN_FACTOR then
+		eff = Scoop.PARASITIC_MIN_FACTOR
+	end
+	local speed = 1 + math.max(0, speed_effect or 0) + Scoop.QUALITY_SPEED_PER_LEVEL * (quality_level or 0)
+	return n * Scoop.JOULES_PER_ITEM * eff * speed
 end
 
 function Scoop.apply_parasitic_fuel(vehicle, joules)
@@ -241,16 +253,35 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 end
 
 function Scoop.harvest_area(vehicle, ores, units_each)
-	if HybridDrive and HybridDrive.has_energy and not HybridDrive.has_energy(vehicle) then
+	local valid = {}
+	for _, ore in pairs(ores or {}) do
+		if ore.valid then
+			table.insert(valid, ore)
+		end
+	end
+	units_each = math.max(1, math.floor(units_each or 1))
+	local planned = #valid * units_each
+	if planned <= 0 then
 		return {inserted = false, full = false}
+	end
+	local effects = Scoop.read_effects(vehicle)
+	local qlevel = Scoop.quality_level(vehicle and vehicle.quality)
+	local cost = Scoop.action_joules(planned, effects.consumption, effects.speed, qlevel)
+	-- Full planned action must be in the hybrid pool. Grid charge / spark
+	-- leftover must not authorize a scoop by themselves.
+	if not HybridDrive.can_afford(vehicle, cost) then
+		return {inserted = false, full = false, no_fuel = true}
 	end
 	local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
 	if not trunk then
-		return {inserted = false, full = true}
+		return {inserted = false, full = true, no_fuel = false}
+	end
+	if not HybridDrive.spend(vehicle, cost) then
+		return {inserted = false, full = false, no_fuel = true}
 	end
 	local any = false
 	local full = false
-	for _, ore in pairs(ores) do
+	for _, ore in pairs(valid) do
 		if ore.valid then
 			local result = Scoop.harvest_resource(vehicle, ore, trunk, units_each)
 			any = any or result.inserted
@@ -260,9 +291,10 @@ function Scoop.harvest_area(vehicle, ores, units_each)
 			end
 		end
 	end
-	if any then
-		local effects = Scoop.read_effects(vehicle)
-		Scoop.apply_parasitic_fuel(vehicle, Scoop.parasitic_joules(effects.consumption))
+	-- Inventory-full / missed insert: do not keep the tax.
+	if not any and cost > 0 and vehicle.burner then
+		local current = HybridDrive.available_joules(vehicle)
+		HybridDrive.lock_charge(vehicle.burner, current + cost)
 	end
-	return {inserted = any, full = full}
+	return {inserted = any, full = full, no_fuel = false}
 end
