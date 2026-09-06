@@ -13,6 +13,8 @@ data:extend(
 		selection_box = {{-2, -3}, {3.5, 1.2}},
  		--{{left,up}{right,down}},--
 		inventory_size = 160,
+		-- 2.1: ContainerPrototype.picture is Sprite4Way, which still accepts a single Sprite
+		-- (applied to all directions). Directional art is not required to load.
 		picture =
 		{
 			filename = "__Red-Alert-Harvester__/graphics/entity/refinery/refinery.png",

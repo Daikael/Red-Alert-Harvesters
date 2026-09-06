@@ -3,6 +3,8 @@ Mining power is 3, same as electric miner
 Mining Speeds, for reference, burner is 0.35, electric is 0.5
 ]]--
 local vehicle_speed = {"150kW", "175kW"}
+-- 2.0 braking_power used the same kW strings as consumption. 2.1 wants a force double.
+local vehicle_braking_kw = {150, 175}
 local vehicle_friction = {0.045, 0.04}
 local miner_health = {600, 800}
 local inv_size = {50, 60}
@@ -57,7 +59,10 @@ for i=1,2 do
 		energy_source =
 		{
 			type = "burner",
-			fuel_categories = {"chemical"},
+			-- Hybrid-charge is the only currently_burning identity. Chemical
+			-- items are still accepted in the tank and script-converted into
+			-- that pool so Factorio cannot latch nuclear-fuel.
+			fuel_categories = {"cncharvester-hybrid", "chemical"},
 			effectivity = 1,
 			fuel_inventory_size = fuel_inv_size[i],
 			smoke = {
@@ -83,10 +88,13 @@ for i=1,2 do
 		--weight = 15000,
 		weight = 6000,
 		consumption = vehicle_speed[i],
-		braking_power = vehicle_speed[i],
+		-- 2.1: VehiclePrototype.braking_power (Energy) and friction were removed.
+		-- Vanilla cars convert kW braking_power to force as (kW * 1000) / 60 (J per tick).
+		-- friction_force keeps the same numeric value as the old friction field.
+		braking_force = vehicle_braking_kw[i] * 1000 / 60,
 		terrain_friction_modifier = 0.01,
 		--friction = 0.03,
-		friction = vehicle_friction[i],
+		friction_force = vehicle_friction[i],
 		rotation_speed = 0.003,
 		rotation_snap_angle = 0.01,
 		turret_rotation_speed = 0.01,

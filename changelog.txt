@@ -1,4 +1,184 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.17
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.17. `info.json` name is Red-Alert-Harvester (singular portal slug). Zip/folder name is Red-Alert-Harvester_2.1.17. Git branch is 2.1.17 (renamed in place from 2.1.16). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Portal packaging name is singular Red-Alert-Harvester (was Red-Alert-Harvesters). Version stays 2.1.17. Asset prefix is __Red-Alert-Harvester__/. GitHub source archives may still be repo-prefixed plural; install from the release zip.
+    - Slave-drill hitch no longer draws graphics/icons/harv_icon.png at shift {0.85, 0.85}. That 32×32 ore-truck still sat on both trucks (idle and mining) as the floating bottom-right square. The drill stays selectable for SHIFT+E / modules / energy bar; its graphics_set uses util.empty_sprite(). Unused graphics/entity/transparent.png is removed. Unused mining sheets (harv-anim, harvester-up-*) were not referenced.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.16
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.16. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.16. Git branch is 2.1.16 (renamed in place from 2.1.15). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Hitch helper sprites no longer use graphics/entity/transparent.png with a 256×256 rectangle / direction_count=4. That asked AtlasBuilder for left_top=256x0, outside the sheet, and crashed Factorio 2.1.16 at data.raw container/electric-pole/electric-energy-interface. Helpers now use util.empty_sprite() (core 1×1 empty.png, x=0, y=0, one direction). They stay world-invisible and still power the slave drill.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.15
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.15. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.15. Git branch is 2.1.15 (renamed in place from 2.1.14). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Private hitch micro-grid helpers (power pole, electric-energy-interface, output hopper) no longer show vanilla sprites while the truck moves. They use the pack's transparent sheet, empty selection boxes, and hide-alt-info. The slave-drill hitch stays selectable so SHIFT+E still opens the energy bar / modules. Helpers still power and catch ore.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.14
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.14. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.14. Git branch is 2.1.14 (renamed in place from 2.1.13). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Factorio 2.1 `LuaEntity.active` is read-only. Loading a 2.1.12-migrated save crashed on `on_nth_tick(1)` in `ModuleBay.starve` (`modulebay.lua` assigning `bay.active`). Starve/feed no longer write `.active`. The slave drill is gated with `disabled_by_script` and by cutting the private EEI (`power_production` / energy 0) so an empty hybrid pool still cannot mine.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.13
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.13. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.13. Git branch is 2.1.13 (renamed in place from 2.1.12). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Boot no longer requires resource-category `basic-solid-tiberium`. That name is defined by Factorio-Tiberium, not vanilla. On a 2.1.16 Deck load with only this pack, Factorio failed assignID at `cncharvester-module-bay.resource_categories[1]`. Slave drills now list `basic-solid` only. This pack does not invent a fake Tiberium category.
+    - When Factorio-Tiberium is loaded, data-final-fixes adds its real categories to the Tiberium harvester bay only (and strips them from the Ore Truck bay if that mod injected them onto every basic-solid drill).
+---------------------------------------------------------------------------------------------------
+Version: 2.1.12
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.12. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.12. Git branch is 2.1.12 (renamed in place from 2.1.11). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Productivity modules now apply through the slave mining-drill (native bonus-production bar). The scripted scoop no longer rolls a fake productivity chance that bypassed Factorio's module math.
+  Changes:
+    - Slave miner is a real electric drill: Ore Truck mining_speed 1.5 (180 kW), Tiberium 3.0 (360 kW). No-module baseline stays ~1.50 / ~3.00 items/s and 120 kJ/item.
+    - Efficiency, speed, quality, and pollution modules apply natively on that drill. SHIFT+E still opens the hitch; the drill energy bar plus a Hybrid mining draw readout show efficiency lowering draw and speed raising it.
+    - Hybrid pool feeds a private pole + electric-energy-interface micro-grid on the truck. The drill is not free factory power: each working tick is paid from hybrid (pool / grid cover / burnables) before the micro-grid is energized. Empty pool is still Out of fuel.
+    - First sit still waits a full 40 / 20 ticks (no free place-on-ore). After that the slave miner runs every tick; scripted per-item countdowns no longer set the rate (native speed modules do).
+    - Harvest error toasts are throttled to one per 150 ticks per truck.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.11
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.11. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.11. Git branch is 2.1.11 (renamed in place from 2.1.10). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Balancing:
+    - Mining is 1 item at a time. Ore Truck every 40 ticks (~0.67 s, ~1.50 items/s). Tiberium every 20 ticks (~0.33 s, ~3.00 items/s). Same average as the old 8 / 16 items per 320 ticks.
+    - Harvest tax is 120 kJ/item (4× the 2.1.10 30 kJ tax). One solid fuel ≈ 100 items. Cost still scales with efficiency, speed, and quality. Energy is paid before each insert; empty pool is still Out of fuel.
+  Changes:
+    - Auto-harvesters use the same 40 / 20 tick cadence. Items per location stay 24 / 48 (3 old bulk scoops) so they do not relocate after 3 items.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.10
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.10. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.10. Git branch is 2.1.10 (renamed in place from 2.1.9). factorio_version is 2.1. Do not merge this 2.1 line to master.
+  Changes:
+    - Ore Truck equipment grid is 2×2. Tiberium harvester grid is 3×3. Common baseline; quality does not enlarge these grids.
+    - Removed deprecated Hybrid-drive and Hybrid-drive-battery items, equipment, recipes, and tech unlocks. Scripted hybrid pool (intrinsic trickle, vanilla portable solar/battery → pool, burnables → pool) is unchanged. Truck recipes still cost vanilla solar-panel + battery.
+    - Tiberium harvester is unlocked by new technology Tiberium-Harvesting (requires Old-World-Harvesting and electric-engine). Recipe uses electric-engine-unit instead of engine-unit.
+    - Old World Harvesting now requires solar-energy (matches the solar panel already in the Ore Truck recipe).
+---------------------------------------------------------------------------------------------------
+Version: 2.1.9
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.9. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.9. Git branch is 2.1.9. factorio_version is 2.1 (not 2.0). Do not merge this 2.1 line to master.
+  Bugfixes:
+    - factorio_version / base / Factorio-Tiberium dependencies stay on the 2.1 experimental line. Nothing on this pack pins Factorio 2.0.
+    - Grid/battery → hybrid pool was capped at 4 s of drive (~300 kJ, invisible on the 80 MJ bar). Electric refill can now fill the 80 MJ pool. Parked battery pull is 6× the moving rate so a charged cell visibly raises the bar.
+    - Tank solids convert on demand (4 MJ floor / scoop target) instead of dumping the whole stack into the pool on the first tick.
+  Balancing:
+    - Scoop tax is 30 kJ/item (was 300 kJ). Ore Truck ~240 kJ per 8-item scoop (~50 scoops per solid fuel). Tiberium ~480 kJ per 16-item scoop (~25 scoops per solid fuel). Cost still scales with yield, efficiency, speed, and quality.
+    - Moving grid refill stays 10% below drive. Sustained drive+mine without extra gear still net-drains. Empty pool is still Out of fuel; a charged grid can still pay.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.8
+Date: 2026-09-06
+  Info:
+    - Pack version 2.1.8. `info.json` name is Red-Alert-Harvesters (plural). Zip/folder name is Red-Alert-Harvesters_2.1.8. Git branch is 2.1.8. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Out of fuel no longer fires just because solid-fuel slots are empty. Drive/mine use the hybrid-charge pool, fed by burnables, stored grid energy, and the baked-in trickle. A full charged grid can pay; a token spark still cannot.
+    - Grid→pool conversion runs before/alongside the fuel gate. Scoop spend may pull stored grid energy to cover the action cost (90% conversion). Per-tick refill stays rate-capped.
+    - Tiberium harvester uses the same pool/grid/burnable gate as the Ore Truck (no perpetual Out of fuel when charged).
+  Balancing:
+    - Drive scoop is a total budget of 8 (Ore Truck) / 16 (Tiberium) items per ~5.3 s period, not 4 per ore tile. Fuel cost still scales with items, efficiency, speed, and quality.
+    - Intrinsic idle trickle is 18 kW, +20%/quality level, and efficiency modules boost it. Parked high-quality loadouts charge clearly faster. Sustained driving+mining without extra equipment still net-drains.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.7
+Date: 2026-09-06
+  Changes:
+    - Localized remaining scoop/UI floating text: Inventory full, Heading for refuel, and the two auto-harvester blocked-refinery warnings. Colors and TTLs are unchanged (error red / 150 ticks for harvest errors).
+    - Pack version 2.1.7. Zip/folder name is Red-Alert-Harvester_2.1.7. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.6
+Date: 2026-09-06
+  Bugfixes:
+    - Placing a truck on ore no longer grants a free first scoop (100 / 80). The first tick in a seat waits a full period, and a scoop only runs if the hybrid-charge pool can pay the full action.
+    - Any leftover spark or grid joule no longer bypasses the fuel gate. Stored electric energy is converted into the pool at the existing rate cap; it does not authorize a scoop by itself.
+    - Scoop energy now scales with ore count, speed modules, and quality. A token drain cannot buy a full max-speed scoop.
+    - Fuel charging the hybrid electrical capacity has locale strings (en): item-name / item-description / fuel-category-name for cncharvester-hybrid-charge.
+  Balancing:
+    - Recipe solar panel + battery stay as craft cost and now grant a slow built-in recharge (~4 kW, quality-scaled) that is not removable equipment. Player-installed grid gear still matters; sustained driving/mining still net-drains.
+    - Empty / insufficient hybrid-charge: no drive, no scoop, localized Out of fuel. No free ore first.
+  Changes:
+    - Pack version 2.1.6. Zip/folder name is Red-Alert-Harvester_2.1.6. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.5
+Date: 2026-09-06
+  Bugfixes:
+    - After the spark / coal drained, the burner could latch nuclear-fuel (huge fuel_value). The bar looked empty but the truck still drove and scooped. currently_burning is now always hidden cncharvester-hybrid-charge; nuclear identities are wiped.
+    - Hybrid now pulls actual stored energy from any equipment in the vehicle grid (solar, battery, fusion, …). It no longer requires a Hybrid-drive module to be installed, and an empty grid does not refill.
+  Balancing:
+    - Coal/wood/solid fuel in the tank is converted into the hybrid-charge energy pool (items consumed, joules added). Empty pool (0 J) cannot drive or scoop.
+    - Player-built kickoff converts 1 placer coal/wood into that pool. Otherwise a 2 kJ hybrid-charge spark. No free solids, no nuclear items.
+    - Hybrid grid refill still stays below drive draw so sustained driving net-drains. Quality scales refill rate (+1.5%/level) and the electric cap (+25%/level).
+    - Ore Truck / Tiberium recipes cost 1 solar panel + 1 battery. Those are craft ingredients, not free grid or bay loot.
+  Changes:
+    - New trucks do not auto-insert Hybrid-drive, Hybrid-drive-battery, solar, battery, or modules. Module bay and grid start empty (recipe solar+battery are consumed at craft, not yankable loot). Module bay stays 2 / 3 slots with no quality slot scaling.
+    - Pack version 2.1.5. Zip/folder name is Red-Alert-Harvester_2.1.5. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.4
+Date: 2026-09-06
+  Balancing:
+    - New trucks no longer spawn free coal/wood (that was infinite pollution-free fuel). Fuel slots start empty. On player placement, if the placer has coal (else wood), 1 item is taken from their inventory and moved into the truck.
+    - If the tank is still empty, the burner gets a 2 kJ spark (hidden charge identity, immediately clamped) so it is not “out of fuel” and Hybrid-drive can refill from the grid. This is not a coal/wood/nuclear bar. Mining scrubs the hidden charge so it cannot drop as loot.
+    - Hybrid-drive conversion only adds joules (4 s cap). It never inserts fuel items. Writing currently_burning is always followed by a clamp so placement cannot yield a full free fuel bar.
+  Changes:
+    - Pack version 2.1.4. Zip/folder name is Red-Alert-Harvester_2.1.4. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.3
+Date: 2026-09-06
+  Balancing:
+    - Harvesting now applies a parasitic burner tax each successful scoop (drive and auto). Base cost is 1.2 MJ; efficiency modules scale it (2× efficiency-3 ≈ 0.24 MJ). Empty trucks feel a clear fuel tax; fully efficiency-moduled trucks are much cheaper. Mild patch-drain reduction from efficiency is unchanged.
+    - New trucks start with 10 coal (or 20 wood if coal is missing), never a nuclear fuel cell / uranium-fuel-cell / fusion-power-cell. Hybrid-drive tops up remaining_burning_fuel only and will not invent high-tier fuel items.
+    - Module bay slots no longer scale with entity quality. Ore Truck is always 2 slots; Tiberium harvester is always 3.
+  Changes:
+    - Pack version 2.1.3. Zip/folder name is Red-Alert-Harvester_2.1.3. Do not merge this 2.1 line to master.
+  Info:
+    - Numbers are in FACTORIO_2.1.md.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.2
+Date: 2026-09-06
+  Changes:
+    - Merged master 2.0 tester fixes (PR #3) into this 2.1 line. Do not merge this branch to master.
+    - README documents zip/folder name Red-Alert-Harvester_2.1.2 (singular info.json name, not the GitHub repo).
+    - Player-in-vehicle scoop cadence is 320 ticks (~5.33s, 1.875× vs the original 600). Volume per scoop is unchanged. Speed/quality modules may still shorten from that base.
+    - Inventory-full and blocked-harvest warnings are error red for 150 ticks (~2.5s). Informational greens are unchanged.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.1
+Date: 2026-09-06
+  Features:
+    - Ore Trucks get a companion module bay (2 slots / 3 on Tiberium harvester). SHIFT+E or click the bay to use the vanilla module GUI.
+    - Entity quality reduces resource drain (vanilla mining_drill_resource_drain_multiplier) and modestly boosts scoop radius / rate.
+    - Quality modules roll product quality via LuaQualityPrototype.roll_quality when available. Productivity can grant bonus ore without extra drain. Speed shortens scoop interval. Efficiency slightly reduces drain and auto-harvest fuel use.
+    - Hybrid-drive now converts grid electricity into burner energy at a capped rate. Full-throttle driving still net-drains fuel even with a strong generator.
+  Changes:
+    - Equipment grids enlarged (4x4 / 5x5) so third-party armor generators can be installed next to Hybrid-drive.
+    - Hybrid-drive is battery-equipment (converter identity), not a 0.4kW solar panel. Craftable with Old World Harvesting.
+    - Drive-and-harvest and auto-harvest share the scripted scoop path; unload still preserves stack quality.
+  Info:
+    - Numbers and test steps are in FACTORIO_2.1.md. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.0
+Date: 2026-09-06
+  Changes:
+    - Development line for Factorio 2.1 experimental/beta (factorio_version 2.1). Separate from the 2.0.0 / factorio_version 2.0 pack.
+    - Requires base >= 2.1.0. Optional Factorio-Tiberium dependency now expects the 2.1 line (>= 2.1.0).
+    - Harvester cars use braking_force / friction_force (2.1 removed braking_power / friction).
+    - Recipes set categories = {"crafting"} (2.1 removed RecipePrototype.category).
+    - Quality-system features are out of scope here; inventory transfers still preserve existing quality from the 2.0 port.
+  Info:
+    - See FACTORIO_2.1.md for remaining 2.1 API unknowns. This release is a load-compat scaffold, not a 2.1 feature pass.
+---------------------------------------------------------------------------------------------------
 Version: 2.0.0
 Date: 2026-09-05
   Changes:
