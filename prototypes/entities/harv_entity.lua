@@ -59,7 +59,10 @@ for i=1,2 do
 		energy_source =
 		{
 			type = "burner",
-			fuel_categories = {"chemical"},
+			-- Hybrid-charge is the only currently_burning identity. Chemical
+			-- items are still accepted in the tank and script-converted into
+			-- that pool so Factorio cannot latch nuclear-fuel.
+			fuel_categories = {"cncharvester-hybrid", "chemical"},
 			effectivity = 1,
 			fuel_inventory_size = fuel_inv_size[i],
 			smoke = {

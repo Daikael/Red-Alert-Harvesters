@@ -7,8 +7,20 @@ package.path = "./?.lua;" .. package.path
 package.loaded.utilities = true
 package.loaded.modulebay = true
 package.loaded.specialOres = true
-prototypes = {quality = {}, item = {coal = {fuel_value = 4000000}, wood = {fuel_value = 2000000}, ["rocket-fuel"] = {fuel_value = 100000000}}}
+prototypes = {quality = {}, item = {coal = {fuel_value = 4000000}, wood = {fuel_value = 2000000}, ["rocket-fuel"] = {fuel_value = 100000000}, ["nuclear-fuel"] = {fuel_value = 1210000000}}}
 defines = {inventory = {fuel = "fuel"}}
+function EachInventoryItem(inv, cb)
+	if not inv then
+		return
+	end
+	if inv._items then
+		for name, count in pairs(inv._items) do
+			if count > 0 then
+				cb(name, count, nil)
+			end
+		end
+	end
+end
 SpecialOres = {}
 function ResourceProductItemName() return "iron-ore" end
 function IsHarvestableResource() return true end
@@ -87,6 +99,10 @@ expect(HybridDrive.SPARK_JOULES == 2000, "spark is 2 kJ, not a coal/wood bar")
 expect(HybridDrive.SPARK_JOULES < 4000000 * 0.01, "spark is well under 1% of coal")
 expect(HybridDrive.CHARGE_ITEM == "cncharvester-hybrid-charge", "spark uses hidden charge identity")
 
+expect(HybridDrive.POOL_CAP == 80000000, "pool cap is 80 MJ")
+expect(HybridDrive.is_nuclear_identity("nuclear-fuel"), "nuclear-fuel is a banned burn identity")
+expect(not HybridDrive.is_nuclear_identity(HybridDrive.CHARGE_ITEM), "charge is not nuclear")
+
 local spark_burner = {currently_burning = nil, remaining_burning_fuel = 0}
 HybridDrive.apply_spark(spark_burner)
 expect(spark_burner.currently_burning == HybridDrive.CHARGE_ITEM, "spark uses hidden charge, not coal")
@@ -97,18 +113,26 @@ expect(HybridDrive.add_burner_energy(empty_burner, 1000, 300000) == 1000, "hybri
 expect(empty_burner.currently_burning == HybridDrive.CHARGE_ITEM, "empty hybrid start is hidden charge, not coal")
 expect(empty_burner.remaining_burning_fuel == 1000, "ignite clamps then adds only converted joules")
 
-local live = {currently_burning = "coal", remaining_burning_fuel = 100}
-expect(HybridDrive.add_burner_energy(live, 1000, 300000) == 1000, "hybrid tops up an existing burn")
-expect(live.currently_burning == "coal", "existing burn identity is kept")
-expect(live.remaining_burning_fuel == 1100, "remaining is previous plus converted joules")
+local from_coal = {currently_burning = "coal", remaining_burning_fuel = 100}
+expect(HybridDrive.add_burner_energy(from_coal, 1000, 300000) == 1000, "hybrid switches coal identity to charge")
+expect(from_coal.currently_burning == HybridDrive.CHARGE_ITEM, "coal burn is rewritten to hybrid-charge")
+expect(from_coal.remaining_burning_fuel == 1100, "remaining is previous plus converted joules")
+
+local nuclear = {currently_burning = "nuclear-fuel", remaining_burning_fuel = 1210000000}
+HybridDrive.lock_charge(nuclear, nil)
+expect(nuclear.currently_burning == HybridDrive.CHARGE_ITEM, "nuclear identity is rewritten to charge")
+expect(nuclear.remaining_burning_fuel == 0, "nuclear remaining is discarded")
+expect(not HybridDrive.has_energy({valid = true, burner = nuclear}), "nuclear latch is treated as empty")
 
 local leftover = {currently_burning = "cncharvester-hybrid-charge", remaining_burning_fuel = 1000000}
-expect(HybridDrive.add_burner_energy(leftover, 500, 300000) == 0, "full leftover charge is clamped to 4s cap")
-expect(leftover.currently_burning == HybridDrive.CHARGE_ITEM, "charge identity kept for hybrid refill")
-expect(leftover.remaining_burning_fuel == 300000, "1 MJ leftover is deflated to the 300 kJ cap")
+expect(HybridDrive.add_burner_energy(leftover, 500, 300000) == 0, "electric refill does not add above 4s cap")
+expect(leftover.currently_burning == HybridDrive.CHARGE_ITEM, "charge identity kept")
+expect(leftover.remaining_burning_fuel == 1000000, "solid/pool energy above 4s is not deflated")
+
+local empty_pool = {valid = true, burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0}}
+expect(not HybridDrive.has_energy(empty_pool), "0 remaining cannot drive/scoop")
 
 local player_inv = {coal = 3, wood = 1}
-local tank = {}
 local mock_player = {
 	valid = true,
 	get_item_count = function(name) return player_inv[name] or 0 end,
@@ -125,49 +149,57 @@ local mock_player = {
 }
 local mock_vehicle = {
 	valid = true,
+	burner = {currently_burning = nil, remaining_burning_fuel = 0},
 	get_inventory = function()
-		return {
-			valid = true,
-			get_item_count = function()
-				local n = 0
-				for _, c in pairs(tank) do n = n + c end
-				return n
-			end,
-			insert = function(stack)
-				tank[stack.name] = (tank[stack.name] or 0) + 1
-				return 1
-			end,
-		}
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
 	end,
 }
 expect(HybridDrive.try_take_player_kickoff(mock_vehicle, mock_player) == "coal", "player-built consumes 1 coal")
 expect(player_inv.coal == 2, "player lost exactly 1 coal")
-expect(tank.coal == 1, "truck received that 1 coal")
-expect(HybridDrive.try_take_player_kickoff(mock_vehicle, mock_player) == nil, "second kickoff skipped if tank not empty")
+expect(mock_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "kickoff energy is hybrid-charge")
+expect(mock_vehicle.burner.remaining_burning_fuel == 4000000, "1 coal is converted to 4 MJ in the pool")
+expect(HybridDrive.try_take_player_kickoff(mock_vehicle, mock_player) == nil, "second kickoff skipped if pool has energy")
 expect(player_inv.coal == 2, "no further coal taken")
 
-tank = {}
 player_inv = {coal = 0, wood = 0}
+mock_vehicle.burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0}
 expect(HybridDrive.try_take_player_kickoff(mock_vehicle, mock_player) == nil, "no items if player has no coal/wood")
-expect(next(tank) == nil, "tank stays empty without player fuel")
+expect(mock_vehicle.burner.remaining_burning_fuel == 0, "pool stays empty without player fuel")
 
 local spark_vehicle = {
 	valid = true,
-	burner = {currently_burning = nil, remaining_burning_fuel = 400000},
+	burner = {currently_burning = "nuclear-fuel", remaining_burning_fuel = 1210000000},
 	get_inventory = function()
-		return {
-			valid = true,
-			get_item_count = function() return 0 end,
-		}
+		return {valid = true, get_item_count = function() return 0 end, _items = {}}
 	end,
 }
 expect(HybridDrive.apply_spark_if_empty(spark_vehicle) == true, "empty tank gets a spark")
-expect(spark_vehicle.burner.remaining_burning_fuel == 2000, "leftover full bar is replaced by 2 kJ spark")
-expect(spark_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "spark is not coal/wood")
+expect(spark_vehicle.burner.remaining_burning_fuel == 2000, "nuclear leftover is replaced by 2 kJ spark")
+expect(spark_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "spark is not nuclear/coal")
 
-tank.coal = 1
-spark_vehicle.get_inventory = mock_vehicle.get_inventory
-expect(HybridDrive.apply_spark_if_empty(spark_vehicle) == false, "spark skipped when a real fuel item is in the tank")
+local tank_items = {coal = 2}
+local convert_vehicle = {
+	valid = true,
+	burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0},
+	get_inventory = function()
+		return {
+			valid = true,
+			_items = tank_items,
+			get_item_count = function() return tank_items.coal or 0 end,
+			remove = function(stack)
+				local n = math.min(stack.count, tank_items[stack.name] or 0)
+				tank_items[stack.name] = (tank_items[stack.name] or 0) - n
+				return n
+			end,
+		}
+	end,
+}
+expect(HybridDrive.convert_inventory_fuels(convert_vehicle) == 8000000, "2 coal convert to 8 MJ")
+expect((tank_items.coal or 0) == 0, "converted coal is removed from the tank")
+expect(convert_vehicle.burner.currently_burning == HybridDrive.CHARGE_ITEM, "convert keeps hybrid-charge")
+expect(convert_vehicle.burner.remaining_burning_fuel == 8000000, "pool received both coal")
+expect(HybridDrive.has_energy(convert_vehicle), "converted coal can drive")
+expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skipped when the pool has energy")
 
 local bay_src = assert(io.open("prototypes/entities/module_bay.lua", "r")):read("*a")
 expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality")

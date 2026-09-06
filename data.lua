@@ -1,8 +1,8 @@
+require("prototypes.items.hybrid_charge")
 require("prototypes.entities.harv_entity")
 require("prototypes.entities.module_bay")
 require("prototypes.items.harv_item")
 require("prototypes.items.equipment")
-require("prototypes.items.hybrid_charge")
 require("prototypes.recipes.harv_recipe")
 require("prototypes.equipment-grid")
 

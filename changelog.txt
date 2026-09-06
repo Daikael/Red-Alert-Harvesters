@@ -1,4 +1,15 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.5
+Date: 2026-09-06
+  Bugfixes:
+    - After the spark / coal drained, the burner could latch nuclear-fuel (huge fuel_value). The bar looked empty but the truck still drove and scooped. currently_burning is now always hidden cncharvester-hybrid-charge; nuclear identities are wiped.
+  Balancing:
+    - Coal/wood/solid fuel in the tank is converted into the hybrid-charge energy pool (items consumed, joules added). Empty pool (0 J) cannot drive or scoop.
+    - Player-built kickoff converts 1 placer coal/wood into that pool. Otherwise a 2 kJ hybrid-charge spark. No free solids, no nuclear items.
+    - Hybrid grid refill still caps at 4 s of drive and does not shrink a solid-converted pool.
+  Changes:
+    - Pack version 2.1.5. Zip/folder name is Red-Alert-Harvester_2.1.5. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.4
 Date: 2026-09-06
   Balancing:

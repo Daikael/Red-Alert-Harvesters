@@ -1,10 +1,16 @@
--- Hidden chemical identity for the Hybrid-drive spark / joule buffer.
--- Never inserted into the fuel inventory. Writing LuaBurner.currently_burning
--- fills remaining_burning_fuel to this item's fuel_value; runtime always clamps
--- to SPARK_JOULES (2 kJ) or the 4 s hybrid cap so placement is not a full bar.
--- 400 kJ is just above the type-2 cap (350 kJ) so a missed clamp is still far
--- below coal (4 MJ). Scrubbed on mine so it cannot drop as loot.
+-- Hidden, non-craftable burner identity for the hybrid energy pool.
+-- Never in recipes. Never inserted as a lootable stack (runtime currently_burning
+-- only; scrubbed on mine). Dedicated fuel category so Factorio cannot substitute
+-- nuclear-fuel / uranium-fuel-cell when remaining hits 0.
+--
+-- fuel_value 80 MJ = 20 coal: remaining can hold converted solids. Writing
+-- currently_burning fills remaining to this value; HybridDrive.lock_charge
+-- always clamps afterward. Spark is 2 kJ; electric refill caps at 4 s of drive.
 data:extend({
+	{
+		type = "fuel-category",
+		name = "cncharvester-hybrid"
+	},
 	{
 		type = "item",
 		name = "cncharvester-hybrid-charge",
@@ -13,8 +19,8 @@ data:extend({
 		hidden = true,
 		hidden_in_factoriopedia = true,
 		stack_size = 1,
-		fuel_value = "400kJ",
-		fuel_category = "chemical",
-		flags = {"hide-from-bonus-gui", "hide-from-fuel-tooltip"}
+		fuel_value = "80MJ",
+		fuel_category = "cncharvester-hybrid",
+		flags = {"hide-from-bonus-gui", "hide-from-fuel-tooltip", "not-stackable"}
 	}
 })

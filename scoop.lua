@@ -241,6 +241,9 @@ function Scoop.harvest_resource(vehicle, ore, trunk, units)
 end
 
 function Scoop.harvest_area(vehicle, ores, units_each)
+	if HybridDrive and HybridDrive.has_energy and not HybridDrive.has_energy(vehicle) then
+		return {inserted = false, full = false}
+	end
 	local trunk = vehicle.get_inventory(defines.inventory.car_trunk)
 	if not trunk then
 		return {inserted = false, full = true}

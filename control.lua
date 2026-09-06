@@ -228,6 +228,9 @@ local function drive_harvest(player, vehicle)
 		storage.drive_scoop_wait[player.index] = wait - 1
 		return
 	end
+	if not HybridDrive.has_energy(vehicle) then
+		return
+	end
 
 	local effects = Scoop.read_effects(vehicle)
 	local qlevel = Scoop.quality_level(vehicle.quality)

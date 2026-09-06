@@ -372,6 +372,9 @@ cncharvester = {
 				return
 			end
 
+			if HybridDrive and HybridDrive.has_energy and not HybridDrive.has_energy(self.vehicle) then
+				return
+			end
 			local amountPerOre = math.ceil(Stats.OreMinedPerScoop / #ores)
 			local result = Scoop.harvest_area(self.vehicle, ores, amountPerOre)
 			if result.full then
