@@ -1,8 +1,8 @@
 ---------------------------------------------------------------------------------------------------
-Version: 2.1.1.8
+Version: 2.1.8
 Date: 2026-09-06
   Info:
-    - Unreleased 2.1 experimental packs now use 2.1.1.<test_revision> (this is test revision 8). Not a released 2.1.8. Zip/folder is Red-Alert-Harvester_2.1.1.8. Do not merge this 2.1 line to master.
+    - Pack version 2.1.8 (three-part only; Factorio cannot load four-part versions). Zip/folder name is Red-Alert-Harvester_2.1.8. Do not merge this 2.1 line to master.
   Bugfixes:
     - Out of fuel no longer fires just because solid-fuel slots are empty. Drive/mine use the hybrid-charge pool, fed by burnables, stored grid energy, and the baked-in trickle. A full charged grid can pay; a token spark still cannot.
     - Grid→pool conversion runs before/alongside the fuel gate. Scoop spend may pull stored grid energy to cover the action cost (90% conversion). Per-tick refill stays rate-capped.

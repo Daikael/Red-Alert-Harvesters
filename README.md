@@ -2,12 +2,12 @@
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
-This branch is the **Factorio 2.1 experimental/beta** line. It is **not** the live 2.0 stable pack on `master`.
+This branch is the **Factorio 2.1 experimental/beta** line (pack `2.1.8`). It is **not** the live 2.0 stable pack on `master`.
 
-Unreleased experimental packs use **`2.1.1.<test_revision>`** (not `2.1.N`). `2.1` is the Factorio target, `1` is the first 2.1 release target, and the last number is the internal test iteration. This pack is **`2.1.1.8`**. Next test revs are `2.1.1.9`, `2.1.1.10`, … until a real release.
+Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.8`**. Later unreleased test revs stay on three-part patch bumps (`2.1.9`, `2.1.10`, …).
 
 - **2.0 stable players:** use `master` / `Red-Alert-Harvester_2.0.0`.
-- **2.1 experimental:** this branch / `Red-Alert-Harvester_2.1.1.8`.
+- **2.1 experimental:** this branch / `Red-Alert-Harvester_2.1.8`.
 
 ## Install naming (Factorio will refuse the wrong zip)
 
@@ -15,30 +15,30 @@ Factorio checks the **file or folder name** against `info.json`. The check is **
 
 ```text
 Failed to load mod "Red-Alert-Harvesters": Filename of mod .../Red-Alert-Harvesters.zip
-doesn't match the expected Red-Alert-Harvester_2.1.1.8.zip (case sensitive!)
+doesn't match the expected Red-Alert-Harvester_2.1.8.zip (case sensitive!)
 ```
 
 | What | Exact value |
 | --- | --- |
 | GitHub repo | `Red-Alert-Harvesters` (plural) — **do not use this as the zip name** |
 | `info.json` `name` | `Red-Alert-Harvester` (singular, no trailing `s`) |
-| `info.json` `version` | `2.1.1.8` |
-| Folder in `mods/` | `Red-Alert-Harvester_2.1.1.8` |
-| Zip in `mods/` | `Red-Alert-Harvester_2.1.1.8.zip` |
+| `info.json` `version` | `2.1.8` |
+| Folder in `mods/` | `Red-Alert-Harvester_2.1.8` |
+| Zip in `mods/` | `Red-Alert-Harvester_2.1.8.zip` |
 
-The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvester_2.1.1.8`**.
+The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvester_2.1.8`**.
 
 `info.json` must sit at the **zip root** or **one folder deep** with that same folder name:
 
 ```text
-Red-Alert-Harvester_2.1.1.8.zip
-  Red-Alert-Harvester_2.1.1.8/
+Red-Alert-Harvester_2.1.8.zip
+  Red-Alert-Harvester_2.1.8/
     info.json
     control.lua
     ...
 ```
 
-or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester.zip`, or `Red-Alert-Harvesters_2.1.1.8.zip` will fail to load.
+or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester.zip`, or `Red-Alert-Harvesters_2.1.8.zip` will fail to load.
 
 ### Where to put it
 
@@ -52,18 +52,18 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 
 ```bash
 # from a clone of this branch
-rm -rf /tmp/Red-Alert-Harvester_2.1.1.8 /tmp/Red-Alert-Harvester_2.1.1.8.zip
-mkdir /tmp/Red-Alert-Harvester_2.1.1.8
-rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.1.1.8/
-cd /tmp && zip -r Red-Alert-Harvester_2.1.1.8.zip Red-Alert-Harvester_2.1.1.8
-# copy Red-Alert-Harvester_2.1.1.8.zip into your Factorio mods folder
+rm -rf /tmp/Red-Alert-Harvester_2.1.8 /tmp/Red-Alert-Harvester_2.1.8.zip
+mkdir /tmp/Red-Alert-Harvester_2.1.8
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.1.8/
+cd /tmp && zip -r Red-Alert-Harvester_2.1.8.zip Red-Alert-Harvester_2.1.8
+# copy Red-Alert-Harvester_2.1.8.zip into your Factorio mods folder
 ```
 
-On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1.1.8`, then zip that folder (not the GitHub repo folder name).
+On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1.8`, then zip that folder (not the GitHub repo folder name).
 
 ## Smoke test (2.1 experimental)
 
-1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.1.8** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
+1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.8** with no load error. Use a **2.1 experimental** client, not 2.0 stable.
 2. New Freeplay / sandbox. Research **Old World Harvesting**. Craft an Ore Truck and a Refinery.
 3. Fuel the truck, drive onto iron/copper/coal/stone. It should scoop into the trunk about every **5.3 seconds** (320 ticks) with no speed modules, then unload when you sit next to the refinery.
 4. SHIFT+E (or click the hitch) opens the companion **module bay** (starts empty). The truck recipe spends a solar panel + battery at craft; they are **not** in the grid or bay (no strip-recycle extra loot). Those ingredients give a **slow built-in recharge**. Install your own portable solar/battery for faster Hybrid refill. An empty or undercharged pool will not scoop.

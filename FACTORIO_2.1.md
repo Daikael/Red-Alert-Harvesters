@@ -11,7 +11,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.1.8` (test rev 8; not a released 2.1.8) |
+| `info.json` `version` | `2.0.0` | `2.1.8` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -143,7 +143,7 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW on a **normal
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvester_2.1.1.8`** (singular `info.json` name — see README). Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
+1. Install as **`Red-Alert-Harvester_2.1.8`** (singular `info.json` name — see README). Confirm data stage loads. Inventory-full / blocked-harvest / refuel toasts are locale keys (en), same red/150-tick error style as before.
 2. **No free scoop on place:** Place a truck with empty fuel on ore. First sit must **not** dump 100 (Ore Truck) / 80 (type-2) ore. Feedback is localized **Out of fuel** only.
 3. **Cost matches yield/speed:** A 2 kJ spark or leftover sliver cannot buy a full max-speed scoop. More ores / speed modules / quality cost more. One personal solar’s stored charge must not authorize an underpriced full scoop (grid→pool stays rate-capped and separate).
 4. **Kickoff / nuclear latch:** Place with coal — lose 1 coal; tank slots empty; bar shows **Hybrid charge** (~4 MJ / 80 MJ), never a raw key, never nuclear. Place with no coal/wood — 2 kJ sliver. Drain completely — cannot drive or scoop; bar stays empty (no nuclear flip). Insert coal — pool increases, identity stays hybrid-charge. Mine: no free charge/nuclear loot.

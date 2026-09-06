@@ -410,7 +410,7 @@ expect(io.open("control.lua"):read("*a"):find('{"cncharvester.inventory-full"}',
 expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refinery"}', 1, true) ~= nil, "harvester.lua uses no-empty-refinery locale key")
 
 local info_src = assert(io.open("info.json", "r")):read("*a")
-expect(info_src:find('"version": "2.1.1.8"', 1, true) ~= nil, "pack version is 2.1.1.8")
+expect(info_src:find('"version": "2.1.8"', 1, true) ~= nil, "pack version is 2.1.8")
 
 local charge_src = assert(io.open("prototypes/items/hybrid_charge.lua", "r")):read("*a")
 expect(charge_src:find('localised_name = {"item-name.cncharvester-hybrid-charge"}', 1, true) ~= nil, "charge item sets localised_name")
