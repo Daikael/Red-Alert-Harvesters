@@ -13,6 +13,12 @@ data:extend(
 			name = "harvester-auto-by-default",
 			setting_type = "startup",
 			default_value = false
+		},
+		{
+			type = "bool-setting",
+			name = "cncharvester-chunk-index",
+			setting_type = "runtime-global",
+			default_value = false
 		}
 		--[[ ,
 		{

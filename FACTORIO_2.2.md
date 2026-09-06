@@ -2,7 +2,7 @@
 
 Planning doc for pack **2.2.x**. Agreed with the maintainer (Daikael). This file is the locked design; implement against it, do not invent a parallel plan.
 
-**This PR is documentation only.** Do not bump `info.json`, do not implement the scanner or depot in this change.
+**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Still no version bump, no physical driving, no depot / circuit I/O, no teleport removal. Do not merge to `master` unprompted.
 
 ## Shipping baseline
 
@@ -32,14 +32,16 @@ What it actually does today:
 - Movement is **`vehicle.teleport`** along a heading (`States.MovingToLocation`). No pathfinder, no collision avoidance. **This is legacy test AI to replace, not keep.** 2.2.x autonomy must not reuse it — not even as a temporary M1 bridge.
 - Ore pick is **local and random**: `FindRandomOreInRadius` / `FindOresInRadius` scan a growing box around the truck (`Stats.DefaultSearchRadius` = 15, then +5). Not a map index.
 - Refineries are found by a full-surface `find_entities_filtered{name = "refinery"}` (`refinery.lua`).
-- `chunksearcher.lua` is a **dead stub** (`Surface.lookup` / `Surface.find_all_entities` / `Surface.tiberium`). It is `require`d from `control.lua` but never called. The `blah` area filter is leftover junk. Do not “finish” this file as-is; replace or rewrite.
-- `storage.orechunk` and `storage.tibchunk` are allocated in `control.lua` `ensure_storage()` and **never written or read**.
+- `chunksearcher.lua` (dead stub) is **deleted**. The index lives in `chunkindex.lua`.
+- `storage.orechunk` / `storage.tibchunk` are the index home, written by the slow scanner when it is enabled.
 
 `harvester-auto-by-default` exists but is unused by the runtime loop. Commented `Auto-cncharvester-Ragne` is not a design input — range in 2.2.x comes from the **depot** (GUI / circuit), not a startup int.
 
 ---
 
 ## Milestone 1 — Global slow chunk scanner
+
+**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`) and/or runtime **Chunk ore index (2.2 scanner)** (`cncharvester-chunk-index`, default off). Default saves stay quiet. No truck movement.
 
 Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 
@@ -96,7 +98,7 @@ Alert coloring / pins (Daikael):
 
 ### Suggested storage shape (implementer hint, not frozen)
 
-Keep using (or replace) `storage.orechunk` / `storage.tibchunk` as the index tables. Today they are unused placeholders — that is the intended home, not a reason to leave them empty. Exact keying (`surface_index` → `chunk_x` → `chunk_y`, plus a refcount side table) is an implementation detail; the **refcount + border-rescan** rules above are not.
+`storage.orechunk` / `storage.tibchunk` are the index tables (`surface_index` → `chunk_x` → `chunk_y`). Refcount neighbor flags live in `storage.chunkindex.border` / `tib_holds`. Exact keying is an implementation detail; the **refcount + border-rescan** rules above are not.
 
 Wire `on_chunk_generated` (and surface create / first visit — see below) to **enqueue**, not to scan inline. The slow tick drains the queue.
 
@@ -217,8 +219,8 @@ The truck no longer grows a random radius and hopes. `FindingOre` (later) asks t
 - No fluid mining (uranium + acid, etc.). Slave drill still has no fluid box.
 - No pre-scan of unvisited / ineligible surfaces.
 - Do not use Tib **slurry** tech as a surface or index gate.
-- Do not treat `chunksearcher.lua` as salvageable API — it is a stub.
-- Do not implement scanner or depot code in the docs PR that lands this file.
+- Do not revive `chunksearcher.lua`. The stub is gone; use `chunkindex.lua`.
+- Do not implement depot / driving / `FindingOre` retarget in the M1 scanner drop.
 
 ---
 
@@ -256,12 +258,12 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunksearcher"` (unused). Allocates `storage.orechunk` / `storage.tibchunk`. Ticks auto AI when `Auto-cncharvester-testing`. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. Natural place for chunk-queue drain + surface events. |
+| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Still ticks auto AI when `Auto-cncharvester-testing`. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
 | `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
-| `chunksearcher.lua` | Dead stub. Replace or delete when M1 lands. Do not hard-code `basic-solid-tiberium` (see `test_2_1_features.lua`). |
-| `settings.lua` | `Auto-cncharvester-testing`, unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
+| `chunkindex.lua` | M1 slow index. Queue + one-chunk-per-tick classify, Tib refcount borders, harvester depletion requeue. No `basic-solid-tiberium` string. |
+| `settings.lua` | `Auto-cncharvester-testing`, unused `harvester-auto-by-default`, runtime `cncharvester-chunk-index` (default off). Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
 | `specialOres.lua` | Resource entity name ≠ item name. Index should store something the depot filter and circuit can name (item, not only entity). |
 | `modulebay.lua` / `hybriddrive.lua` / `scoop.lua` | Unchanged for M1. Depot spawn must apply the **fixed** module list + equipment to the same slave-drill / grid those files own. |
@@ -271,11 +273,11 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 ## Success checks (when implementation PRs start)
 
-Docs PR (this file): branch `2.2.0`, file present, draft PR to `master`, no gameplay / version edits.
+Docs + M1 scanner are on branch `2.2.0`. Pack version stays **2.1.18** until a later bump.
 
-Later M1 PR (not this one):
+M1 (landed):
 
-- Generated chunks on visited, in-scope surfaces eventually appear in the index.
+- Generated chunks on visited, in-scope surfaces eventually appear in `storage.orechunk` / `storage.tibchunk`.
 - Empty-next-to-Tib chunks keep a **refcount > 0** while any bordering Tib chunk exists; count drops on Tib deplete.
 - Unvisited ineligible planets are never scanned. Eligible unvisited surfaces stay off the queue until create / chunk / visit.
 - Slurry research does not change what the index lists. Type-2 tech still gates **auto-mining** Tib.

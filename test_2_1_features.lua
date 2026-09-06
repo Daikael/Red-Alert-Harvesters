@@ -530,7 +530,15 @@ expect(bay_src:find("cncharvester-module-bay\"", 1, true) ~= nil, "ore truck bay
 local fixes_src = assert(io.open("data-final-fixes.lua", "r")):read("*a")
 expect(fixes_src:find("category_exists", 1, true) ~= nil, "final-fixes only add categories that exist")
 expect(fixes_src:find("strip_tiberium_categories", 1, true) ~= nil, "ore bay strips injected Tiberium categories")
-expect(io.open("chunksearcher.lua"):read("*a"):find('"basic-solid-tiberium"', 1, true) == nil, "chunksearcher does not hard-code basic-solid-tiberium")
+expect(io.open("chunksearcher.lua") == nil, "dead chunksearcher.lua stub is deleted")
+local index_src = assert(io.open("chunkindex.lua"):read("*a"))
+expect(index_src:find('"basic-solid-tiberium"', 1, true) == nil, "chunkindex does not hard-code basic-solid-tiberium")
+expect(index_src:find("string.find(category, \"tiberium\"", 1, true) ~= nil, "chunkindex detects Tib by category substring")
+expect(index_src:find("BUDGET_PER_TICK = 1", 1, true) ~= nil, "scanner drains one chunk per budget tick")
+expect(io.open("control.lua"):read("*a"):find('require "chunkindex"', 1, true) ~= nil, "control requires chunkindex")
+expect(io.open("control.lua"):read("*a"):find("ChunkIndex.tick", 1, true) ~= nil, "nth-tick drains the chunk index")
+expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
+expect(io.open("harvester.lua"):read("*a"):find("vehicle.teleport", 1, true) ~= nil, "M1 does not remove legacy teleport AI")
 expect(io.open("utilities.lua"):read("*a"):find('category ~= "basic-solid-tiberium"', 1, true) == nil, "harvest filter does not require basic-solid-tiberium")
 expect(bay_src:find("1.5", 1, true) ~= nil, "ore truck mining_speed 1.5")
 expect(bay_src:find("3.0", 1, true) ~= nil, "tiberium mining_speed 3.0")
@@ -612,6 +620,75 @@ expect(data_src:find("prototypes.items.equipment", 1, true) == nil, "data.lua do
 expect(data_src:find("prototypes.equipment.equipment", 1, true) == nil, "data.lua does not load Hybrid-drive equipment")
 expect(io.open("prototypes/items/equipment.lua") == nil, "Hybrid-drive item file is removed")
 expect(io.open("prototypes/equipment/equipment.lua") == nil, "Hybrid-drive equipment file is removed")
+
+dofile("chunkindex.lua")
+
+local offs = ChunkIndex.neighbor_offsets()
+expect(#offs == 8, "Tib border uses 8 neighbors")
+
+local border, holds = {}, {}
+ChunkIndex.apply_tib_transition(border, holds, 1, 0, 0, false, true)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 1, "Tib source increments neighbor refcount")
+expect(ChunkIndex.border_count(border, 1, 0, 0) == 0, "Tib chunk does not increment itself")
+ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, false, true)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 2, "two Tib sources share a neighbor (refcount 2)")
+ChunkIndex.apply_tib_transition(border, holds, 1, 0, 0, true, false)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 1, "one Tib deplete leaves the other source's flag")
+ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, true, false)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "last Tib deplete clears neighbor flag")
+ChunkIndex.apply_tib_transition(border, holds, 1, 2, 0, true, false)
+expect(ChunkIndex.border_count(border, 1, 1, 0) == 0, "double deplete is a no-op")
+
+local flags_off = {present = false, mode = "tiber", extra = {nauvis = true}}
+expect(ChunkIndex.tib_can_spawn_on("nauvis", flags_off) == false, "no Tib mod means no Tib spawn")
+local flags_sa = {present = true, mode = "tiber", extra = {nauvis = false, all_other = false}}
+expect(ChunkIndex.tib_can_spawn_on("tiber", flags_sa) == true, "tiberium-on=tiber allows planet tiber")
+expect(ChunkIndex.tib_can_spawn_on("nauvis", flags_sa) == false, "tiber mode does not imply nauvis")
+expect(ChunkIndex.tib_can_spawn_on("nauvis", {present = true, mode = "nauvis", extra = {}}) == true, "tiberium-on=nauvis allows nauvis")
+expect(ChunkIndex.tib_can_spawn_on("vulcanus", {present = true, mode = "tiber", extra = {vulcanus = true}}) == true, "extra planet bool enables vulcanus")
+expect(ChunkIndex.tib_can_spawn_on("gleba", {present = true, mode = "tiber", extra = {all_other = true}}) == true, "all-other-planets enables gleba")
+expect(ChunkIndex.surface_in_scope(false, false) == false, "skip unvisited ineligible surfaces")
+expect(ChunkIndex.surface_in_scope(true, false) == true, "visited surfaces are in scope for ore")
+expect(ChunkIndex.surface_in_scope(false, true) == true, "Tib-eligible unvisited surfaces are in scope")
+
+expect(ChunkIndex.resource_is_tiberium("basic-solid-tiberium", "ore") == true, "category substring detects Tib")
+expect(ChunkIndex.resource_is_tiberium("basic-solid", "iron-ore") == false, "iron is not Tib")
+expect(ChunkIndex.resource_is_skip("basic-fluid", "crude-oil", 100, true) == true, "fluids are skipped")
+expect(ChunkIndex.resource_is_skip("basic-solid", "iron-ore", 100, false) == false, "solids are kept")
+
+local classified = ChunkIndex.classify_entities({
+	{
+		valid = true,
+		name = "iron-ore",
+		amount = 200,
+		prototype = {
+			resource_category = "basic-solid",
+			infinite_resource = false,
+			mineable_properties = {products = {{type = "item", name = "iron-ore"}}},
+		},
+	},
+	{
+		valid = true,
+		name = "tiberium-ore",
+		amount = 50,
+		prototype = {
+			resource_category = "advanced-liquid-tiberium",
+			infinite_resource = false,
+			mineable_properties = {products = {{type = "item", name = "tiberium-ore"}}},
+		},
+	},
+})
+expect(classified.items["iron-ore"] == true, "index stores iron-ore item name")
+expect(classified.has_tib == true, "Tib category substring flags the chunk")
+expect(classified.empty == false, "mixed chunk is not empty")
+
+local empty_c = ChunkIndex.classify_entities({})
+expect(empty_c.empty == true, "no resources means empty")
+expect(empty_c.has_tib == false, "empty chunk is not Tib")
+
+local settings_src = assert(io.open("settings.lua"):read("*a"))
+expect(settings_src:find('name = "cncharvester-chunk-index"', 1, true) ~= nil, "runtime chunk-index setting exists")
+expect(settings_src:find('setting_type = "runtime-global"', 1, true) ~= nil, "chunk-index setting is runtime-global")
 
 if fails > 0 then
 	print(fails .. " failed")
