@@ -223,12 +223,24 @@ expect(rec_src:find('name = "solar-panel"', 1, true) ~= nil, "truck recipes incl
 expect(rec_src:find('name = "battery"', 1, true) ~= nil, "truck recipes include battery")
 expect(select(2, rec_src:gsub('name = "solar%-panel"', "")) >= 2, "both harvester recipes list solar-panel")
 
-local gifted = {put = {}}
-HybridDrive.auto_equip({valid = true, grid = {
-	find = function() return nil end,
-	put = function(spec) table.insert(gifted.put, spec.name) end,
-}})
-expect(#gifted.put == 0, "auto_equip does not insert free grid equipment")
+expect(HybridDrive.NEVER_GIFT["solar-panel"] and HybridDrive.NEVER_GIFT["battery"], "craft-cost solar/battery are never gifted")
+expect(HybridDrive.NEVER_GIFT["Hybrid-drive"] and HybridDrive.NEVER_GIFT["Hybrid-drive-battery"], "Hybrid-drive is never gifted")
+expect(HybridDrive.NEVER_GIFT["efficiency-module"] and HybridDrive.NEVER_GIFT["speed-module"], "modules are never gifted")
+
+local gift_scan = {
+	"hybriddrive.lua",
+	"control.lua",
+	"modulebay.lua",
+	"prototypes/entities/harv_entity.lua",
+}
+for _, path in ipairs(gift_scan) do
+	local src = assert(io.open(path, "r")):read("*a")
+	expect(src:find("grid.put", 1, true) == nil, path .. " does not grid.put free equipment")
+	expect(src:find('insert{name = "efficiency-module', 1, true) == nil, path .. " does not insert efficiency modules")
+	expect(src:find('insert{name = "solar-panel', 1, true) == nil, path .. " does not insert solar items")
+	expect(src:find('put{name = "Hybrid-drive', 1, true) == nil, path .. " does not put Hybrid-drive")
+end
+expect(io.open("hybriddrive.lua"):read("*a"):find("function HybridDrive.auto_equip", 1, true) == nil, "auto_equip gift path is gone")
 
 local tick_cell = {energy = 50000, valid = true, type = "solar-panel-equipment"}
 local tick_burner = {currently_burning = HybridDrive.CHARGE_ITEM, remaining_burning_fuel = 0}

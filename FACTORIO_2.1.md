@@ -79,7 +79,9 @@ Tax is taken from `remaining_burning_fuel` first, then cheap fuel items in the t
 
 ## Feature 2 — Hybrid energy pool
 
-Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are not placed into the module bay or equipment grid. New trucks spawn with an **empty grid**. Hybrid converts **actual stored electric energy** from player-installed grid equipment (portable solar, battery, fusion, …). Empty grid → no refill. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
+Solar panel + battery are **recipe ingredients** of the Ore Truck / Tiberium harvester (1 each). They are **consumed at craft**, not placed into the module bay or equipment grid. New trucks spawn with an **empty grid** and **empty module bay**. Hybrid converts **actual stored electric energy** from player-installed grid equipment (portable solar, battery, fusion, …). Empty grid → no refill. Optional Hybrid-drive / Hybrid-drive-battery items still exist as extra storage; they are not required and are not auto-inserted.
+
+**Recycler exploit (blocked):** place → strip gifted solar/battery/modules → recycle the truck for a full ingredient refund + the stripped loot. Nothing removable is script-inserted on place (`HybridDrive.on_built` / `ModuleBay.create`). Recycling the vehicle item may return the recipe’s solar+battery (vanilla recycle of craft cost) — that is fair, not a duplicate gift.
 
 Every tick, `HybridDrive.maintain` then `tick`:
 
@@ -143,7 +145,7 @@ This environment has **no Factorio client**. Static checks: `luac -p` and `lua t
 4. **Harvest fuel tax:** Drive-harvest with an empty bay — coal should drop clearly. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
 5. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
 6. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better. Slot count must stay 2 / 3.
-7. **Craft / grid:** Recipe lists solar panel + battery. A freshly placed truck has an **empty grid** and empty module bay (no free solar/battery/Hybrid-drive). Install portable solar/battery (or any charged equipment). Hybrid should refill hybrid-charge from that stored energy. Remove/uncharge the grid: no refill.
+7. **Craft / grid / recycle:** Recipe lists solar panel + battery. A freshly placed truck has an **empty grid** and empty module bay (no free solar/battery/Hybrid-drive/modules). Strip-recycle-recraft must not mint extra modules or equipment beyond a normal recycle of the craft cost. Install your own portable solar/battery for Hybrid refill. Empty grid: no refill.
 8. **Quality hybrid:** A rare/legendary truck should refill faster and hold a larger electric cap than normal. Driving still net-drains. Module slots stay 2 / 3.
 9. **Hybrid drain-while-driving:** With a charged grid, drive at full throttle: pool should slowly fall. Park: remaining should climb toward the (quality-scaled) cap, then hold.
 

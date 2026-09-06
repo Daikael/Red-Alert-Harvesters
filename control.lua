@@ -90,13 +90,10 @@ local function On_Built(event)
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
-		-- Player-built: consume 1 coal/wood from the placer if they have it.
-		-- Otherwise no free items — only a tiny joule spark so Hybrid can start.
+		-- Recipe solar/battery are consumed at craft. Do not insert them (or any
+		-- modules/equipment) here — that is a place→strip→recycle exploit.
 		local player = event.player_index and game.get_player(event.player_index)
-		if player and player.valid then
-			HybridDrive.try_take_player_kickoff(ent, player)
-		end
-		HybridDrive.apply_spark_if_empty(ent)
+		HybridDrive.on_built(ent, player and player.valid and player or nil)
 	elseif ent.name == "refinery" and auto_harvester_enabled then
 		storage.refineries[ent.unit_number] = Refinery.New(ent)
 	end

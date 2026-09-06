@@ -114,6 +114,7 @@ function ModuleBay.create(vehicle)
 	if not bay then
 		return nil
 	end
+	-- Bay starts empty. Do not insert modules — those would be free removable loot.
 	harden(bay)
 	storage.module_bays[vehicle.unit_number] = {
 		vehicle = vehicle,

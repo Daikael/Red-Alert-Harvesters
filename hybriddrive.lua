@@ -335,9 +335,41 @@ function HybridDrive.prepare_vehicle(vehicle)
 	end
 end
 
--- No free grid loot. Solar-panel + battery are recipe ingredients of the truck;
--- the player installs their own equipment. Hybrid reads actual stored energy.
-function HybridDrive.auto_equip(_vehicle)
+-- Recycler exploit: never script-insert these as removable stacks on place.
+-- Craft-cost solar-panel + battery are consumed by the recipe only.
+HybridDrive.NEVER_GIFT = {
+	["solar-panel"] = true,
+	["solar-panel-equipment"] = true,
+	["battery"] = true,
+	["battery-equipment"] = true,
+	["Hybrid-drive"] = true,
+	["Hybrid-drive-battery"] = true,
+	["efficiency-module"] = true,
+	["efficiency-module-2"] = true,
+	["efficiency-module-3"] = true,
+	["speed-module"] = true,
+	["speed-module-2"] = true,
+	["speed-module-3"] = true,
+	["productivity-module"] = true,
+	["productivity-module-2"] = true,
+	["productivity-module-3"] = true,
+	["quality-module"] = true,
+	["quality-module-2"] = true,
+	["quality-module-3"] = true,
+	["coal"] = true,
+	["wood"] = true,
+}
+
+-- Place/build: no removable freebies. Only joule spark / paid coal conversion.
+function HybridDrive.on_built(vehicle, player)
+	if not (vehicle and vehicle.valid) then
+		return
+	end
+	HybridDrive.prepare_vehicle(vehicle)
+	if player and player.valid then
+		HybridDrive.try_take_player_kickoff(vehicle, player)
+	end
+	HybridDrive.apply_spark_if_empty(vehicle)
 end
 
 function HybridDrive.forget(unit_number)

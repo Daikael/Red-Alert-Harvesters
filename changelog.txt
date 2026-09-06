@@ -10,7 +10,7 @@ Date: 2026-09-06
     - Hybrid grid refill still stays below drive draw so sustained driving net-drains. Quality scales refill rate (+1.5%/level) and the electric cap (+25%/level).
     - Ore Truck / Tiberium recipes cost 1 solar panel + 1 battery. Those are craft ingredients, not free grid or bay loot.
   Changes:
-    - New trucks do not auto-insert Hybrid-drive or Hybrid-drive-battery. Module bay stays 2 / 3 slots with no quality slot scaling.
+    - New trucks do not auto-insert Hybrid-drive, Hybrid-drive-battery, solar, battery, or modules. Module bay and grid start empty (recipe solar+battery are consumed at craft, not yankable loot). Module bay stays 2 / 3 slots with no quality slot scaling.
     - Pack version 2.1.5. Zip/folder name is Red-Alert-Harvester_2.1.5. Do not merge this 2.1 line to master.
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.4
