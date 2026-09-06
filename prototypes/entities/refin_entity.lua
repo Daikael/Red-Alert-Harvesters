@@ -3,7 +3,7 @@ data:extend(
 	{
 		type = "container",
 		name = "refinery",
-		icon = "__Red-Alert-Harvesters__/graphics/icons/refin_icon.png",
+		icon = "__Red-Alert-Harvester__/graphics/icons/refin_icon.png",
 		icon_size = 32,
 		flags = {"placeable-neutral", "player-creation"},
 		minable = {mining_time = 1, result = "refinery"},
@@ -17,7 +17,7 @@ data:extend(
 		-- (applied to all directions). Directional art is not required to load.
 		picture =
 		{
-			filename = "__Red-Alert-Harvesters__/graphics/entity/refinery/refinery.png",
+			filename = "__Red-Alert-Harvester__/graphics/entity/refinery/refinery.png",
 			priority = "extra-high",
 			width = 216,
 			height = 216,

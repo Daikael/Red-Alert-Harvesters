@@ -22,7 +22,7 @@ for i=1,2 do
 	local vehicle = {
 		type = "car",
 		name = "cncharvester"..suffix,
-		icon = "__Red-Alert-Harvesters__/graphics/icons/harv_icon"..suffix..".png",
+		icon = "__Red-Alert-Harvester__/graphics/icons/harv_icon"..suffix..".png",
 		icon_size = 32,
 		flags = {"placeable-neutral", "player-creation", "placeable-off-grid"},
 		minable = {mining_time = 1, result = "cncharvester"..suffix},
@@ -76,7 +76,7 @@ for i=1,2 do
 		},
 		minimap_representation =
 		{
-			filename = "__Red-Alert-Harvesters__/graphics/icons/harv_icon"..suffix..".png",
+			filename = "__Red-Alert-Harvester__/graphics/icons/harv_icon"..suffix..".png",
 			flags = {"icon"},
 			size = {32, 32},
 			scale = 2
@@ -137,7 +137,7 @@ for i=1,2 do
 			stripes =
 			{
 				{
-					filename = "__Red-Alert-Harvesters__/graphics/entity/harvester/harv-sheet"..suffix..".png",
+					filename = "__Red-Alert-Harvester__/graphics/entity/harvester/harv-sheet"..suffix..".png",
 					width_in_frames = 8,
 					height_in_frames = 8,
 				},

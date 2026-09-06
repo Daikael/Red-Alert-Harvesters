@@ -1,4 +1,4 @@
-# C&C Harvesters (`Red-Alert-Harvesters`)
+# C&C Harvesters (`Red-Alert-Harvester`)
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
@@ -6,17 +6,17 @@ This branch is the **Factorio 2.0 backdate** of the tester-approved **2.1.17** g
 
 Factorio only accepts three-part `major.minor.patch` versions. This pack is **`2.1.18`**. `factorio_version` is **`2.0`**.
 
-- **2.1 experimental (keep):** branch `2.1.17` / draft PR #15 / `Red-Alert-Harvesters_2.1.17` (`factorio_version` **2.1**).
-- **This pack:** branch `2.1.18` / `Red-Alert-Harvesters_2.1.18` (`factorio_version` **2.0**).
-- **Live 2.0 on master:** `Red-Alert-Harvester_2.0.0` (singular name — older pack).
+- **2.1 experimental (keep):** branch `2.1.17` / draft PR #15 / `Red-Alert-Harvester_2.1.17` (`factorio_version` **2.1**).
+- **This pack:** branch `2.1.18` / `Red-Alert-Harvester_2.1.18` (`factorio_version` **2.0**).
+- **Live 2.0 on master:** `Red-Alert-Harvester_2.0.0` (older pack).
 
 ## Development branch names
 
-Tester-facing development branches are **just the three-part version**. The Factorio mod `info.json` **name** is plural **`Red-Alert-Harvesters`**. The pack folder is **`Red-Alert-Harvesters_<version>`**.
+Tester-facing development branches are **just the three-part version**. The Factorio mod `info.json` **name** is singular **`Red-Alert-Harvester`** (portal slug). The pack folder is **`Red-Alert-Harvester_<version>`**.
 
 **2.1.18 is a sibling of 2.1.17**, not a rename. Do not delete or close the 2.1.17 branch / PR #15. Do not merge either branch to `master`.
 
-GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.18`** (hyphen before the version). Factorio requires an underscore: rename `-` → `_` so the mods folder is exactly **`Red-Alert-Harvesters_2.1.18`**.
+GitHub **Code → Download ZIP** produces a folder like **`Red-Alert-Harvesters-2.1.18`** (repo-prefixed, hyphen before the version). That is **not** a Factorio install folder. Use the GitHub **Release** zip **`Red-Alert-Harvester_2.1.18.zip`**.
 
 ## Install naming (Factorio will refuse the wrong zip)
 
@@ -26,26 +26,26 @@ Factorio checks the **file or folder name** against `info.json`. The check is **
 | --- | --- |
 | GitHub repo | `Red-Alert-Harvesters` |
 | Git branch (this pack) | `2.1.18` |
-| `info.json` `name` | `Red-Alert-Harvesters` |
+| `info.json` `name` | `Red-Alert-Harvester` |
 | `info.json` `version` | `2.1.18` |
 | `info.json` `factorio_version` | `2.0` |
-| Folder in `mods/` | `Red-Alert-Harvesters_2.1.18` |
-| Zip in `mods/` | `Red-Alert-Harvesters_2.1.18.zip` |
-| GitHub archive folder | `Red-Alert-Harvesters-2.1.18` (hyphen — **rename to underscore**) |
+| Folder in `mods/` | `Red-Alert-Harvester_2.1.18` |
+| Zip in `mods/` | `Red-Alert-Harvester_2.1.18.zip` |
+| GitHub archive folder | `Red-Alert-Harvesters-2.1.18` (repo-prefixed — **not** an install path) |
 
-The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvesters_2.1.18`**.
+The rule is always `{info.json name}_{info.json version}` — here that is **`Red-Alert-Harvester_2.1.18`**.
 
 `info.json` must sit at the **zip root** or **one folder deep** with that same folder name:
 
 ```text
-Red-Alert-Harvesters_2.1.18.zip
-  Red-Alert-Harvesters_2.1.18/
+Red-Alert-Harvester_2.1.18.zip
+  Red-Alert-Harvester_2.1.18/
     info.json
     control.lua
     ...
 ```
 
-or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvester_2.1.18.zip`, or `Red-Alert-Harvesters-2.1.18.zip` will fail to load.
+or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-Alert-Harvesters_2.1.18.zip`, or `Red-Alert-Harvesters-2.1.18.zip` will fail to load.
 
 ### Where to put it
 
@@ -59,18 +59,18 @@ or the same files at the zip root. A zip named `Red-Alert-Harvesters.zip`, `Red-
 
 ```bash
 # from a clone of this branch
-rm -rf /tmp/Red-Alert-Harvesters_2.1.18 /tmp/Red-Alert-Harvesters_2.1.18.zip
-mkdir /tmp/Red-Alert-Harvesters_2.1.18
-rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvesters_2.1.18/
-cd /tmp && zip -r Red-Alert-Harvesters_2.1.18.zip Red-Alert-Harvesters_2.1.18
-# copy Red-Alert-Harvesters_2.1.18.zip into your Factorio mods folder
+rm -rf /tmp/Red-Alert-Harvester_2.1.18 /tmp/Red-Alert-Harvester_2.1.18.zip
+mkdir /tmp/Red-Alert-Harvester_2.1.18
+rsync -a --exclude .git --exclude .vscode ./ /tmp/Red-Alert-Harvester_2.1.18/
+cd /tmp && zip -r Red-Alert-Harvester_2.1.18.zip Red-Alert-Harvester_2.1.18
+# copy Red-Alert-Harvester_2.1.18.zip into your Factorio mods folder
 ```
 
-On Windows: copy the repo into a folder literally named `Red-Alert-Harvesters_2.1.18`, then zip that folder.
+On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.1.18`, then zip that folder.
 
 ## Smoke test (Factorio 2.0)
 
-1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.18** with no load error **without** Factorio-Tiberium installed. Use a **2.0 stable** client, not 2.1 experimental. `factorio_version` must be **2.0**. Also boot **with** Tiberium 2.0.x (not the Tib 2.1 line).
+1. Confirm the Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.18** with no load error **without** Factorio-Tiberium installed. Use a **2.0 stable** client, not 2.1 experimental. `factorio_version` must be **2.0**. Also boot **with** Tiberium 2.0.x (not the Tib 2.1 line).
 2. New Freeplay / sandbox. **Old World Harvesting** requires **solar energy**. Craft an Ore Truck (2×2 grid) and a Refinery. There is **no Hybrid-drive** item. The Tiberium harvester is unlocked by **Tiberium Harvesting** (requires electric engines) and crafts with electric engines.
 3. Fuel the truck, drive onto iron/copper/coal/stone. The **slave miner** on the hitch should produce **~1.50 ore/s** with no modules (one item about every 40 ticks). Tiberium is **~3.00/s**. Unload when you sit next to the refinery.
 4. SHIFT+E (or click the truck) opens the slave **mining-drill** (starts empty). That GUI is the energy bar: efficiency should lower draw, speed should raise it. Productivity modules should produce bonus ore (native drill prod, not a scripted coin-flip). Recipe solar+battery are **not** in the grid or bay. A charged portable battery should climb the hybrid bar while parked. An empty pool will not mine. Driving must **not** show a moving power pole, accumulator, chest, or floating ore-truck icon square.

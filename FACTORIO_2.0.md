@@ -8,14 +8,14 @@ This branch is the **public Factorio 2.0** port of the tester-approved **2.1.17*
 | --- | --- | --- | --- |
 | Git branch | `2.1.17` | `2.1.18` | `master` |
 | Draft PR | #15 | this PR | — |
-| `info.json` name | `Red-Alert-Harvesters` | `Red-Alert-Harvesters` | `Red-Alert-Harvester` |
+| `info.json` name | `Red-Alert-Harvester` | `Red-Alert-Harvester` | `Red-Alert-Harvester` |
 | `info.json` version | `2.1.17` | `2.1.18` | `2.0.0` |
 | `factorio_version` | `2.1` | `2.0` | `2.0` |
 | `base` | `>= 2.1.0` | `>= 2.0.0` | `>= 2.0.0` |
 | optional Tiberium | `>= 2.1.0` | `>= 2.0.0` | `>= 2.0.0` |
-| Folder / zip | `Red-Alert-Harvesters_2.1.17` | `Red-Alert-Harvesters_2.1.18` | `Red-Alert-Harvester_2.0.0` |
+| Folder / zip | `Red-Alert-Harvester_2.1.17` | `Red-Alert-Harvester_2.1.18` | `Red-Alert-Harvester_2.0.0` |
 
-GitHub **Code → Download ZIP** produces `Red-Alert-Harvesters-2.1.18` (hyphen). Rename `-` → `_` before install.
+GitHub **Code → Download ZIP** produces repo-prefixed `Red-Alert-Harvesters-2.1.18` (hyphen). That is **not** an install path. Use the GitHub Release zip `Red-Alert-Harvester_2.1.18.zip`.
 
 ## Gameplay kept from 2.1.17
 
@@ -53,7 +53,7 @@ With Space Age on a 2.0 client, quality modules and `SafeQuality` bonuses apply 
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvesters_2.1.18`**. Confirm Mods list shows **C&C Harvesters** / `Red-Alert-Harvesters` **2.1.18** on a **2.0** client, **with and without** Factorio-Tiberium 2.0.x. Must not ask for 2.1.
+1. Install as **`Red-Alert-Harvester_2.1.18`**. Confirm Mods list shows **C&C Harvesters** / `Red-Alert-Harvester` **2.1.18** on a **2.0** client, **with and without** Factorio-Tiberium 2.0.x. Must not ask for 2.1.
 2. No AtlasBuilder sprite-rectangle error. No moving pole / accumulator / chest / hitch icon square.
 3. Mining, SHIFT+E energy bar, OOF, pay-first, first-sit wait — same as 2.1.17.
 4. Without Space Age: no quality modules in the bay GUI; rates stay the no-module baseline.
