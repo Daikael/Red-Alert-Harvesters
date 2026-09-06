@@ -18,6 +18,14 @@ data:extend({
 			{
 				type = "unlock-recipe",
 				recipe = "cncharvester-type2"
+			},
+			{
+				type = "unlock-recipe",
+				recipe = "Hybrid-drive"
+			},
+			{
+				type = "unlock-recipe",
+				recipe = "Hybrid-drive-battery"
 			}
 			--[[{
 				type = "unlock-recipe",

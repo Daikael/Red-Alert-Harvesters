@@ -1,7 +1,9 @@
 data:extend (
 	{
+		-- Converter identity. Script pulls grid energy when this is installed.
+		-- Battery-equipment (not solar): generation is not the conversion path.
 		{
-			type = "solar-panel-equipment",
+			type = "battery-equipment",
 			name = "Hybrid-drive",
 			sprite =
 			{
@@ -19,10 +21,9 @@ data:extend (
 			energy_source =
 			{
 				type = "electric",
-				buffer_capacity = "7MJ",
+				buffer_capacity = "1MJ",
 				usage_priority = "tertiary"
 			},
-			power = "0.4kW",
 			categories = {"armor"}
 		},
 		{

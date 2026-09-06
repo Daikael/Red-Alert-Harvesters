@@ -1,4 +1,18 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.1
+Date: 2026-09-06
+  Features:
+    - Ore Trucks get a companion module bay (2 slots / 3 on Tiberium harvester). SHIFT+E or click the bay to use the vanilla module GUI.
+    - Entity quality reduces resource drain (vanilla mining_drill_resource_drain_multiplier) and modestly boosts scoop radius / rate.
+    - Quality modules roll product quality via LuaQualityPrototype.roll_quality when available. Productivity can grant bonus ore without extra drain. Speed shortens scoop interval. Efficiency slightly reduces drain and auto-harvest fuel use.
+    - Hybrid-drive now converts grid electricity into burner energy at a capped rate. Full-throttle driving still net-drains fuel even with a strong generator.
+  Changes:
+    - Equipment grids enlarged (4x4 / 5x5) so third-party armor generators can be installed next to Hybrid-drive.
+    - Hybrid-drive is battery-equipment (converter identity), not a 0.4kW solar panel. Craftable with Old World Harvesting.
+    - Drive-and-harvest and auto-harvest share the scripted scoop path; unload still preserves stack quality.
+  Info:
+    - Numbers and test steps are in FACTORIO_2.1.md. Do not merge this 2.1 line to master.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.0
 Date: 2026-09-06
   Changes:

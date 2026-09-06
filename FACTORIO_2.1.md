@@ -8,70 +8,100 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 - Do **not** start from stale `master` for 2.1 work.
 - Do **not** merge this line to live/default until the 2.0 port is settled and 2.1 APIs stabilize.
 
-## Packaging bump
+## Packaging
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.0` |
+| `info.json` `version` | `2.0.0` | `2.1.1` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
-| optional `Factorio-Tiberium` | `>= 2.0.0` (use 2.0.15 on Factorio 2.0) | `>= 2.1.0` (portal 2.1.16+; 2.0.x is not 2.1-compatible) |
+| optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
 
-A Factorio 2.0 client will refuse this pack. Keep the 2.0 branch for 2.0 players.
+## Feature 1 — Modular Ore Truck
 
-## Known 2.0 → 2.1 changes applied here
+`CarPrototype` has **no** `module_slots`. Modules live on a companion mining-drill shell that never mines (dummy `cncharvester-module-bay` resource category).
 
-Checked against the public 2.1 changelog / prototype docs (through 2.1.12+; docs currently labeled 2.1.17). Only changes that would **fail data-stage load** or mis-declare this mod were applied.
+### Layer A — entity quality
 
-1. **Vehicles** — `VehiclePrototype.braking_power` and `friction` were removed. Harvesters now use `braking_force = kW * 1000 / 60` (same conversion as vanilla car/tank in `factorio-data`) and `friction_force` with the old friction numbers (`0.045` / `0.04`).
-2. **Recipes** — `RecipePrototype.category` / `additional_categories` were removed. Crafting recipes now set `categories = {"crafting"}`. Typed 2.0 ingredients/results are unchanged.
-3. **Refinery picture** — `ContainerPrototype.picture` is now `Sprite4Way`. A single `Sprite` is still valid (applies to all directions); no art rewrite.
-4. **Technology ingredients** — science packs are plain items in 2.1. Official docs still accept `{name, amount}` tuples; left as-is.
+Read from `vehicle.quality`:
 
-## Intentionally not rewritten
+| Quality level | Drain (if prototype field missing) | Scoop radius | Scoop interval |
+| --- | --- | --- | --- |
+| 0 normal | 100% | base | base |
+| 1 uncommon | 5/6 | +0.25 | / 1.05 |
+| 2 rare | 4/6 | +0.50 | / 1.10 |
+| 3 epic | 3/6 | +0.75 | / 1.15 |
+| 5 legendary | 1/6 | +1.25 | / 1.25 |
 
-These 2.1 changelog items do **not** affect this mod's current prototypes or runtime paths:
+When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins over the 1/6 table (vanilla drill values). A successful scoop decrements the patch only if `math.random() < drain`.
 
-- Fluid box / `LuaEntity.fluidbox` removal (no fluids).
-- Recipe-category collapse (`basic-crafting`, `electronics`, metallurgy-or-assembling, etc.).
-- `LuaEntity.active` / `minable` write removals.
-- Inventory define aliases for assembling machines / furnaces.
-- Custom input key names, deconstruction filters, asteroid / space-platform-only prototypes.
+### Layer B — companion module bay
 
-2.0 port behavior is kept: `storage`, `prototypes.*`, quality-aware `get_contents()`, `energy_source` burners, `place_as_equipment_result`, `rendering.draw_text`, drive-and-harvest limited to Ore Truck / Tiberium harvester.
+| Vehicle | Bay prototype | Module slots |
+| --- | --- | --- |
+| `cncharvester` | `cncharvester-module-bay` | 2 |
+| `cncharvester-type2` | `cncharvester-type2-module-bay` | 3 |
 
-## Quality system — out of scope
+- `allowed_effects`: speed, productivity, consumption, pollution, quality.
+- `quality_affects_module_slots = true` (bay created at the truck’s quality).
+- Not minable / not destructible / not blueprintable / empty collision mask.
+- Teleported with the truck; destroyed on truck mine/death (modules go to the mine buffer or trunk).
+- Orphans are reaped on `on_configuration_changed`.
+- Open: click the small hitch, or **SHIFT+E** (`cncharvester-open-module-bay`) while driving / with the truck selected.
 
-A separate design pass will handle quality. This branch only keeps the 2.0 inventory quality preservation (`EachInventoryItem` / `InventoryItemStack`).
+### Scripted scoop (drive + auto)
 
-**TODO (do not implement here unless required to load):**
+1. Read `bay.effects` (fallback: sum module inventory, scaled by module-item quality multipliers).
+2. Quality chance → `LuaQualityPrototype.roll_quality(effect, seed, force)` on 2.1; else `next` / `next_probability` chain.
+3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
+4. Resource drain from Layer A; efficiency modules (`consumption < 0`) shave a little more drain (`drain * (1 + consumption * 0.25)`).
+5. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
+6. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **60 ticks** (1 s).
+7. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)`.
+8. Pollution effect, if any, adds a tiny `surface.pollute`.
 
-- Auto-harvester `insert{name, count}` and fuel moves do not request or roll quality.
-- Recipe `can_set_quality`, `ItemIngredientPrototype.quality_min` / `quality_max` / `quality_change`, product `affected_by_quality`.
-- 2.1 quality **effect values were divided by 10**; any future quality modifiers must use the new scale.
-- `LuaQualityPrototype.roll_quality()` and quality-aware mining of resource entities.
-- Space Age recycling (`auto_recycle`) interaction for harvester / refinery items.
+## Feature 2 — Hybrid-drive converter
 
-## Remaining 2.1 unknowns (API still moving)
+Hybrid-drive is **battery-equipment** (converter identity), not a 0.4 kW solar panel. Hybrid-drive-battery remains 7 MJ storage. Auto-equip both on **first enter only**; later removals are left alone. Grids are 4×4 / 5×5 so a third-party armor generator can fit.
 
-2.1 is experimental. Treat the following as unverified until loaded in a current 2.1 client:
+Each tick, if Hybrid-drive is installed:
 
-- Exact default when `RecipePrototype.categories` is omitted (we set it explicitly to be safe).
-- Whether later 2.1 builds tighten `Sprite4Way` so a bare sprite on the refinery fails.
-- Optional **Factorio-Tiberium 2.1** resource categories, damage type `"tiberium"`, and `basic-solid-tiberium` — portal 2.1.16 exists, but this branch was not loaded with it.
-- Runtime-only 2.1 changes that do not show up until save/load or a specific event (space platforms, quality GUI, circuit connectors as arrays).
-- Further experimental patches after 2.1.12 may still rename prototype fields.
+1. Pull up to `grid_j_per_tick` from batteries first, then other equipment `energy` (fusion/solar/etc.).
+2. Add `pulled * 0.90` to `LuaBurner.remaining_burning_fuel`.
+3. If nothing is burning, set `currently_burning` to hidden `cncharvester-hybrid-charge` (never inserted as a fuel item).
+4. Cap stored burner energy at **4 seconds** of driving draw.
 
-## How to test (when a 2.1 client is available)
+### Numbers
 
-This environment does **not** include Factorio, so data-stage load was not executed here.
+Prototype `consumption` is 150 kW / 175 kW with `effectivity = 2`. Actual burner draw ≈ consumption / effectivity:
 
-1. Copy as `mods/Red-Alert-Harvester_2.1.0` (or zip with `info.json` one folder deep).
-2. Use Factorio **2.1 experimental**, not 2.0 stable.
-3. Confirm the pack is listed as 2.1 and the data stage loads with no prototype errors.
-4. Repeat the PR #3 2.0 smoke tests (research, craft, drive-and-harvest, optional auto-harvest, save/reload).
-5. Optional: enable Factorio-Tiberium **2.1.x** (not 2.0.15) and confirm tiberium resistance / solid tiberium mining.
+| | Ore Truck | Tiberium harvester |
+| --- | --- | --- |
+| Prototype consumption | 150 kW | 175 kW |
+| Driving draw (consumption / 2) | **75.0 kW** | **87.5 kW** |
+| Max electric→burner refill | 68.18 kW (10% below draw) | 79.55 kW |
+| Grid pull (90% conversion) | 75.76 kW | 88.38 kW |
+| Max idle buffer | 300 kJ (4 s) | 350 kJ |
+
+Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW even with full batteries and a huge generator. Idle or slow driving can refill the 4 s buffer, then stops.
+
+## How to test (Factorio 2.1 experimental)
+
+This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
+
+1. Install as `Red-Alert-Harvester_2.1.1`. Confirm data stage loads.
+2. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. Insert speed/quality/productivity modules. Confirm they are not left behind when the truck is mined (modules return to you).
+3. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
+4. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better.
+5. **Hybrid drain-while-driving:** First enter auto-inserts Hybrid-drive + battery. Fill the grid with a high-power armor generator if you have one, and fill batteries. Drive at full throttle: burner fuel / remaining burn should slowly fall. Park: remaining burn should climb back toward the 4 s cap, then hold.
+
+## Remaining 2.1 unknowns
+
+- `LuaEquipment.type` vs `prototype.type` when classifying batteries.
+- Whether a later 2.1 build rejects dummy resource categories or void-energy mining drills.
+- `create_entity{quality=}` on the bay (we pass `quality.name`).
+- Factorio-Tiberium 2.1 together with this pack is still untested in-client.
 
 ## PR targeting
 
-Opened against `master` so the 2.1 line is visible next to the 2.0 port. The unique 2.1 delta is easier to review against `cursor/factorio-2.0-compat-98d9` (PR #3). Retarget onto the 2.0 branch if a 2.1-only diff is preferred. **Do not merge to master** from this PR.
+Draft PR against `master`. Unique 2.1+feature delta is easier to review against PR #3. **Do not merge to master.**

@@ -52,9 +52,7 @@ function EntityPrototype(name)
 end
 
 -- 2.0/2.1 get_contents() returns { {name=, count=, quality=}, ... } instead of a name->count map.
--- TODO(quality, 2.1): a later design pass should decide how mined ore, fuel, and refinery
--- dumps interact with quality (quality_min/max/change, can_set_quality, effect /10 scaling).
--- This helper only preserves whatever quality is already on the stack.
+-- Scooping rolls quality in scoop.lua; this helper preserves stack quality on unload.
 function EachInventoryItem(inventory, callback)
 	if not (inventory and inventory.valid) then
 		return

@@ -2,6 +2,8 @@ require "utilities"
 require "harvesterstats"
 require "refinery"
 require "specialOres"
+require "modulebay"
+require "scoop"
 
 local States = {
 	Animating = 0,
@@ -43,11 +45,6 @@ local function vehicle_trunk(vehicle)
 	return vehicle.get_inventory(defines.inventory.car_trunk)
 end
 
-local function is_infinite_resource(ore)
-	local proto = ore.prototype
-	return proto and proto.infinite_resource
-end
-
 cncharvester = {
 	New = function(entity)
 		local self = {
@@ -80,6 +77,7 @@ cncharvester = {
 		}
 		setmetatable(self, {__index = cncharvester})
 		self:SetIsFilled(false)
+		ModuleBay.ensure(entity)
 		return self
 	end,
 
@@ -89,6 +87,9 @@ cncharvester = {
 			if refinery then
 				refinery:UnReserve()
 			end
+		end
+		if self.vehicle and self.vehicle.valid then
+			ModuleBay.destroy_for_vehicle(self.vehicle)
 		end
 		self.vehicle = nil
 	end,
@@ -108,7 +109,12 @@ cncharvester = {
 			if not self:CheckFuel() then
 				return
 			end
-			self.currentEnergy = self.currentEnergy - Stats.EnergyUsedPerTick
+			local consume = Stats.EnergyUsedPerTick
+			if self.state == States.MiningOre or self.state == States.Animating then
+				local effects = Scoop.read_effects(self.vehicle)
+				consume = consume * math.max(0.2, 1 + (effects.consumption or 0))
+			end
+			self.currentEnergy = self.currentEnergy - consume
 		end
 		local st = self.state
 		local fn = cncharvester.StateFunctions[st]
@@ -316,7 +322,10 @@ cncharvester = {
 
 	PlayAnimation = function(self)
 		-- Scoop / dump animations are not in this repository. Wait a short time instead.
-		self:BeginWait(Stats.TicksPerAnimationFrame * 8, self.oldState or self.state)
+		local effects = Scoop.read_effects(self.vehicle)
+		local qlevel = Scoop.quality_level(self.vehicle.quality)
+		local wait = Scoop.interval_ticks(Stats.TicksPerAnimationFrame * 8, effects.speed, qlevel)
+		self:BeginWait(wait, self.oldState or self.state)
 	end,
 
 	StateFunctions = {
@@ -354,7 +363,8 @@ cncharvester = {
 				return
 			end
 
-			local ores = self:FindOresInRadius(Stats.MiningRadius)
+			local qlevel = Scoop.quality_level(self.vehicle.quality)
+			local ores = self:FindOresInRadius(Scoop.radius(Stats.MiningRadius, qlevel))
 			if #ores < 1 then
 				self.state = States.FindingOre
 				self.searchRadius = Stats.CloseMineSearchRadius
@@ -362,36 +372,9 @@ cncharvester = {
 			end
 
 			local amountPerOre = math.ceil(Stats.OreMinedPerScoop / #ores)
-			for _, ore in pairs(ores) do
-				if ore.valid then
-					local oreName = ResourceProductItemName(ore)
-					local proto = ore.prototype
-					local minAmount = proto.minimum_resource_amount or 0
-					local oreAmount = ore.amount - math.max(0, minAmount)
-					local maxAmount = math.min(amountPerOre, oreAmount)
-					-- TODO(quality, 2.1): insert without quality; a later pass should decide
-					-- whether mined ore inherits resource/entity quality (out of scope here).
-					if not self.vehicle.can_insert{name = oreName, count = 1} then
-						self:SetIsFilled(true)
-					elseif maxAmount >= 0 then
-						if is_infinite_resource(ore) then
-							self.vehicle.insert{name = oreName, count = amountPerOre}
-						elseif maxAmount > 0 then
-							self.vehicle.insert{name = oreName, count = maxAmount}
-						end
-
-						local newAmount = ore.amount - maxAmount
-						if newAmount <= 0 then
-							if not is_infinite_resource(ore) then
-								ore.destroy()
-							end
-						else
-							ore.amount = newAmount
-						end
-					else
-						self.vehicle.insert{name = oreName, count = amountPerOre}
-					end
-				end
+			local result = Scoop.harvest_area(self.vehicle, ores, amountPerOre)
+			if result.full then
+				self:SetIsFilled(true)
 			end
 
 			if self.filled then
