@@ -11,7 +11,7 @@ This branch is the **2.1 experimental/beta** target for C&C Harvesters. It is **
 
 | Field | 2.0 line (PR #3) | 2.1 line (this branch) |
 | --- | --- | --- |
-| `info.json` `version` | `2.0.0` | `2.1.2` |
+| `info.json` `version` | `2.0.0` | `2.1.3` |
 | `factorio_version` | `2.0` | `2.1` |
 | `base` | `>= 2.0.0` | `>= 2.1.0` |
 | optional `Factorio-Tiberium` | `>= 2.0.0` | `>= 2.1.0` |
@@ -48,7 +48,7 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 | `cncharvester-type2` | `cncharvester-type2-module-bay` | 3 |
 
 - `allowed_effects`: speed, productivity, consumption, pollution, quality.
-- `quality_affects_module_slots = true` (bay created at the truck’s quality).
+- **Slot count does not scale with quality.** `quality_affects_module_slots = false`. The bay is created at normal quality (vehicle quality is not passed to `create_entity`). Uncommon/rare/epic/legendary trucks still have **2** or **3** slots.
 - Not minable / not destructible / not blueprintable / empty collision mask.
 - Teleported with the truck; destroyed on truck mine/death (modules go to the mine buffer or trunk).
 - Orphans are reaped on `on_configuration_changed`.
@@ -59,11 +59,23 @@ When present, `LuaQualityPrototype.mining_drill_resource_drain_multiplier` wins 
 1. Read `bay.effects` (fallback: sum module inventory, scaled by module-item quality multipliers).
 2. Quality chance → `LuaQualityPrototype.roll_quality(effect, seed, force)` on 2.1; else `next` / `next_probability` chain.
 3. Insert `{name, count=1, quality}` into the trunk. `can_insert` is quality-aware. Unload still preserves quality.
-4. Resource drain from Layer A; efficiency modules (`consumption < 0`) shave a little more drain (`drain * (1 + consumption * 0.25)`).
-5. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
-6. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s, same as the 2.0 tester-approved cadence). Volume per scoop stays 4.
-7. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)`.
-8. Pollution effect, if any, adds a tiny `surface.pollute`.
+4. Resource drain from Layer A; efficiency modules (`consumption < 0`) still shave a little drain (`drain * (1 + consumption * 0.25)`).
+5. **Parasitic harvest fuel tax** (2.1.3): each successful `harvest_area` (drive or auto) drains the burner / fuel inventory. Base **1.2 MJ**. Factor is `max(0.2, 1 + consumption)` so 2× efficiency-3 (−80%) costs **0.24 MJ**. Empty trucks pay a clear tax (~3 scoops per coal at 4 MJ); full efficiency is 5× cheaper. Speed modules that raise `consumption` make the tax worse.
+6. Productivity: extra product with probability `effects.productivity`, **no** extra drain.
+7. Speed + quality level shorten the scoop interval (`base / (1 + speed + 0.05*level)`, min 12 ticks). Drive base interval is **320 ticks** (~5.33 s, same as the 2.0 tester-approved cadence). Volume per scoop stays 4.
+8. Auto-harvest scoop energy is `EnergyUsedPerTick * max(0.2, 1 + consumption)` (animation stand-in; the parasitic tax above is the real harvest fuel cost).
+9. Pollution effect, if any, adds a tiny `surface.pollute`.
+
+### Harvest parasitic tax numbers
+
+| Bay modules | `consumption` | Cost per successful scoop |
+| --- | --- | --- |
+| None | 0 | **1.2 MJ** (~3 scoops / coal) |
+| 1× efficiency-3 | −40% | 0.72 MJ |
+| 2× efficiency-3 (Ore Truck full) | −80% | **0.24 MJ** (floor) |
+| 3× efficiency-3 (type-2 full) | −80% (floored) | **0.24 MJ** |
+
+Tax is taken from `remaining_burning_fuel` first, then cheap fuel items in the tank.
 
 ## Feature 2 — Hybrid-drive converter
 
@@ -72,9 +84,18 @@ Hybrid-drive is **battery-equipment** (converter identity), not a 0.4 kW solar p
 Each tick, if Hybrid-drive is installed:
 
 1. Pull up to `grid_j_per_tick` from batteries first, then other equipment `energy` (fusion/solar/etc.).
-2. Add `pulled * 0.90` to `LuaBurner.remaining_burning_fuel`.
-3. If nothing is burning, set `currently_burning` to hidden `cncharvester-hybrid-charge` (never inserted as a fuel item).
+2. Add `pulled * 0.90` to `LuaBurner.remaining_burning_fuel` (capped). Conversion **never inserts** nuclear-fuel / uranium-fuel-cell / fusion-power-cell.
+3. If nothing is burning, set `currently_burning` to **coal** (or wood) and immediately clamp `remaining_burning_fuel` to 0, then add only the converted joules. Writing `currently_burning` otherwise fills remaining to the item’s full `fuel_value` (that is what looked like a full nuclear cell in 2.1.1–2.1.2).
 4. Cap stored burner energy at **4 seconds** of driving draw.
+
+### Starter fuel (2.1.3)
+
+On first build / first track (`HybridDrive.prepare_vehicle`, once per `unit_number`):
+
+1. Strip `uranium-fuel-cell`, `nuclear-fuel`, `fusion-power-cell`, and leftover `cncharvester-hybrid-charge` from the burner and fuel inventory.
+2. If the fuel inventory is empty, insert **10 coal** (or **20 wood** if coal is missing).
+
+Later player-inserted fuels are left alone. Hidden `cncharvester-hybrid-charge` remains in the data stage only so old saves still load.
 
 ### Numbers
 
@@ -94,17 +115,19 @@ Sustained full-throttle driving therefore net-drains ~6.8 / 8.0 kW even with ful
 
 This environment has **no Factorio client**. Static checks: `luac -p` and `lua test_2_1_features.lua`.
 
-1. Install as **`Red-Alert-Harvester_2.1.2`** (singular `info.json` name — see README). Confirm data stage loads.
-2. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. Insert speed/quality/productivity modules. Confirm they are not left behind when the truck is mined (modules return to you).
-3. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
-4. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better.
-5. **Hybrid drain-while-driving:** First enter auto-inserts Hybrid-drive + battery. Fill the grid with a high-power armor generator if you have one, and fill batteries. Drive at full throttle: burner fuel / remaining burn should slowly fall. Park: remaining burn should climb back toward the 4 s cap, then hold.
+1. Install as **`Red-Alert-Harvester_2.1.3`** (singular `info.json` name — see README). Confirm data stage loads.
+2. **Starter fuel:** A newly built truck should have **10 coal** (or 20 wood), never a nuclear fuel cell. Hybrid-drive must not add nuclear items while converting.
+3. **Module bay:** Place an Ore Truck. A small hitch should exist; SHIFT+E while driving opens the vanilla module GUI. **2 slots** on Ore Truck / **3** on Tiberium, including uncommon+ quality trucks. Insert speed/quality/productivity/efficiency modules. Confirm they are not left behind when the truck is mined (modules return to you).
+4. **Harvest fuel tax:** Drive-harvest with an empty bay — coal should drop clearly. Fill 2× efficiency-3 and scoop again; fuel use should feel much cheaper.
+5. **Quality ore rolls:** With quality modules in the bay, drive-harvest iron. Trunk stacks should include uncommon+ with quality preserved on refinery unload (`can_insert` must keep quality).
+6. **Entity quality / drain:** Place a rare/epic Ore Truck (editor or quality crafting). The same patch should last longer than a normal truck; scoop radius/rate should feel slightly better. Slot count must stay 2 / 3.
+7. **Hybrid drain-while-driving:** First enter auto-inserts Hybrid-drive + battery. Fill the grid with a high-power armor generator if you have one, and fill batteries. Drive at full throttle: burner fuel / remaining burn should slowly fall. Park: remaining burn should climb back toward the 4 s cap, then hold.
 
 ## Remaining 2.1 unknowns
 
 - `LuaEquipment.type` vs `prototype.type` when classifying batteries.
 - Whether a later 2.1 build rejects dummy resource categories or void-energy mining drills.
-- `create_entity{quality=}` on the bay (we pass `quality.name`).
+- Bay `create_entity` no longer passes `quality` (slots stay 2 / 3).
 - Factorio-Tiberium 2.1 together with this pack is still untested in-client.
 
 ## PR targeting

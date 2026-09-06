@@ -1,5 +1,7 @@
--- Hidden chemical fuel used only as LuaBurner.currently_burning when Hybrid-drive
--- starts a charge with an empty fuel tank. Never inserted into the fuel inventory.
+-- Leftover hidden item from 2.1.1–2.1.2. Hybrid-drive no longer assigns this
+-- as LuaBurner.currently_burning (that filled remaining_burning_fuel to the
+-- item's full fuel_value and testers reported a nuclear-cell kickoff).
+-- Kept so old saves/blueprints that mention the name still load.
 data:extend({
 	{
 		type = "item",

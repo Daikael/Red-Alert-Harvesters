@@ -15,6 +15,10 @@ Scoop.BASE_DRIVE_INTERVAL_TICKS = 320
 Scoop.MIN_INTERVAL_TICKS = 12
 Scoop.DRIVE_ITEMS_PER_SCOOP = 4
 Scoop.EFFICIENCY_DRAIN_WEIGHT = 0.25
+-- Parasitic burner tax per successful harvest_area (drive or auto).
+-- Empty truck: 1.2 MJ (~3 scoops per coal). 2× efficiency-3 (−80%): 0.24 MJ.
+Scoop.PARASITIC_JOULES_BASE = 1200000
+Scoop.PARASITIC_MIN_FACTOR = 0.2
 
 local EMPTY_EFFECTS = {
 	speed = 0,
@@ -56,6 +60,49 @@ end
 
 function Scoop.radius(base_radius, quality_level)
 	return (base_radius or 1) + Scoop.QUALITY_RADIUS_PER_LEVEL * (quality_level or 0)
+end
+
+function Scoop.parasitic_joules(consumption_effect)
+	local factor = 1 + (consumption_effect or 0)
+	if factor < Scoop.PARASITIC_MIN_FACTOR then
+		factor = Scoop.PARASITIC_MIN_FACTOR
+	end
+	return Scoop.PARASITIC_JOULES_BASE * factor
+end
+
+function Scoop.apply_parasitic_fuel(vehicle, joules)
+	if not (vehicle and vehicle.valid and joules and joules > 0) then
+		return 0
+	end
+	local left = joules
+	local burner = vehicle.burner
+	if burner and (burner.remaining_burning_fuel or 0) > 0 then
+		local take = math.min(burner.remaining_burning_fuel, left)
+		burner.remaining_burning_fuel = burner.remaining_burning_fuel - take
+		left = left - take
+	end
+	if left <= 0 then
+		return joules
+	end
+	local fuel = vehicle.get_inventory(defines.inventory.fuel)
+	if not (fuel and fuel.valid) then
+		return joules - left
+	end
+	EachInventoryItem(fuel, function(name, count, quality)
+		if left <= 0 then
+			return
+		end
+		local proto = ItemPrototype(name)
+		if not (proto and proto.fuel_value and proto.fuel_value > 0) then
+			return
+		end
+		local used = math.min(count, math.ceil(left / proto.fuel_value))
+		if used > 0 then
+			fuel.remove(InventoryItemStack(name, used, quality))
+			left = left - used * proto.fuel_value
+		end
+	end)
+	return joules - math.max(0, left)
 end
 
 function Scoop.roll_quality_fallback(start_quality, quality_effect, rng)
@@ -209,6 +256,10 @@ function Scoop.harvest_area(vehicle, ores, units_each)
 				break
 			end
 		end
+	end
+	if any then
+		local effects = Scoop.read_effects(vehicle)
+		Scoop.apply_parasitic_fuel(vehicle, Scoop.parasitic_joules(effects.consumption))
 	end
 	return {inserted = any, full = full}
 end

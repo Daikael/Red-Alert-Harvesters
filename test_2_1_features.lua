@@ -7,7 +7,7 @@ package.path = "./?.lua;" .. package.path
 package.loaded.utilities = true
 package.loaded.modulebay = true
 package.loaded.specialOres = true
-prototypes = {quality = {}}
+prototypes = {quality = {}, item = {coal = {fuel_value = 4000000}, wood = {fuel_value = 2000000}, ["rocket-fuel"] = {fuel_value = 100000000}}}
 SpecialOres = {}
 function ResourceProductItemName() return "iron-ore" end
 function IsHarvestableResource() return true end
@@ -61,6 +61,40 @@ expect(math.abs(ore.grid_pull_w * HybridDrive.CONVERSION_EFFICIENCY - ore.refill
 local tib = HybridDrive.rates("cncharvester-type2")
 expect(math.abs(tib.drive_w - 87500) < 1, "type2 drive draw 87.5 kW")
 expect(tib.drive_w > tib.refill_w, "type2 driving outstrips refill")
+
+expect(Scoop.PARASITIC_JOULES_BASE == 1200000, "parasitic base 1.2 MJ")
+expect(math.abs(Scoop.parasitic_joules(0) - 1200000) < 1, "no efficiency = 1.2 MJ tax")
+expect(math.abs(Scoop.parasitic_joules(-0.4) - 720000) < 1, "1x eff-3 = 0.72 MJ")
+expect(math.abs(Scoop.parasitic_joules(-0.8) - 240000) < 1, "2x eff-3 = 0.24 MJ floor")
+expect(math.abs(Scoop.parasitic_joules(-1.2) - 240000) < 1, "3x eff-3 still floors at 0.24 MJ")
+expect(Scoop.parasitic_joules(0.5) > Scoop.parasitic_joules(0), "speed-consumption raises tax")
+
+expect(HybridDrive.is_banned_fuel("nuclear-fuel"), "nuclear-fuel banned")
+expect(HybridDrive.is_banned_fuel("uranium-fuel-cell"), "uranium-fuel-cell banned")
+expect(HybridDrive.is_banned_fuel("fusion-power-cell"), "fusion-power-cell banned")
+expect(HybridDrive.is_banned_fuel("cncharvester-hybrid-charge"), "hidden charge banned")
+expect(not HybridDrive.is_banned_fuel("coal"), "coal is allowed")
+expect(not HybridDrive.is_banned_fuel("wood"), "wood is allowed")
+expect(HybridDrive.is_overdense_fuel("rocket-fuel"), "rocket-fuel overdense vs 12 MJ")
+expect(HybridDrive.STARTER_COAL == 10, "starter is 10 coal")
+expect(HybridDrive.STARTER_WOOD == 20, "wood fallback is 20")
+
+local burner = {currently_burning = nil, remaining_burning_fuel = 0}
+local added = HybridDrive.add_burner_energy(burner, 1000, 300000)
+expect(added == 1000, "hybrid adds converted joules")
+expect(burner.currently_burning == "coal", "empty burner starts coal, not nuclear")
+expect(burner.remaining_burning_fuel == 1000, "remaining is converted joules, not a full cell")
+
+local leftover = {currently_burning = "cncharvester-hybrid-charge", remaining_burning_fuel = 1000000}
+HybridDrive.add_burner_energy(leftover, 500, 300000)
+expect(leftover.currently_burning == "coal", "old hidden charge is replaced with coal")
+expect(leftover.remaining_burning_fuel == 500, "hidden charge remaining is not kept")
+
+local bay_src = assert(io.open("prototypes/entities/module_bay.lua", "r")):read("*a")
+expect(bay_src:find("quality_affects_module_slots = false", 1, true) ~= nil, "bay slots do not scale with quality")
+expect(bay_src:find('module_bay("cncharvester-module-bay", 2', 1, true) ~= nil, "ore truck bay is 2 slots")
+expect(bay_src:find('module_bay("cncharvester-type2-module-bay", 3', 1, true) ~= nil, "type-2 bay is 3 slots")
+expect(not bay_src:find("quality_affects_module_slots = true", 1, true), "no quality-scaled slot flag")
 
 if fails > 0 then
 	print(fails .. " failed")

@@ -108,9 +108,8 @@ function ModuleBay.create(vehicle)
 		force = vehicle.force,
 		create_build_effect_smoke = false,
 	}
-	if vehicle.quality then
-		create.quality = vehicle.quality.name or vehicle.quality
-	end
+	-- Do not pass vehicle quality: quality_affects_module_slots is off, and
+	-- creating the bay at higher quality must not add extra slots.
 	local bay = vehicle.surface.create_entity(create)
 	if not bay then
 		return nil

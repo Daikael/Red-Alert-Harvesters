@@ -40,6 +40,7 @@ local function track_harvester(ent)
 		return
 	end
 	ModuleBay.ensure(ent)
+	HybridDrive.prepare_vehicle(ent)
 	if auto_harvester_enabled and not storage.cncharvesters[ent.unit_number] then
 		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
 	end
@@ -175,6 +176,7 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	local ent = event.entity
 	if ent and ent.valid and HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
+		HybridDrive.prepare_vehicle(ent)
 		HybridDrive.auto_equip(ent)
 	end
 end)

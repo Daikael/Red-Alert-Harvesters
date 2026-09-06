@@ -59,7 +59,8 @@ local function module_bay(name, slots, icon)
 		energy_usage = "1W",
 		energy_source = {type = "void"},
 		module_slots = slots,
-		quality_affects_module_slots = true,
+		-- Testers: quality-scaled extra slots were OP. Always 2 / 3.
+		quality_affects_module_slots = false,
 		allowed_effects = {"speed", "productivity", "consumption", "pollution", "quality"},
 		graphics_set = {
 			animation = bay_animation()
