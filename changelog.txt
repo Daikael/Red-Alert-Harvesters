@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.2.0
+Date: 2026-09-07
+  Info:
+    - Pack version 2.2.0. Factorio 2.0 experimental M1 chunk-scanner test build on git branch 2.2.0 / draft PR #17. `info.json` name is Red-Alert-Harvester (singular). Zip/folder name is Red-Alert-Harvester_2.2.0. factorio_version is 2.0. Do not merge to master.
+    - Startup setting Automatic harvester testing (`Auto-cncharvester-testing`) enables the slow chunk ore/Tiberium index only. Restart required. Default off.
+    - Legacy per-truck teleport auto-harvester is commented out. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged. No depot / pathfinder / physical-driving AI yet.
+    - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06
   Info:

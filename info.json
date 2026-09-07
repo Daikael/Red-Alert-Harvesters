@@ -1,11 +1,11 @@
 {
   "name": "Red-Alert-Harvester",
-  "version": "2.1.18",
+  "version": "2.2.0",
   "title": "C&C Harvesters",
   "author": "Daikael",
   "contact": "https://mods.factorio.com/mod/Red-Alert-Harvester",
   "homepage": "https://forums.factorio.com/viewtopic.php?f=190&t=88754&p=509990#p509990",
-  "description": "Resource harvesting Ore trucks, tiberium harvesters, and refineries from Red Alert and Tiberium Dawn. Pack 2.1.18 is the Factorio 2.0 backdate of the approved 2.1.17 gameplay (separate from the 2.1 experimental line on branch 2.1.17).",
+  "description": "Resource harvesting Ore trucks, tiberium harvesters, and refineries from Red Alert and Tiberium Dawn. Pack 2.2.0 is an experimental Factorio 2.0 M1 chunk-scanner test build (startup Automatic harvester testing). Legacy teleport AI is commented out. Not a live master release.",
   "dependencies": [
     "base >= 2.0.0",
     "? Factorio-Tiberium >= 2.0.0",

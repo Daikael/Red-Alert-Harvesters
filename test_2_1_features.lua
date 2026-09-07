@@ -493,7 +493,7 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvester"', 1, true) ~= nil, "mod name is singular Red-Alert-Harvester")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) == nil, "mod name is not the plural portal mismatch")
-expect(info_src:find('"version": "2.1.18"', 1, true) ~= nil, "pack version is 2.1.18")
+expect(info_src:find('"version": "2.2.0"', 1, true) ~= nil, "pack version is 2.2.0")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) ~= nil, "factorio_version is 2.0")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) == nil, "factorio_version is not 2.1")
 expect(info_src:find("base >= 2.0.0", 1, true) ~= nil, "base dependency is 2.0")

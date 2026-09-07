@@ -2,7 +2,7 @@
 
 Planning doc for pack **2.2.x**. Agreed with the maintainer (Daikael). This file is the locked design; implement against it, do not invent a parallel plan.
 
-**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Still no version bump, no physical driving, no depot / circuit I/O, no teleport removal. Do not merge to `master` unprompted.
+**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Pack version is **2.2.0**. No physical driving, no depot / circuit I/O. Legacy teleport AI is commented out. Do not merge to `master` unprompted. No GitHub Release yet — testers use the `Red-Alert-Harvester_2.2.0.zip` artifact.
 
 ## Shipping baseline
 
@@ -20,7 +20,7 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 2. Later, dual-track a Factorio **2.1** sibling the same way 2.1.17 / 2.1.18 were split (`factorio_version`, API deltas, Tib optional-dep line).
 3. **Dev-branch-first.** Never merge a 2.2.x head to live `master` unprompted.
 
-`info.json` on this branch stays **2.1.18** until a later implementation PR is told to bump. Factorio only accepts three-part versions; the first shipping autonomy pack will be something like `2.2.0`, not a rename of 2.1.18.
+`info.json` on this branch is **2.2.0** (`factorio_version` 2.0). Factorio only accepts three-part versions. This is a tester zip, not a portal/live upload.
 
 ## Current auto AI (what we are replacing)
 
@@ -273,7 +273,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 ## Success checks (when implementation PRs start)
 
-Docs + M1 scanner are on branch `2.2.0`. Pack version stays **2.1.18** until a later bump.
+Docs + M1 scanner are on branch `2.2.0`. Pack version is **2.2.0**.
 
 M1 (landed):
 
