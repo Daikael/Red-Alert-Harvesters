@@ -542,6 +542,10 @@ expect(io.open("control.lua"):read("*a"):find("\n\t\t\t\tharvester:Tick()", 1, t
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
 expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_deleted", 1, true) ~= nil, "control hooks on_chunk_deleted")
+expect(io.open("control.lua"):read("*a"):find('remote.add_interface("Red-Alert-Harvester"', 1, true) ~= nil, "control registers the Red-Alert-Harvester remote")
+expect(io.open("control.lua"):read("*a"):find("chunkindex_stats", 1, true) ~= nil, "remote exposes chunkindex_stats")
+expect(io.open("control.lua"):read("*a"):find("chunkindex_enabled", 1, true) ~= nil, "remote exposes chunkindex_enabled")
+expect(io.open("control.lua"):read("*a"):find("ChunkIndex.debug_stats", 1, true) ~= nil, "stats remote calls ChunkIndex.debug_stats")
 expect(io.open("harvester.lua"):read("*a"):find("vehicle.teleport", 1, true) ~= nil, "M1 does not remove legacy teleport AI")
 expect(io.open("utilities.lua"):read("*a"):find('category ~= "basic-solid-tiberium"', 1, true) == nil, "harvest filter does not require basic-solid-tiberium")
 expect(bay_src:find("1.5", 1, true) ~= nil, "ore truck mining_speed 1.5")
@@ -732,6 +736,11 @@ expect(settings_src:find('name = "cncharvester-chunk-index"', 1, true) == nil, "
 expect(settings_src:find('name = "Auto-cncharvester-testing"', 1, true) ~= nil, "startup testing flag remains the scanner gate")
 expect(index_src:find("cncharvester-chunk-index", 1, true) == nil, "chunkindex does not read a runtime setting")
 expect(index_src:find('Auto-cncharvester-testing', 1, true) ~= nil, "chunkindex.enabled reads the startup testing flag")
+storage = storage or {}
+local stats = ChunkIndex.debug_stats()
+expect(type(stats) == "table", "debug_stats returns a table when storage.chunkindex is missing")
+expect(stats.queued == 0, "debug_stats queued is 0 before the index exists")
+expect(stats.enabled == false, "debug_stats.enabled is false without the startup flag")
 
 if fails > 0 then
 	print(fails .. " failed")

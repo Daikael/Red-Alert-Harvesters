@@ -6,6 +6,18 @@ require "hybriddrive"
 require "harvester"
 require "specialOres"
 
+-- Console cannot see ChunkIndex (mod sandbox). Use remote.call from /c:
+-- /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
+-- /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
+remote.add_interface("Red-Alert-Harvester", {
+	chunkindex_stats = function()
+		return ChunkIndex.debug_stats()
+	end,
+	chunkindex_enabled = function()
+		return ChunkIndex.enabled()
+	end,
+})
+
 -- Same startup flag ChunkIndex.enabled() reads. Legacy teleport AI below is commented out.
 local auto_harvester_enabled = settings.startup["Auto-cncharvester-testing"].value
 

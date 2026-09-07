@@ -6,6 +6,7 @@ Date: 2026-09-07
     - Startup setting Automatic harvester testing (`Auto-cncharvester-testing`) enables the slow chunk ore/Tiberium index only. Restart required. Default off.
     - Legacy per-truck teleport auto-harvester is commented out. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged. No depot / pathfinder / physical-driving AI yet.
     - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
+    - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats` and `chunkindex_enabled` for `/c` (ChunkIndex is not visible in the console sandbox).
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06

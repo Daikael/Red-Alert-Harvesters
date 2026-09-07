@@ -2,7 +2,7 @@
 
 Planning doc for pack **2.2.x**. Agreed with the maintainer (Daikael). This file is the locked design; implement against it, do not invent a parallel plan.
 
-**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Pack version is **2.2.0**. No physical driving, no depot / circuit I/O. Legacy teleport AI is commented out. Do not merge to `master` unprompted. No GitHub Release yet — testers use the `Red-Alert-Harvester_2.2.0.zip` artifact.
+**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Pack version is **2.2.0**. No physical driving, no depot / circuit I/O. Legacy teleport AI is commented out. Do not merge to `master` unprompted. Testers use the GitHub **prerelease** zip `Red-Alert-Harvester_2.2.0.zip` (tag `2.2.0`).
 
 ## Shipping baseline
 
@@ -42,6 +42,15 @@ What it actually does today:
 ## Milestone 1 — Global slow chunk scanner
 
 **Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`; restart required). Default off. That flag runs the **index only** — the legacy teleport auto-harvester is commented out. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
+
+`ChunkIndex` is not visible from `/c` (Factorio mod sandbox). Read M1 stats through the **`Red-Alert-Harvester`** remote interface:
+
+```
+/c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
+/c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
+```
+
+`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks}` once the index has storage. `chunkindex_enabled` is the startup flag.
 
 Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 
@@ -258,7 +267,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Still ticks auto AI when `Auto-cncharvester-testing`. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
+| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled`) so `/c` can read M1. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
 | `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
