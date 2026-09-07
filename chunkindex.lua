@@ -399,16 +399,47 @@ function ChunkIndex.mark_visited(surface)
 end
 
 -- Enqueue already-generated chunk positions only. Never find_entities here.
+-- Returns how many chunks were newly queued (already-queued slots are skipped).
 function ChunkIndex.enqueue_generated(surface)
 	if not (surface and surface.valid) then
-		return
+		return 0
 	end
 	if not ChunkIndex.surface_eligible(surface) then
-		return
+		return 0
 	end
+	local n = 0
 	for chunk in surface.get_chunks() do
-		ChunkIndex.enqueue(surface.index, chunk.x, chunk.y)
+		if ChunkIndex.enqueue(surface.index, chunk.x, chunk.y) then
+			n = n + 1
+		end
 	end
+	return n
+end
+
+-- Force-enqueue every generated chunk on visited / eligible surfaces.
+-- Ignores `seeded` so testers can catch up after a partial first pass.
+function ChunkIndex.reseed()
+	if not ChunkIndex.enabled() then
+		return {enabled = false, surfaces = 0, enqueued = 0}
+	end
+	if not game then
+		return {enabled = true, surfaces = 0, enqueued = 0}
+	end
+	local st = ChunkIndex.ensure_storage()
+	for _, player in pairs(game.players) do
+		if player.valid and player.surface and player.surface.valid then
+			ChunkIndex.mark_visited(player.surface)
+		end
+	end
+	local surfaces, enqueued = 0, 0
+	for _, surface in pairs(game.surfaces) do
+		if surface.valid and ChunkIndex.surface_eligible(surface) then
+			surfaces = surfaces + 1
+			enqueued = enqueued + ChunkIndex.enqueue_generated(surface)
+		end
+	end
+	st.seeded = true
+	return {enabled = true, surfaces = surfaces, enqueued = enqueued}
 end
 
 local function nest_set(root, si, x, y, value)
@@ -763,18 +794,16 @@ end
 --------------------------------------------------
 
 ChunkIndex.OVERLAY_REBUILD_TICKS = 30
-ChunkIndex.OVERLAY_MAX_CHUNKS = 600
+-- 0 = no cap. Chart overlay is pollution-like (all indexed charted chunks).
+ChunkIndex.OVERLAY_MAX_CHUNKS = 0
 -- 8 ticks on / 8 off ≈ 3.75 Hz at 60 UPS.
 ChunkIndex.OVERLAY_BLINK_PERIOD = 16
-ChunkIndex.OVERLAY_GAME_RADIUS = 10
-ChunkIndex.OVERLAY_CHART_ZOOM_RADIUS = 20
-ChunkIndex.OVERLAY_CHART_RADIUS = 36
 
 ChunkIndex.OVERLAY_COLORS = {
 	green = {r = 0.12, g = 0.80, b = 0.18, a = 0.30},
 	yellow = {r = 0.95, g = 0.82, b = 0.08, a = 0.30},
 	red = {r = 0.88, g = 0.12, b = 0.10, a = 0.30},
-	purple = {r = 0.55, g = 0.18, b = 0.82, a = 0.28},
+	purple = {r = 0.55, g = 0.18, b = 0.82, a = 0.12},
 	blink = {r = 0.35, g = 0.95, b = 1.0, a = 0.50},
 	outline = {r = 1, g = 1, b = 1, a = 0.85},
 	outline_dim = {r = 0.45, g = 0.90, b = 1.0, a = 0.55},
@@ -1037,13 +1066,20 @@ end
 
 local function harvester_chunk_set()
 	local set = {}
+	local list = {}
 	local function mark(ent)
 		if not (ent and ent.valid and ent.surface and ent.position) then
 			return
 		end
+		local si = ent.surface.index
 		local cx = math.floor(ent.position.x / 32)
 		local cy = math.floor(ent.position.y / 32)
-		set[ChunkIndex.chunk_key(ent.surface.index, cx, cy)] = true
+		local key = ChunkIndex.chunk_key(si, cx, cy)
+		if set[key] then
+			return
+		end
+		set[key] = true
+		list[#list + 1] = {si = si, x = cx, y = cy}
 	end
 	if storage.cncharvesters then
 		for _, harvester in pairs(storage.cncharvesters) do
@@ -1055,21 +1091,25 @@ local function harvester_chunk_set()
 			mark(rec.vehicle)
 		end
 	end
-	return set
+	return set, list
 end
 
-local function view_radius(player)
-	local mode = player.render_mode
-	local modes = defines and defines.render_mode
-	if modes then
-		if mode == modes.chart then
-			return ChunkIndex.OVERLAY_CHART_RADIUS
-		end
-		if mode == modes.chart_zoomed_in then
-			return ChunkIndex.OVERLAY_CHART_ZOOM_RADIUS
+function ChunkIndex.each_nested_chunk(root, fn)
+	local n = 0
+	if not root then
+		return n
+	end
+	for si, xs in pairs(root) do
+		for x, ys in pairs(xs) do
+			for y, val in pairs(ys) do
+				n = n + 1
+				if fn then
+					fn(si, x, y, val)
+				end
+			end
 		end
 	end
-	return ChunkIndex.OVERLAY_GAME_RADIUS
+	return n
 end
 
 local function classify_at(si, x, y, harvest)
@@ -1082,69 +1122,122 @@ local function classify_at(si, x, y, harvest)
 	return ChunkIndex.overlay_class(ore, tib == true, border, harvest[ChunkIndex.chunk_key(si, x, y)] == true)
 end
 
+local function viewed_surfaces()
+	local surfaces, forces = {}, {}
+	if not game then
+		return surfaces, forces
+	end
+	for _, player in pairs(game.connected_players) do
+		if player.valid and player.surface and player.surface.valid then
+			local si = player.surface.index
+			surfaces[si] = player.surface
+			forces[si] = forces[si] or {}
+			if player.force then
+				forces[si][#forces[si] + 1] = player.force
+			end
+		end
+	end
+	return surfaces, forces
+end
+
+local function chunk_is_charted(surface, x, y, force_list)
+	if not (surface and surface.valid) then
+		return false
+	end
+	if not force_list or #force_list == 0 then
+		return true
+	end
+	for _, force in ipairs(force_list) do
+		if force.valid and force.is_chunk_charted then
+			if force.is_chunk_charted(surface, {x, y}) then
+				return true
+			end
+		elseif force.valid then
+			return true
+		end
+	end
+	return false
+end
+
+-- Pollution-like: every indexed (or harvester / scan) chunk on viewed
+-- surfaces. Camera radius is not a cull. Unscanned stay blank. Fog
+-- (not charted) stays blank. Already-drawn rects are kept while they
+-- remain indexed+charted — panning does not destroy them.
 local function overlay_rebuild(st)
 	if not (game and rendering) then
 		return
 	end
-	local harvest = harvester_chunk_set()
+	local harvest, harvest_list = harvester_chunk_set()
 	local scan = st.scan
+	local surfaces, forces = viewed_surfaces()
 	local wanted = {}
-	for _, player in pairs(game.connected_players) do
-		if player.valid and player.surface and player.surface.valid then
-			local surface = player.surface
-			local si = surface.index
-			local pos = player.position
-			local cx = math.floor(pos.x / 32)
-			local cy = math.floor(pos.y / 32)
-			local r = view_radius(player)
-			local force = player.force
-			for x = cx - r, cx + r do
-				for y = cy - r, cy + r do
-					local charted = true
-					if force and force.is_chunk_charted then
-						charted = force.is_chunk_charted(surface, {x, y})
-					end
-					if charted then
-						local class = classify_at(si, x, y, harvest)
-						local is_scan = scan and scan.si == si and scan.x == x and scan.y == y
-						if class or is_scan then
-							local key = ChunkIndex.chunk_key(si, x, y)
-							local dist = (x - cx) * (x - cx) + (y - cy) * (y - cy)
-							local prev = wanted[key]
-							if not prev or dist < prev.dist then
-								wanted[key] = {si = si, x = x, y = y, class = class, dist = dist, surface = surface}
-							end
-						end
-					end
+	local function consider(si, x, y)
+		local surface = surfaces[si]
+		if not (surface and surface.valid) then
+			return
+		end
+		if not chunk_is_charted(surface, x, y, forces[si]) then
+			return
+		end
+		local class = classify_at(si, x, y, harvest)
+		local is_scan = scan and scan.si == si and scan.x == x and scan.y == y
+		if not class and not is_scan then
+			return
+		end
+		wanted[ChunkIndex.chunk_key(si, x, y)] = {
+			si = si,
+			x = x,
+			y = y,
+			class = class,
+			surface = surface,
+		}
+	end
+	ChunkIndex.each_nested_chunk(storage.orechunk, consider)
+	ChunkIndex.each_nested_chunk(storage.tibchunk, consider)
+	ChunkIndex.each_nested_chunk(st.border, consider)
+	for _, item in ipairs(harvest_list) do
+		consider(item.si, item.x, item.y)
+	end
+	if scan then
+		consider(scan.si, scan.x, scan.y)
+	end
+	local maxn = ChunkIndex.OVERLAY_MAX_CHUNKS
+	if maxn and maxn > 0 then
+		local n = 0
+		for _ in pairs(wanted) do
+			n = n + 1
+		end
+		if n > maxn then
+			-- Prefer completeness; the cap is only a last-ditch brake.
+			-- Keep already-drawn keys first so a pan does not drop paint.
+			local extras = {}
+			for key, info in pairs(wanted) do
+				if not st.overlay_ids[key] then
+					extras[#extras + 1] = key
+				end
+			end
+			local keep_n = 0
+			for key in pairs(wanted) do
+				if st.overlay_ids[key] then
+					keep_n = keep_n + 1
+				end
+			end
+			for i = 1, #extras do
+				if keep_n >= maxn then
+					wanted[extras[i]] = nil
+				else
+					keep_n = keep_n + 1
 				end
 			end
 		end
 	end
-	local list = {}
-	for key, rec in pairs(wanted) do
-		list[#list + 1] = {key = key, rec = rec}
-	end
-	table.sort(list, function(a, b)
-		return a.rec.dist < b.rec.dist
-	end)
-	local keep = {}
-	local maxn = ChunkIndex.OVERLAY_MAX_CHUNKS
-	for i = 1, math.min(#list, maxn) do
-		keep[list[i].key] = list[i].rec
-	end
-	if scan then
-		local skey = ChunkIndex.chunk_key(scan.si, scan.x, scan.y)
-		if wanted[skey] and not keep[skey] then
-			keep[skey] = wanted[skey]
-		end
-	end
 	for key, rec in pairs(st.overlay_ids) do
-		if not keep[key] then
+		if not wanted[key] then
 			destroy_rec(rec)
 			st.overlay_ids[key] = nil
 		end
 	end
-	for key, info in pairs(keep) do
+	for key, info in pairs(wanted) do
 		local existing = st.overlay_ids[key]
 		local color = info.class and ChunkIndex.OVERLAY_COLORS[info.class]
 		if info.class and color then

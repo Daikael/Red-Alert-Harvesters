@@ -50,13 +50,19 @@ What it actually does today:
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 ```
 
-`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get).
+`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get). `chunkindex_reseed` force-enqueues every generated chunk on visited/eligible surfaces (ignores `seeded`) and returns `{enabled, surfaces, enqueued}`.
 
 ### Map overlay (M1 debug)
 
 Toggle like pollution: **Alt+I**, or the shortcut-bar **Chunk index overlay** button (harvester icon). Persists in `storage.chunkindex.overlay`. Available while **Automatic harvester testing** is on. Off destroys every overlay render object.
 
-Semi-transparent **map / minimap** rectangles (`render_mode` `chart` + `chart-zoomed-in`). They do **not** draw on the world surface. Rebuild every 30 ticks, cap 600, visible/charted chunks only. Unscanned stay blank.
+Semi-transparent **map / minimap** rectangles (`render_mode` `chart` + `chart-zoomed-in`). They do **not** draw on the world surface. Rebuild every 30 ticks from the **index tables** (pollution-like global on the viewed surface). Camera radius is not a cull; panning does not drop already-drawn indexed chunks. Uncharted fog and **unscanned** chunks stay blank. Empty-scanned purple is **dim** on purpose.
+
+If the index is behind generated chunks, reseed then wait for the 1/tick drain:
+
+```
+/c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_reseed")))
+```
 
 | Color | Meaning |
 | --- | --- |
@@ -290,7 +296,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
+| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay` / `chunkindex_reseed`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
 | `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
