@@ -1,14 +1,22 @@
 -- Milestone 1: global slow chunk index.
--- Event handlers only enqueue. The budget tick scans ~one generated chunk.
+-- Event handlers only enqueue. Scan ticks classify one generated chunk.
+-- Prefer low script cost over fast coverage (hours-long first pass is OK).
 -- Do not generate chunks. Do not teleport or drive trucks.
 
 ChunkIndex = ChunkIndex or {}
 
+-- One find_entities_filtered (32x32) per scan tick. Never raise this for
+-- normal play — throughput comes from SCAN_INTERVAL_TICKS, not a bigger bite.
 ChunkIndex.BUDGET_PER_TICK = 1
--- Empty neighbors of Tib are re-queued this often so spread is noticed.
-ChunkIndex.BORDER_REQUEUE_TICKS = 600
--- Chunks under tracked harvesters are re-queued this often for depletion.
-ChunkIndex.HARVESTER_REQUEUE_TICKS = 300
+-- 1 chunk / 10 ticks @ 60 UPS. 40k generated chunks ≈ 40000*10/60 ≈ 1.85 h.
+ChunkIndex.SCAN_INTERVAL_TICKS = 10
+-- Tib-neighbor border refresh. Minutes-scale; skipped while the queue is draining.
+-- 36000 ticks = 10 min @ 60 UPS (idle uses the same interval).
+ChunkIndex.BORDER_REQUEUE_TICKS = 36000
+ChunkIndex.BORDER_REQUEUE_IDLE_TICKS = 36000
+-- Harvester-chunk depletion refresh. 10800 ticks = 3 min @ 60 UPS.
+ChunkIndex.HARVESTER_REQUEUE_TICKS = 10800
+ChunkIndex.HARVESTER_REQUEUE_IDLE_TICKS = 10800
 
 local NEIGHBOR_OFFSETS = {
 	{-1, -1}, {-1, 0}, {-1, 1},
@@ -277,13 +285,44 @@ function ChunkIndex.ensure_storage()
 	st.watch = st.watch or {}
 	st.border_due = st.border_due or 0
 	st.harvest_due = st.harvest_due or 0
+	st.scan_due = st.scan_due or 0
+	st.overlay_reconcile_due = st.overlay_reconcile_due or 0
 	st.seeded = st.seeded or false
 	if st.overlay == nil then
 		st.overlay = false
 	end
 	st.overlay_ids = st.overlay_ids or {}
 	st.overlay_due = st.overlay_due or 0
+	st.overlay_dirty = st.overlay_dirty or {}
+	st.overlay_full = st.overlay_full or false
+	st.harvest_overlay_keys = st.harvest_overlay_keys or {}
 	return st
+end
+
+function ChunkIndex.queue_len(st)
+	if not st or not st.queue then
+		return 0
+	end
+	local n = #st.queue - (st.head or 1) + 1
+	if n < 0 then
+		return 0
+	end
+	return n
+end
+
+function ChunkIndex.overlay_mark_dirty(si, x, y)
+	if not ChunkIndex.coords_ok(si, x, y) then
+		return
+	end
+	if not storage then
+		return
+	end
+	local st = storage.chunkindex
+	if not st then
+		return
+	end
+	st.overlay_dirty = st.overlay_dirty or {}
+	st.overlay_dirty[ChunkIndex.chunk_key(si, x, y)] = {si, x, y}
 end
 
 local function compact_queue(st)
@@ -432,8 +471,9 @@ function ChunkIndex.mark_visited(surface)
 	ChunkIndex.ensure_storage().visited[surface.index] = true
 end
 
--- Enqueue already-generated chunk positions only. Never find_entities here.
--- Returns how many chunks were newly queued (already-queued slots are skipped).
+-- Missing-only: already-indexed chunks are not re-queued.
+-- seed_existing / player enter / surface change must not chew a finished map.
+-- Never find_entities here. Returns how many chunks were newly queued.
 function ChunkIndex.enqueue_generated(surface)
 	if not (surface and surface.valid) then
 		return 0
@@ -442,17 +482,25 @@ function ChunkIndex.enqueue_generated(surface)
 		return 0
 	end
 	local n = 0
+	local si = surface.index
 	for chunk in surface.get_chunks() do
-		if ChunkIndex.enqueue(surface.index, chunk.x, chunk.y) then
-			n = n + 1
+		if not ChunkIndex.has_index_row(storage.orechunk, si, chunk.x, chunk.y) then
+			if ChunkIndex.enqueue(si, chunk.x, chunk.y) then
+				n = n + 1
+			end
 		end
 	end
 	return n
 end
 
-local function empty_reseed_result(enabled)
+function ChunkIndex.reseed_wants_full(arg)
+	return arg == true or arg == "full" or arg == "refresh"
+end
+
+local function empty_reseed_result(enabled, mode)
 	return {
 		enabled = enabled,
+		mode = mode or "missing",
 		surfaces = 0,
 		generated = 0,
 		indexed = 0,
@@ -464,14 +512,16 @@ local function empty_reseed_result(enabled)
 end
 
 -- Walk surface.get_chunks() (all generated), not the index tables.
--- Missing (no orechunk row) go first. Rebuilds st.queued from the live
--- queue so a stale queued[key] cannot hide a gap forever.
-function ChunkIndex.reseed()
+-- Default (nil / false / "missing"): queue unindexed gaps only.
+-- Full refresh is opt-in: reseed(true) / reseed("full") / chunkindex_reseed_full.
+-- Rebuilds st.queued from the live queue so a stale key cannot hide a gap.
+function ChunkIndex.reseed(full)
+	local mode = ChunkIndex.reseed_wants_full(full) and "full" or "missing"
 	if not ChunkIndex.enabled() then
-		return empty_reseed_result(false)
+		return empty_reseed_result(false, mode)
 	end
 	if not game then
-		return empty_reseed_result(true)
+		return empty_reseed_result(true, mode)
 	end
 	local st = ChunkIndex.ensure_storage()
 	for _, player in pairs(game.players) do
@@ -491,7 +541,9 @@ function ChunkIndex.reseed()
 					generated = generated + 1
 					if ChunkIndex.has_index_row(storage.orechunk, si, x, y) then
 						indexed = indexed + 1
-						refresh_list[#refresh_list + 1] = {si, x, y}
+						if mode == "full" then
+							refresh_list[#refresh_list + 1] = {si, x, y}
+						end
 					else
 						missing = missing + 1
 						missing_list[#missing_list + 1] = {si, x, y}
@@ -509,15 +561,18 @@ function ChunkIndex.reseed()
 			enqueued_missing = enqueued_missing + 1
 		end
 	end
-	for _, item in ipairs(refresh_list) do
-		if ChunkIndex.enqueue(item[1], item[2], item[3]) then
-			enqueued_refresh = enqueued_refresh + 1
+	if mode == "full" then
+		for _, item in ipairs(refresh_list) do
+			if ChunkIndex.enqueue(item[1], item[2], item[3]) then
+				enqueued_refresh = enqueued_refresh + 1
+			end
 		end
 	end
 	ChunkIndex.rebuild_queued_set(st)
 	st.seeded = true
 	return {
 		enabled = true,
+		mode = mode,
 		surfaces = surfaces,
 		generated = generated,
 		indexed = indexed,
@@ -630,6 +685,12 @@ local function scan_chunk(surface, x, y)
 			end
 		end
 	end
+	ChunkIndex.overlay_mark_dirty(si, x, y)
+	if classified.has_tib ~= had_tib then
+		for _, off in ipairs(NEIGHBOR_OFFSETS) do
+			ChunkIndex.overlay_mark_dirty(si, x + off[1], y + off[2])
+		end
+	end
 end
 
 local function pop_queue(st)
@@ -735,26 +796,43 @@ function ChunkIndex.tick()
 		st.seeded = true
 	end
 	local tick = game.tick
-	if tick >= (st.border_due or 0) then
+	-- First-pass / missing backlog owns the queue. Do not inject border or
+	-- harvester refresh into a multi-hour chew.
+	local idle = ChunkIndex.queue_len(st) == 0
+	if idle and tick >= (st.border_due or 0) then
+		st.border_due = tick + ChunkIndex.BORDER_REQUEUE_IDLE_TICKS
+		if next(st.border) and next(st.tib_holds) then
+			enqueue_border(st)
+		end
+	elseif not idle then
 		st.border_due = tick + ChunkIndex.BORDER_REQUEUE_TICKS
-		enqueue_border(st)
 	end
-	if tick >= (st.harvest_due or 0) then
+	if idle and tick >= (st.harvest_due or 0) then
+		st.harvest_due = tick + ChunkIndex.HARVESTER_REQUEUE_IDLE_TICKS
+		if (storage.cncharvesters and next(storage.cncharvesters)) or (storage.module_bays and next(storage.module_bays)) then
+			enqueue_harvester_chunks(st)
+		end
+	elseif not idle then
 		st.harvest_due = tick + ChunkIndex.HARVESTER_REQUEUE_TICKS
-		enqueue_harvester_chunks(st)
 	end
 	local scanned = false
-	local budget = ChunkIndex.BUDGET_PER_TICK
-	while budget > 0 do
-		local item = pop_queue(st)
-		if not item then
-			break
+	if tick >= (st.scan_due or 0) then
+		st.scan_due = tick + ChunkIndex.SCAN_INTERVAL_TICKS
+		local budget = ChunkIndex.BUDGET_PER_TICK
+		while budget > 0 do
+			local item = pop_queue(st)
+			if not item then
+				break
+			end
+			local surface = game.get_surface(item[1])
+			scan_chunk(surface, item[2], item[3])
+			st.scan = {si = item[1], x = item[2], y = item[3]}
+			scanned = true
+			budget = budget - 1
 		end
-		local surface = game.get_surface(item[1])
-		scan_chunk(surface, item[2], item[3])
-		st.scan = {si = item[1], x = item[2], y = item[3]}
+	elseif st.scan then
+		-- Keep the last scan blink until the next scan tick.
 		scanned = true
-		budget = budget - 1
 	end
 	if not scanned then
 		st.scan = nil
@@ -843,11 +921,8 @@ function ChunkIndex.debug_stats()
 	if not st then
 		return {enabled = ChunkIndex.enabled(), queued = 0}
 	end
-	local queued = #st.queue - (st.head or 1) + 1
-	if queued < 0 then
-		queued = 0
-	end
-	local ore_n, tib_n = 0, 0
+	local queued = ChunkIndex.queue_len(st)
+	local ore_n, tib_n, border_n = 0, 0, 0
 	for _, xs in pairs(storage.orechunk or {}) do
 		for _, ys in pairs(xs) do
 			for _, _ in pairs(ys) do
@@ -864,21 +939,42 @@ function ChunkIndex.debug_stats()
 			end
 		end
 	end
+	for _, xs in pairs(st.border or {}) do
+		for _, ys in pairs(xs) do
+			for _, count in pairs(ys) do
+				if (count or 0) > 0 then
+					border_n = border_n + 1
+				end
+			end
+		end
+	end
 	local scan = st.scan
-	local overlay_drawn = 0
+	local overlay_drawn, overlay_dirty = 0, 0
 	if st.overlay_ids then
 		for _ in pairs(st.overlay_ids) do
 			overlay_drawn = overlay_drawn + 1
 		end
 	end
+	if st.overlay_dirty then
+		for _ in pairs(st.overlay_dirty) do
+			overlay_dirty = overlay_dirty + 1
+		end
+	end
 	return {
 		enabled = ChunkIndex.enabled(),
 		queued = queued,
+		queue_len = queued,
 		ore_chunks = ore_n,
 		tib_chunks = tib_n,
+		border_n = border_n,
 		overlay = st.overlay == true,
 		overlay_drawn = overlay_drawn,
+		overlay_dirty = overlay_dirty,
+		overlay_full = st.overlay_full == true,
 		overlay_cap = ChunkIndex.OVERLAY_MAX_CHUNKS,
+		overlay_last_ms = st.overlay_last_ms,
+		budget_per_tick = ChunkIndex.BUDGET_PER_TICK,
+		scan_interval_ticks = ChunkIndex.SCAN_INTERVAL_TICKS,
 		scan = scan and {si = scan.si, x = scan.x, y = scan.y} or nil,
 	}
 end
@@ -887,7 +983,11 @@ end
 -- Map overlay (chart rectangles + scan blink)
 --------------------------------------------------
 
+-- Full walk only on toggle-on / rare idle reconcile. Steady state is dirty-only.
 ChunkIndex.OVERLAY_REBUILD_TICKS = 30
+ChunkIndex.OVERLAY_DIRTY_BUDGET = 48
+-- 10 min idle safety walk. Never during a first-pass chew.
+ChunkIndex.OVERLAY_RECONCILE_TICKS = 36000
 -- 0 = no cap. Chart overlay is pollution-like (all indexed charted chunks).
 ChunkIndex.OVERLAY_MAX_CHUNKS = 0
 -- 8 ticks on / 8 off ≈ 3.75 Hz at 60 UPS.
@@ -1010,10 +1110,11 @@ function ChunkIndex.overlay_is_world_mode(mode)
 	return rm ~= nil and mode == rm.game
 end
 
--- ScriptRenderMode for map + zoomed map / minimap. Same intent as
--- defines.render_mode.chart and chart_zoomed_in. Never "game".
+-- One ScriptRenderMode. "chart" covers the map and minimap; a second
+-- chart-zoomed-in rect doubled objects for no extra semantics on 2.0.77.
+-- Never "game" (world surface).
 function ChunkIndex.overlay_render_modes()
-	return {"chart", "chart-zoomed-in"}
+	return {"chart"}
 end
 
 local function draw_rect(surface, cx, cy, color, filled, width, render_mode)
@@ -1097,17 +1198,25 @@ function ChunkIndex.overlay_clear()
 		st.overlay_ids[key] = nil
 	end
 	st.overlay_ids = {}
+	st.overlay_dirty = {}
+	st.overlay_full = false
 	st.overlay_due = 0
+	st.overlay_reconcile_due = 0
 end
 
 function ChunkIndex.overlay_forget(si, x, y)
 	local st = storage and storage.chunkindex
-	if not (st and st.overlay_ids) then
+	if not st then
 		return
 	end
 	local key = ChunkIndex.chunk_key(si, x, y)
-	destroy_rec(st.overlay_ids[key])
-	st.overlay_ids[key] = nil
+	if st.overlay_ids then
+		destroy_rec(st.overlay_ids[key])
+		st.overlay_ids[key] = nil
+	end
+	if st.overlay_dirty then
+		st.overlay_dirty[key] = nil
+	end
 end
 
 function ChunkIndex.overlay_sync_shortcuts()
@@ -1139,6 +1248,7 @@ function ChunkIndex.overlay_set(on, player)
 	if not st.overlay then
 		ChunkIndex.overlay_clear()
 	else
+		st.overlay_full = true
 		st.overlay_due = 0
 	end
 	ChunkIndex.overlay_sync_shortcuts()
@@ -1158,7 +1268,12 @@ function ChunkIndex.overlay_toggle(player)
 	return ChunkIndex.overlay_set(not ChunkIndex.overlay_get(), player)
 end
 
+local harvest_cache_tick, harvest_cache_set, harvest_cache_list
+
 local function harvester_chunk_set()
+	if game and harvest_cache_tick == game.tick and harvest_cache_set then
+		return harvest_cache_set, harvest_cache_list
+	end
 	local set = {}
 	local list = {}
 	local function mark(ent)
@@ -1185,6 +1300,9 @@ local function harvester_chunk_set()
 			mark(rec.vehicle)
 		end
 	end
+	harvest_cache_tick = game and game.tick
+	harvest_cache_set = set
+	harvest_cache_list = list
 	return set, list
 end
 
@@ -1253,10 +1371,76 @@ local function chunk_is_charted(surface, x, y, force_list)
 	return false
 end
 
--- Pollution-like: every indexed (or harvester / scan) chunk on viewed
--- surfaces. Camera radius is not a cull. Unscanned stay blank. Fog
--- (not charted) stays blank. Already-drawn rects are kept while they
--- remain indexed+charted — panning does not destroy them.
+local function overlay_clock()
+	if os and os.clock then
+		return os.clock()
+	end
+	return nil
+end
+
+-- nil, false = not on a viewed surface (leave existing draw).
+-- nil, true  = viewed but not wanted (drop draw).
+-- info, true = draw / recolor.
+local function overlay_wanted_info(si, x, y, harvest, surfaces, forces, scan)
+	local surface = surfaces[si]
+	if not (surface and surface.valid) then
+		return nil, false
+	end
+	if not chunk_is_charted(surface, x, y, forces[si]) then
+		return nil, true
+	end
+	local class = classify_at(si, x, y, harvest)
+	local is_scan = scan and scan.si == si and scan.x == x and scan.y == y
+	if not class and not is_scan then
+		return nil, true
+	end
+	return {
+		si = si,
+		x = x,
+		y = y,
+		class = class,
+		surface = surface,
+	}, true
+end
+
+local function overlay_apply_info(st, key, info)
+	local existing = st.overlay_ids[key]
+	local color = info.class and ChunkIndex.OVERLAY_COLORS[info.class]
+	if info.class and color then
+		if existing and existing.class == info.class and recolor_fills(existing, color) then
+			existing.scan = nil
+		else
+			destroy_rec(existing)
+			st.overlay_ids[key] = {
+				fills = draw_chunk_fills(info.surface, info.x, info.y, color),
+				class = info.class,
+			}
+		end
+	elseif existing then
+		destroy_rec(existing)
+		st.overlay_ids[key] = nil
+	end
+end
+
+local function overlay_track_harvesters(st, harvest_list)
+	local prev = st.harvest_overlay_keys or {}
+	local next_keys = {}
+	for _, item in ipairs(harvest_list) do
+		local key = ChunkIndex.chunk_key(item.si, item.x, item.y)
+		next_keys[key] = {item.si, item.x, item.y}
+		if not prev[key] then
+			ChunkIndex.overlay_mark_dirty(item.si, item.x, item.y)
+		end
+	end
+	for key, item in pairs(prev) do
+		if not next_keys[key] then
+			ChunkIndex.overlay_mark_dirty(item[1], item[2], item[3])
+		end
+	end
+	st.harvest_overlay_keys = next_keys
+end
+
+-- Pollution-like full walk. Toggle-on and rare idle reconcile only.
 local function overlay_rebuild(st)
 	if not (game and rendering) then
 		return
@@ -1266,25 +1450,10 @@ local function overlay_rebuild(st)
 	local surfaces, forces = viewed_surfaces()
 	local wanted = {}
 	local function consider(si, x, y)
-		local surface = surfaces[si]
-		if not (surface and surface.valid) then
-			return
+		local info = overlay_wanted_info(si, x, y, harvest, surfaces, forces, scan)
+		if info then
+			wanted[ChunkIndex.chunk_key(si, x, y)] = info
 		end
-		if not chunk_is_charted(surface, x, y, forces[si]) then
-			return
-		end
-		local class = classify_at(si, x, y, harvest)
-		local is_scan = scan and scan.si == si and scan.x == x and scan.y == y
-		if not class and not is_scan then
-			return
-		end
-		wanted[ChunkIndex.chunk_key(si, x, y)] = {
-			si = si,
-			x = x,
-			y = y,
-			class = class,
-			surface = surface,
-		}
 	end
 	ChunkIndex.each_nested_chunk(storage.orechunk, consider)
 	ChunkIndex.each_nested_chunk(storage.tibchunk, consider)
@@ -1295,8 +1464,6 @@ local function overlay_rebuild(st)
 	if scan then
 		consider(scan.si, scan.x, scan.y)
 	end
-	-- No camera cap. OVERLAY_MAX_CHUNKS=0 means draw every wanted chunk so
-	-- newly classified purple/red always appear.
 	for key, rec in pairs(st.overlay_ids) do
 		if not wanted[key] then
 			destroy_rec(rec)
@@ -1304,22 +1471,39 @@ local function overlay_rebuild(st)
 		end
 	end
 	for key, info in pairs(wanted) do
-		local existing = st.overlay_ids[key]
-		local color = info.class and ChunkIndex.OVERLAY_COLORS[info.class]
-		if info.class and color then
-			if existing and existing.class == info.class and recolor_fills(existing, color) then
-				existing.scan = nil
-			else
-				destroy_rec(existing)
-				st.overlay_ids[key] = {
-					fills = draw_chunk_fills(info.surface, info.x, info.y, color),
-					class = info.class,
-				}
+		overlay_apply_info(st, key, info)
+	end
+end
+
+-- Steady state: only chunks marked dirty by scan / Tib / harvester move.
+local function overlay_rebuild_dirty(st)
+	if not (game and rendering) then
+		return
+	end
+	local dirty = st.overlay_dirty or {}
+	if next(dirty) == nil then
+		return
+	end
+	local harvest = harvester_chunk_set()
+	local surfaces, forces = viewed_surfaces()
+	local scan = st.scan
+	local budget = ChunkIndex.OVERLAY_DIRTY_BUDGET
+	for key, item in pairs(dirty) do
+		if budget <= 0 then
+			break
+		end
+		dirty[key] = nil
+		budget = budget - 1
+		local si, x, y = item[1], item[2], item[3]
+		local info, viewed = overlay_wanted_info(si, x, y, harvest, surfaces, forces, scan)
+		if info then
+			overlay_apply_info(st, key, info)
+		elseif viewed then
+			local rec = st.overlay_ids[key]
+			if rec then
+				destroy_rec(rec)
+				st.overlay_ids[key] = nil
 			end
-		elseif existing and not info.class then
-			-- Unscanned scan-target: blink path owns the draw.
-			destroy_rec(existing)
-			st.overlay_ids[key] = nil
 		end
 	end
 end
@@ -1425,11 +1609,37 @@ function ChunkIndex.overlay_tick()
 	if not st.overlay_chart_only then
 		ChunkIndex.overlay_clear()
 		st.overlay_chart_only = true
+		st.overlay_full = true
 	end
+	local _, harvest_list = harvester_chunk_set()
+	overlay_track_harvesters(st, harvest_list)
 	local tick = game.tick
-	if tick >= (st.overlay_due or 0) then
-		st.overlay_due = tick + ChunkIndex.OVERLAY_REBUILD_TICKS
+	if st.overlay_full then
+		local t0 = overlay_clock()
 		overlay_rebuild(st)
+		st.overlay_full = false
+		st.overlay_dirty = {}
+		st.overlay_due = tick + ChunkIndex.OVERLAY_REBUILD_TICKS
+		st.overlay_reconcile_due = tick + ChunkIndex.OVERLAY_RECONCILE_TICKS
+		local t1 = overlay_clock()
+		if t0 and t1 then
+			st.overlay_last_ms = (t1 - t0) * 1000
+		end
+	elseif tick >= (st.overlay_due or 0) then
+		st.overlay_due = tick + ChunkIndex.OVERLAY_REBUILD_TICKS
+		local t0 = overlay_clock()
+		-- Full reconcile only when idle so a first-pass chew cannot spike UPS.
+		if tick >= (st.overlay_reconcile_due or 0) and ChunkIndex.queue_len(st) == 0 then
+			st.overlay_reconcile_due = tick + ChunkIndex.OVERLAY_RECONCILE_TICKS
+			overlay_rebuild(st)
+			st.overlay_dirty = {}
+		else
+			overlay_rebuild_dirty(st)
+		end
+		local t1 = overlay_clock()
+		if t0 and t1 then
+			st.overlay_last_ms = (t1 - t0) * 1000
+		end
 	end
 	overlay_update_blink(st)
 end

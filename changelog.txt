@@ -6,9 +6,10 @@ Date: 2026-09-07
     - Startup setting Automatic harvester testing (`Auto-cncharvester-testing`) enables the slow chunk ore/Tiberium index only. Restart required. Default off.
     - Legacy per-truck teleport auto-harvester is commented out. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged. No depot / pathfinder / physical-driving AI yet.
     - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
-    - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, `chunkindex_overlay`, and `chunkindex_reseed` for `/c` (ChunkIndex is not visible in the console sandbox).
-    - `chunkindex_reseed` walks generated chunks, queues unindexed gaps first, and rebuilds the queued set so stale keys cannot hide blanks.
-    - Map overlay (Alt+I / shortcut bar) paints **all** indexed charted chunks on the viewed surface (map/minimap only). Unscanned and fog stay blank. Dim purple = empty scanned. Cyan blink is the chunk being scanned this tick. `chunkindex_reseed` re-enqueues generated chunks if the index is behind.
+    - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, `chunkindex_overlay`, `chunkindex_reseed`, and `chunkindex_reseed_full` for `/c` (ChunkIndex is not visible in the console sandbox).
+    - Scanner cadence: 1 classify / 10 ticks (`BUDGET_PER_TICK` stays 1). ~40k generated chunks ≈ 1.85 h at 60 UPS. Border requeue 10 min, harvester requeue 3 min; both skipped while the queue is draining.
+    - `chunkindex_reseed` default is missing-only. Full refresh is opt-in (`true` / `"full"` or `chunkindex_reseed_full`). Player-enter / seed no longer re-queues already-indexed chunks.
+    - Map overlay (Alt+I / shortcut bar) paints **all** indexed charted chunks on the viewed surface (map/minimap only, one `chart` rect). Toggle-on full build; after that dirty/incremental. Unscanned and fog stay blank. Dim purple = empty scanned. Cyan blink is the chunk being scanned.
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06

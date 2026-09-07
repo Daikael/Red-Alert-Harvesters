@@ -50,18 +50,38 @@ What it actually does today:
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 ```
 
-`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get). `chunkindex_reseed` walks `surface.get_chunks()` (all generated, not the index). Missing (no `orechunk` row) are queued first; already-indexed refresh after. Rebuilds `st.queued` from the live queue. Returns `{enabled, surfaces, generated, indexed, missing, enqueued, enqueued_missing, enqueued_refresh}`.
+`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan, budget_per_tick, scan_interval_ticks, ...}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get).
+
+`chunkindex_reseed` walks `surface.get_chunks()` (all generated, not the index). **Default is missing-only** (no `orechunk` row). Already-indexed chunks are not re-queued. Full refresh is opt-in: `remote.call(..., "chunkindex_reseed", true)` / `"full"`, or `chunkindex_reseed_full`. Rebuilds `st.queued` from the live queue. Returns `{enabled, mode, surfaces, generated, indexed, missing, enqueued, enqueued_missing, enqueued_refresh}`.
+
+`seed_existing` / player-enter / surface-change also enqueue **missing-only**. After 100% coverage there is no automatic full-map re-chew.
+
+### Cadence (low script cost; hours-long first pass is OK)
+
+Daikael’s tester map is **~200×200 chunks** (~40k generated), not tiles. Prefer cheap idle over fast coverage.
+
+| Knob | Default | Why |
+| --- | --- | --- |
+| `BUDGET_PER_TICK` | **1** | One `find_entities_filtered` 32×32 classify when a scan tick fires. Do not raise this for normal play. |
+| `SCAN_INTERVAL_TICKS` | **10** | Not every tick. 1 chunk / 10 ticks @ 60 UPS. |
+| Border requeue | **36000** (10 min) | True Tib-neighbor borders only. **Skipped while the queue is draining.** |
+| Harvester requeue | **10800** (3 min) | Chunks under tracked trucks only. **Skipped while the queue is draining.** |
+
+Expected first-pass wall time at 60 UPS: **N generated missing chunks × 10 / 60 seconds**. For ~40k: **40000 × 10 / 60 ≈ 6667 s ≈ 1.85 hours**. A 10-second “pass” at this cadence is only ~60 classify calls — that is a missing subset (or an old every-tick / full-refresh chew), not 40k @ 1/tick.
+
+His F4 ~3.84 / 0.344 / 11.278 ms was the old every-tick full-map classify plus a full overlay walk every 30 ticks. Steady state after coverage is idle (queue empty) plus dirty overlay only.
 
 ### Map overlay (M1 debug)
 
 Toggle like pollution: **Alt+I**, or the shortcut-bar **Chunk index overlay** button (harvester icon). Persists in `storage.chunkindex.overlay`. Available while **Automatic harvester testing** is on. Off destroys every overlay render object.
 
-Semi-transparent **map / minimap** rectangles (`render_mode` `chart` + `chart-zoomed-in`). They do **not** draw on the world surface. Rebuild every 30 ticks from the **index tables** (pollution-like global on the viewed surface). Camera radius is not a cull; panning does not drop already-drawn indexed chunks. Uncharted fog and **unscanned** chunks stay blank. Empty-scanned purple is **dim** on purpose.
+Semi-transparent **map / minimap** rectangles (`render_mode` `chart` only). They do **not** draw on the world surface. Toggle-on does one full build; after that the overlay is **dirty/incremental** (scanned chunk + Tib neighbors + harvester moves). A rare idle reconcile (10 min, queue empty only) is a safety net — a first-pass chew never full-walks the index for draw. Camera radius is not a cull; panning does not drop already-drawn indexed chunks. Uncharted fog and **unscanned** chunks stay blank. Empty-scanned purple is **dim** on purpose.
 
-If the index is behind generated chunks, reseed then wait for the 1/tick drain:
+If the index is behind generated chunks, missing-only reseed then wait for the 1-per-10-tick drain:
 
 ```
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
+/c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
 ```
 
 | Color | Meaning |
@@ -81,7 +101,7 @@ Priority if several match: **green → yellow → red → purple**.
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_overlay")))
 ```
 
-Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
+Build a **map index** of already-generated chunks. Budget: **one chunk per scan tick**, and scan ticks fire every **`SCAN_INTERVAL_TICKS` (10)**. Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 
 ### Classify each scanned chunk
 
@@ -296,11 +316,11 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay` / `chunkindex_reseed`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
+| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay` / `chunkindex_reseed` / `chunkindex_reseed_full`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
 | `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
-| `chunkindex.lua` | M1 slow index. Queue + one-chunk-per-tick classify, Tib refcount borders, harvester depletion requeue. Chart overlay + scan blink. No `basic-solid-tiberium` string. |
+| `chunkindex.lua` | M1 slow index. Queue + 1-chunk-per-10-tick classify, Tib refcount borders, harvester depletion requeue. Chart overlay (dirty/incremental) + scan blink. No `basic-solid-tiberium` string. |
 | `settings.lua` | `Auto-cncharvester-testing` (startup; the only M1 gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
 | `specialOres.lua` | Resource entity name ≠ item name. Index should store something the depot filter and circuit can name (item, not only entity). |
@@ -319,7 +339,7 @@ M1 (landed):
 - Empty-next-to-Tib chunks keep a **refcount > 0** while any bordering Tib chunk exists; count drops on Tib deplete.
 - Unvisited ineligible planets are never scanned. Eligible unvisited surfaces stay off the queue until create / chunk / visit.
 - Slurry research does not change what the index lists. Type-2 tech still gates **auto-mining** Tib.
-- UPS stays flat-ish on a large map (queue drain, not a full `get_chunks()` sweep per tick).
+- UPS stays flat-ish on a large map: 1 classify / 10 ticks, no automatic full-map re-chew after coverage, overlay dirty-only after toggle-on.
 
 Later autonomy PRs (not this docs PR):
 

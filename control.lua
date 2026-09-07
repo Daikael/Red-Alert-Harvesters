@@ -11,6 +11,8 @@ require "specialOres"
 -- /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 -- /c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
+-- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
+-- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed_full')))
 remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_stats = function()
 		return ChunkIndex.debug_stats()
@@ -24,8 +26,12 @@ remote.add_interface("Red-Alert-Harvester", {
 		end
 		return ChunkIndex.overlay_get()
 	end,
-	chunkindex_reseed = function()
-		return ChunkIndex.reseed()
+	-- Default: missing-only. Pass true / "full" to re-scan already-indexed chunks.
+	chunkindex_reseed = function(full)
+		return ChunkIndex.reseed(full)
+	end,
+	chunkindex_reseed_full = function()
+		return ChunkIndex.reseed(true)
 	end,
 })
 
