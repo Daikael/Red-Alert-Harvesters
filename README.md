@@ -79,7 +79,10 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.2
 ```
 /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
+/c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
 ```
+
+**Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style map overlay: green Tib, yellow harvester/Tib-border, red ore, purple empty scanned, blank unscanned. The chunk being scanned this tick blinks cyan. Off destroys the render objects.
 
 ## Drive-and-harvest rate
 

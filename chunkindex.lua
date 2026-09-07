@@ -263,6 +263,11 @@ function ChunkIndex.ensure_storage()
 	st.border_due = st.border_due or 0
 	st.harvest_due = st.harvest_due or 0
 	st.seeded = st.seeded or false
+	if st.overlay == nil then
+		st.overlay = false
+	end
+	st.overlay_ids = st.overlay_ids or {}
+	st.overlay_due = st.overlay_due or 0
 	return st
 end
 
@@ -311,6 +316,7 @@ function ChunkIndex.forget_chunk(surface_index, x, y)
 		x,
 		y
 	)
+	ChunkIndex.overlay_forget(surface_index, x, y)
 end
 
 -- on_pre_chunk_deleted / on_chunk_deleted: positions[] on one surface.
@@ -593,13 +599,15 @@ function ChunkIndex.on_player_entered(event)
 	end
 	ChunkIndex.mark_visited(player.surface)
 	ChunkIndex.enqueue_generated(player.surface)
+	ChunkIndex.overlay_sync_shortcuts()
 end
 
 function ChunkIndex.tick()
-	if not ChunkIndex.enabled() then
+	if not game then
 		return
 	end
-	if not game then
+	if not ChunkIndex.enabled() then
+		ChunkIndex.overlay_tick()
 		return
 	end
 	local st = ChunkIndex.ensure_storage()
@@ -618,6 +626,7 @@ function ChunkIndex.tick()
 		st.harvest_due = tick + ChunkIndex.HARVESTER_REQUEUE_TICKS
 		enqueue_harvester_chunks(st)
 	end
+	local scanned = false
 	local budget = ChunkIndex.BUDGET_PER_TICK
 	while budget > 0 do
 		local item = pop_queue(st)
@@ -626,8 +635,14 @@ function ChunkIndex.tick()
 		end
 		local surface = game.get_surface(item[1])
 		scan_chunk(surface, item[2], item[3])
+		st.scan = {si = item[1], x = item[2], y = item[3]}
+		scanned = true
 		budget = budget - 1
 	end
+	if not scanned then
+		st.scan = nil
+	end
+	ChunkIndex.overlay_tick()
 end
 
 -- Event handlers: enqueue only.
@@ -732,5 +747,508 @@ function ChunkIndex.debug_stats()
 			end
 		end
 	end
-	return {enabled = ChunkIndex.enabled(), queued = queued, ore_chunks = ore_n, tib_chunks = tib_n}
+	local scan = st.scan
+	return {
+		enabled = ChunkIndex.enabled(),
+		queued = queued,
+		ore_chunks = ore_n,
+		tib_chunks = tib_n,
+		overlay = st.overlay == true,
+		scan = scan and {si = scan.si, x = scan.x, y = scan.y} or nil,
+	}
+end
+
+--------------------------------------------------
+-- Map overlay (chart rectangles + scan blink)
+--------------------------------------------------
+
+ChunkIndex.OVERLAY_REBUILD_TICKS = 30
+ChunkIndex.OVERLAY_MAX_CHUNKS = 600
+-- 8 ticks on / 8 off ≈ 3.75 Hz at 60 UPS.
+ChunkIndex.OVERLAY_BLINK_PERIOD = 16
+ChunkIndex.OVERLAY_GAME_RADIUS = 10
+ChunkIndex.OVERLAY_CHART_ZOOM_RADIUS = 20
+ChunkIndex.OVERLAY_CHART_RADIUS = 36
+
+ChunkIndex.OVERLAY_COLORS = {
+	green = {r = 0.12, g = 0.80, b = 0.18, a = 0.30},
+	yellow = {r = 0.95, g = 0.82, b = 0.08, a = 0.30},
+	red = {r = 0.88, g = 0.12, b = 0.10, a = 0.30},
+	purple = {r = 0.55, g = 0.18, b = 0.82, a = 0.28},
+	blink = {r = 0.35, g = 0.95, b = 1.0, a = 0.50},
+	outline = {r = 1, g = 1, b = 1, a = 0.85},
+	outline_dim = {r = 0.45, g = 0.90, b = 1.0, a = 0.55},
+}
+
+-- Priority: green (Tib) → yellow (harvester or border) → red (ore) → purple (empty scanned).
+-- nil = unscanned / no draw.
+function ChunkIndex.overlay_class(ore_row, tib_flag, border_count, has_harvester)
+	if tib_flag == true then
+		return "green"
+	end
+	if has_harvester or (border_count or 0) > 0 then
+		return "yellow"
+	end
+	if ore_row then
+		if ore_row.empty ~= true then
+			return "red"
+		end
+		return "purple"
+	end
+	return nil
+end
+
+function ChunkIndex.overlay_blink_on(tick)
+	local period = ChunkIndex.OVERLAY_BLINK_PERIOD
+	return ((tick or 0) % period) < (period / 2)
+end
+
+function ChunkIndex.overlay_get()
+	return storage and storage.chunkindex and storage.chunkindex.overlay == true
+end
+
+local function destroy_render_id(id)
+	if not id or not rendering then
+		return
+	end
+	if rendering.get_object_by_id then
+		local obj = rendering.get_object_by_id(id)
+		if obj and obj.valid then
+			obj.destroy()
+		end
+		return
+	end
+	if rendering.destroy then
+		pcall(rendering.destroy, id)
+	end
+end
+
+local function destroy_rec(rec)
+	if not rec then
+		return
+	end
+	if rec.fills then
+		for _, id in pairs(rec.fills) do
+			destroy_render_id(id)
+		end
+	end
+	destroy_render_id(rec.outline)
+end
+
+local function set_render_color(id, color)
+	if not (id and color and rendering and rendering.get_object_by_id) then
+		return false
+	end
+	local obj = rendering.get_object_by_id(id)
+	if obj and obj.valid then
+		obj.color = color
+		return true
+	end
+	return false
+end
+
+local function draw_rect(surface, cx, cy, color, filled, width, render_mode)
+	if not (rendering and surface and surface.valid) then
+		return nil
+	end
+	local args = {
+		color = color,
+		filled = filled ~= false,
+		width = width or 1,
+		left_top = {x = cx * 32, y = cy * 32},
+		right_bottom = {x = (cx + 1) * 32, y = (cy + 1) * 32},
+		surface = surface,
+		draw_on_ground = true,
+	}
+	if render_mode then
+		args.render_mode = render_mode
+	end
+	local ok, id = pcall(function()
+		return rendering.draw_rectangle(args)
+	end)
+	if ok then
+		return id
+	end
+	if render_mode then
+		args.render_mode = nil
+		ok, id = pcall(function()
+			return rendering.draw_rectangle(args)
+		end)
+		if ok then
+			return id
+		end
+	end
+	return nil
+end
+
+local function draw_chunk_fills(surface, cx, cy, color)
+	local fills = {}
+	local chart = draw_rect(surface, cx, cy, color, true, 1, "chart")
+	local world = draw_rect(surface, cx, cy, color, true, 1, "game")
+	if chart then
+		fills[#fills + 1] = chart
+	end
+	if world and world ~= chart then
+		fills[#fills + 1] = world
+	end
+	if #fills == 0 then
+		local fallback = draw_rect(surface, cx, cy, color, true, 1, nil)
+		if fallback then
+			fills[1] = fallback
+		end
+	end
+	return fills
+end
+
+local function draw_chunk_outline(surface, cx, cy, color)
+	local outline = draw_rect(surface, cx, cy, color, false, 3, "chart")
+	if not outline then
+		outline = draw_rect(surface, cx, cy, color, false, 3, "game")
+	end
+	if not outline then
+		outline = draw_rect(surface, cx, cy, color, false, 3, nil)
+	end
+	return outline
+end
+
+local function recolor_fills(rec, color)
+	if not rec or not rec.fills then
+		return false
+	end
+	local ok = true
+	for _, id in pairs(rec.fills) do
+		if not set_render_color(id, color) then
+			ok = false
+		end
+	end
+	return ok and #rec.fills > 0
+end
+
+function ChunkIndex.overlay_clear()
+	local st = storage and storage.chunkindex
+	if not st then
+		return
+	end
+	for key, rec in pairs(st.overlay_ids or {}) do
+		destroy_rec(rec)
+		st.overlay_ids[key] = nil
+	end
+	st.overlay_ids = {}
+	st.overlay_due = 0
+end
+
+function ChunkIndex.overlay_forget(si, x, y)
+	local st = storage and storage.chunkindex
+	if not (st and st.overlay_ids) then
+		return
+	end
+	local key = ChunkIndex.chunk_key(si, x, y)
+	destroy_rec(st.overlay_ids[key])
+	st.overlay_ids[key] = nil
+end
+
+function ChunkIndex.overlay_sync_shortcuts()
+	if not game then
+		return
+	end
+	local on = ChunkIndex.overlay_get()
+	for _, player in pairs(game.players) do
+		if player.valid and player.set_shortcut_toggled then
+			pcall(function()
+				player.set_shortcut_toggled("cncharvester-chunkindex-overlay", on)
+			end)
+		end
+	end
+end
+
+function ChunkIndex.overlay_set(on, player)
+	local st = ChunkIndex.ensure_storage()
+	if on and not ChunkIndex.enabled() then
+		st.overlay = false
+		ChunkIndex.overlay_clear()
+		ChunkIndex.overlay_sync_shortcuts()
+		if player and player.valid and player.print then
+			player.print({"cncharvester.chunkindex-overlay-disabled"})
+		end
+		return false
+	end
+	st.overlay = on and true or false
+	if not st.overlay then
+		ChunkIndex.overlay_clear()
+	else
+		st.overlay_due = 0
+	end
+	ChunkIndex.overlay_sync_shortcuts()
+	if player and player.valid and player.print then
+		player.print({st.overlay and "cncharvester.chunkindex-overlay-on" or "cncharvester.chunkindex-overlay-off"})
+	end
+	return st.overlay
+end
+
+function ChunkIndex.overlay_toggle(player)
+	if game and storage and storage.chunkindex and storage.chunkindex.overlay_event_tick == game.tick then
+		return ChunkIndex.overlay_get()
+	end
+	if game and storage and storage.chunkindex then
+		storage.chunkindex.overlay_event_tick = game.tick
+	end
+	return ChunkIndex.overlay_set(not ChunkIndex.overlay_get(), player)
+end
+
+local function harvester_chunk_set()
+	local set = {}
+	local function mark(ent)
+		if not (ent and ent.valid and ent.surface and ent.position) then
+			return
+		end
+		local cx = math.floor(ent.position.x / 32)
+		local cy = math.floor(ent.position.y / 32)
+		set[ChunkIndex.chunk_key(ent.surface.index, cx, cy)] = true
+	end
+	if storage.cncharvesters then
+		for _, harvester in pairs(storage.cncharvesters) do
+			mark(harvester.vehicle)
+		end
+	end
+	if storage.module_bays then
+		for _, rec in pairs(storage.module_bays) do
+			mark(rec.vehicle)
+		end
+	end
+	return set
+end
+
+local function view_radius(player)
+	local mode = player.render_mode
+	local modes = defines and defines.render_mode
+	if modes then
+		if mode == modes.chart then
+			return ChunkIndex.OVERLAY_CHART_RADIUS
+		end
+		if mode == modes.chart_zoomed_in then
+			return ChunkIndex.OVERLAY_CHART_ZOOM_RADIUS
+		end
+	end
+	return ChunkIndex.OVERLAY_GAME_RADIUS
+end
+
+local function classify_at(si, x, y, harvest)
+	local ore = nest_get(storage.orechunk, si, x, y)
+	local tib = nest_get(storage.tibchunk, si, x, y)
+	local border = 0
+	if storage.chunkindex then
+		border = ChunkIndex.border_count(storage.chunkindex.border, si, x, y)
+	end
+	return ChunkIndex.overlay_class(ore, tib == true, border, harvest[ChunkIndex.chunk_key(si, x, y)] == true)
+end
+
+local function overlay_rebuild(st)
+	if not (game and rendering) then
+		return
+	end
+	local harvest = harvester_chunk_set()
+	local scan = st.scan
+	local wanted = {}
+	for _, player in pairs(game.connected_players) do
+		if player.valid and player.surface and player.surface.valid then
+			local surface = player.surface
+			local si = surface.index
+			local pos = player.position
+			local cx = math.floor(pos.x / 32)
+			local cy = math.floor(pos.y / 32)
+			local r = view_radius(player)
+			local force = player.force
+			for x = cx - r, cx + r do
+				for y = cy - r, cy + r do
+					local charted = true
+					if force and force.is_chunk_charted then
+						charted = force.is_chunk_charted(surface, {x, y})
+					end
+					if charted then
+						local class = classify_at(si, x, y, harvest)
+						local is_scan = scan and scan.si == si and scan.x == x and scan.y == y
+						if class or is_scan then
+							local key = ChunkIndex.chunk_key(si, x, y)
+							local dist = (x - cx) * (x - cx) + (y - cy) * (y - cy)
+							local prev = wanted[key]
+							if not prev or dist < prev.dist then
+								wanted[key] = {si = si, x = x, y = y, class = class, dist = dist, surface = surface}
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	local list = {}
+	for key, rec in pairs(wanted) do
+		list[#list + 1] = {key = key, rec = rec}
+	end
+	table.sort(list, function(a, b)
+		return a.rec.dist < b.rec.dist
+	end)
+	local keep = {}
+	local maxn = ChunkIndex.OVERLAY_MAX_CHUNKS
+	for i = 1, math.min(#list, maxn) do
+		keep[list[i].key] = list[i].rec
+	end
+	if scan then
+		local skey = ChunkIndex.chunk_key(scan.si, scan.x, scan.y)
+		if wanted[skey] and not keep[skey] then
+			keep[skey] = wanted[skey]
+		end
+	end
+	for key, rec in pairs(st.overlay_ids) do
+		if not keep[key] then
+			destroy_rec(rec)
+			st.overlay_ids[key] = nil
+		end
+	end
+	for key, info in pairs(keep) do
+		local existing = st.overlay_ids[key]
+		local color = info.class and ChunkIndex.OVERLAY_COLORS[info.class]
+		if info.class and color then
+			if existing and existing.class == info.class and recolor_fills(existing, color) then
+				existing.scan = nil
+			else
+				destroy_rec(existing)
+				st.overlay_ids[key] = {
+					fills = draw_chunk_fills(info.surface, info.x, info.y, color),
+					class = info.class,
+				}
+			end
+		elseif existing and not info.class then
+			-- Unscanned scan-target: blink path owns the draw.
+			destroy_rec(existing)
+			st.overlay_ids[key] = nil
+		end
+	end
+end
+
+local function overlay_update_blink(st)
+	if not (game and rendering) then
+		return
+	end
+	local scan = st.scan
+	local blink_key = st.overlay_blink_key
+	if blink_key and (not scan or ChunkIndex.chunk_key(scan.si, scan.x, scan.y) ~= blink_key) then
+		local rec = st.overlay_ids[blink_key]
+		if rec then
+			destroy_render_id(rec.outline)
+			rec.outline = nil
+			if rec.class and ChunkIndex.OVERLAY_COLORS[rec.class] then
+				if not recolor_fills(rec, ChunkIndex.OVERLAY_COLORS[rec.class]) then
+					destroy_rec(rec)
+					st.overlay_ids[blink_key] = nil
+				end
+			else
+				destroy_rec(rec)
+				st.overlay_ids[blink_key] = nil
+			end
+		end
+		st.overlay_blink_key = nil
+	end
+	if not scan then
+		return
+	end
+	local surface = game.get_surface(scan.si)
+	if not (surface and surface.valid) then
+		return
+	end
+	local key = ChunkIndex.chunk_key(scan.si, scan.x, scan.y)
+	local harvest = harvester_chunk_set()
+	local class = classify_at(scan.si, scan.x, scan.y, harvest)
+	local on = ChunkIndex.overlay_blink_on(game.tick)
+	local rec = st.overlay_ids[key]
+	if on then
+		local color = ChunkIndex.OVERLAY_COLORS.blink
+		if rec and recolor_fills(rec, color) then
+			rec.class = class or rec.class
+		else
+			destroy_rec(rec)
+			rec = {
+				fills = draw_chunk_fills(surface, scan.x, scan.y, color),
+				class = class,
+			}
+			st.overlay_ids[key] = rec
+		end
+		if rec.outline then
+			if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline) then
+				destroy_render_id(rec.outline)
+				rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline)
+			end
+		else
+			rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline)
+		end
+	else
+		if class and rec then
+			if not recolor_fills(rec, ChunkIndex.OVERLAY_COLORS[class]) then
+				destroy_rec(rec)
+				rec = {
+					fills = draw_chunk_fills(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS[class]),
+					class = class,
+				}
+				st.overlay_ids[key] = rec
+			else
+				rec.class = class
+			end
+			if rec.outline then
+				if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline_dim) then
+					destroy_render_id(rec.outline)
+					rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
+				end
+			else
+				rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
+			end
+		else
+			-- Unclassified off-phase: hide fill, keep a dim outline pulse.
+			if rec then
+				if rec.fills then
+					for _, id in pairs(rec.fills) do
+						destroy_render_id(id)
+					end
+					rec.fills = {}
+				end
+				if rec.outline then
+					if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline_dim) then
+						destroy_render_id(rec.outline)
+						rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
+					end
+				else
+					rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
+				end
+				rec.class = nil
+			else
+				st.overlay_ids[key] = {
+					fills = {},
+					outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim),
+					class = nil,
+				}
+			end
+		end
+	end
+	st.overlay_blink_key = key
+end
+
+function ChunkIndex.overlay_tick()
+	if not (storage and game) then
+		return
+	end
+	if not ChunkIndex.enabled() or not ChunkIndex.overlay_get() then
+		if storage.chunkindex and storage.chunkindex.overlay_ids and next(storage.chunkindex.overlay_ids) then
+			ChunkIndex.overlay_clear()
+		end
+		if storage.chunkindex and storage.chunkindex.overlay and not ChunkIndex.enabled() then
+			storage.chunkindex.overlay = false
+			ChunkIndex.overlay_sync_shortcuts()
+		end
+		return
+	end
+	local st = ChunkIndex.ensure_storage()
+	local tick = game.tick
+	if tick >= (st.overlay_due or 0) then
+		st.overlay_due = tick + ChunkIndex.OVERLAY_REBUILD_TICKS
+		overlay_rebuild(st)
+	end
+	overlay_update_blink(st)
 end

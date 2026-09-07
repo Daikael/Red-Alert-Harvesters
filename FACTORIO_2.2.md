@@ -50,7 +50,30 @@ What it actually does today:
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 ```
 
-`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks}` once the index has storage. `chunkindex_enabled` is the startup flag.
+`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get).
+
+### Map overlay (M1 debug)
+
+Toggle like pollution: **Alt+I**, or the shortcut-bar **Chunk index overlay** button (harvester icon). Persists in `storage.chunkindex.overlay`. Available while **Automatic harvester testing** is on. Off destroys every overlay render object.
+
+Semi-transparent chart/world rectangles, one per **visible/charted** chunk (rebuild every 30 ticks, cap 600). Unscanned chunks stay blank.
+
+| Color | Meaning |
+| --- | --- |
+| **Green** | Tiberium (`storage.tibchunk` true) |
+| **Yellow** | Tracked harvester on the chunk, or Tib-proximity border (`storage.chunkindex.border` count > 0) |
+| **Red** | Ore (`storage.orechunk` with `empty ~= true`) |
+| **Purple** | Empty scanned chunk, not border-flagged |
+| **Blank** | Not indexed yet |
+
+Priority if several match: **green → yellow → red → purple**.
+
+**Blink** (~3.75 Hz cyan/white outline pulse) marks the chunk `ChunkIndex.tick` is scanning this budget tick (`storage.chunkindex.scan`). Idle (`queued = 0` / no pop this tick) blinks nothing. The active scan target may blink even if it has no classification yet.
+
+```
+/c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
+/c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_overlay")))
+```
 
 Build a **map index** of already-generated chunks. Budget: about **one chunk per budget tick** (slow, UPS-safe). Do not scan the whole surface in one tick. Do not generate new chunks to look for ore.
 
@@ -267,11 +290,11 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled`) so `/c` can read M1. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
+| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
 | `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
 | `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
-| `chunkindex.lua` | M1 slow index. Queue + one-chunk-per-tick classify, Tib refcount borders, harvester depletion requeue. No `basic-solid-tiberium` string. |
+| `chunkindex.lua` | M1 slow index. Queue + one-chunk-per-tick classify, Tib refcount borders, harvester depletion requeue. Chart overlay + scan blink. No `basic-solid-tiberium` string. |
 | `settings.lua` | `Auto-cncharvester-testing` (startup; the only M1 gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
 | `specialOres.lua` | Resource entity name ≠ item name. Index should store something the depot filter and circuit can name (item, not only entity). |

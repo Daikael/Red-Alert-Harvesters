@@ -9,12 +9,19 @@ require "specialOres"
 -- Console cannot see ChunkIndex (mod sandbox). Use remote.call from /c:
 -- /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
 -- /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
+-- /c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
 remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_stats = function()
 		return ChunkIndex.debug_stats()
 	end,
 	chunkindex_enabled = function()
 		return ChunkIndex.enabled()
+	end,
+	chunkindex_overlay = function(on)
+		if on ~= nil then
+			return ChunkIndex.overlay_set(on and true or false)
+		end
+		return ChunkIndex.overlay_get()
 	end,
 })
 
@@ -56,6 +63,7 @@ script.on_init(function()
 	ensure_storage()
 	ModuleBay.attach_existing()
 	ChunkIndex.seed_existing()
+	ChunkIndex.overlay_sync_shortcuts()
 end)
 
 script.on_configuration_changed(function()
@@ -208,6 +216,19 @@ end)
 script.on_event("cncharvester-open-module-bay", function(event)
 	local player = game.get_player(event.player_index)
 	ModuleBay.open_for_player(player)
+end)
+
+script.on_event("cncharvester-chunkindex-overlay", function(event)
+	local player = game.get_player(event.player_index)
+	ChunkIndex.overlay_toggle(player)
+end)
+
+script.on_event(defines.events.on_lua_shortcut, function(event)
+	if event.prototype_name ~= "cncharvester-chunkindex-overlay" then
+		return
+	end
+	local player = game.get_player(event.player_index)
+	ChunkIndex.overlay_toggle(player)
 end)
 
 script.on_event(defines.events.on_gui_opened, function(event)
