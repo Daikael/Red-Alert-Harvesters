@@ -2,7 +2,7 @@
 
 Resource trucks and a dump refinery from Command & Conquer / Red Alert.
 
-This branch is the **Factorio 2.0** version. It is **not** the 2.1 experimental line.
+This branch is the **Factorio 2.0** version (pack **2.1.19**). It is **not** the 2.1 experimental line. Ore / Tiberium trucks set `has_belt_immunity` so they are not stranded on transport belts.
 
 
 ## Optional dependency

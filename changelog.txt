@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.19
+Date: 2026-09-07
+  Info:
+    - Pack version 2.1.19. Factorio 2.0 line (`factorio_version` 2.0). Three-part version only. Do not merge to master. Do not fold into 2.2.0 / PR #17 or the 2.1 experimental line on branch 2.1.17 / PR #15.
+  Bugfixes:
+    - Ore Truck (`cncharvester`) and Tiberium harvester (`cncharvester-type2`) no longer get stuck on transport belts. They are `car` prototypes that can move under their own power but almost never have a seated driver (parked, hybrid-idling, or auto-AI teleport). Factorio moves empty cars on belts, so belt motion fought the truck and stranded it. Both cars now set `has_belt_immunity = true` (vanilla CarPrototype flag). No dummy driver, no teleports off belts. Hitch / scoop / hybrid / optional Tiberium boot unchanged.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06
   Info:

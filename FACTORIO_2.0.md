@@ -1,5 +1,7 @@
 # Factorio 2.0 backdate (pack 2.1.18)
 
+**2.1.19 belt fix (this checkout when bumped):** both `car` prototypes set `has_belt_immunity = true` so self-powered Ore / Tiberium trucks are not dragged or stranded by transport belts. Hitch / hybrid / scoop / Tib boot are unchanged. Still Factorio **2.0**. Still do **not** merge to `master`.
+
 This branch is the **public Factorio 2.0** port of the tester-approved **2.1.17** gameplay. It is **not** the live 2.0 stable pack on `master` (singular `Red-Alert-Harvester` 2.0.0) and it is **not** the 2.1 experimental line.
 
 **Do not merge to `master`.** Do not rename or delete branch `2.1.17` / draft PR #15.

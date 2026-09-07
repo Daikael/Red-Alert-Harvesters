@@ -96,6 +96,10 @@ for i=1,2 do
 		turret_rotation_speed = 0.01,
 		turret_return_timeout = 300,
 		tank_driving = true,
+		-- Self-powered trucks (hybrid pool, player drive, optional auto AI)
+		-- usually have no seated driver. Factorio moves empty cars on belts,
+		-- which stranded them. Official CarPrototype flag; same on 2.0 and 2.1.
+		has_belt_immunity = true,
 		--guns = {"tank-machine-gun"},
 		--automatic_weapon_cycling = true,
 		--chain_shooting_cooldown_modifier = 0.5,

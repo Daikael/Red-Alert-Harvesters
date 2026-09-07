@@ -493,12 +493,19 @@ expect(io.open("harvester.lua"):read("*a"):find('{"cncharvester.no-empty-refiner
 local info_src = assert(io.open("info.json", "r")):read("*a")
 expect(info_src:find('"name": "Red-Alert-Harvester"', 1, true) ~= nil, "mod name is singular Red-Alert-Harvester")
 expect(info_src:find('"name": "Red-Alert-Harvesters"', 1, true) == nil, "mod name is not the plural portal mismatch")
-expect(info_src:find('"version": "2.1.18"', 1, true) ~= nil, "pack version is 2.1.18")
+expect(info_src:find('"version": "2.1.19"', 1, true) ~= nil, "pack version is 2.1.19")
 expect(info_src:find('"factorio_version": "2.0"', 1, true) ~= nil, "factorio_version is 2.0")
 expect(info_src:find('"factorio_version": "2.1"', 1, true) == nil, "factorio_version is not 2.1")
 expect(info_src:find("base >= 2.0.0", 1, true) ~= nil, "base dependency is 2.0")
 expect(info_src:find("base >= 2.1", 1, true) == nil, "base dependency is not pinned to 2.1")
 expect(info_src:find("Factorio%-Tiberium >= 2%.0%.0") ~= nil, "optional Tiberium dep is 2.0")
+local harv_src = assert(io.open("prototypes/entities/harv_entity.lua", "r")):read("*a")
+expect(harv_src:find("for i=1,2 do", 1, true) ~= nil, "one car loop builds ore and type-2")
+expect(select(2, harv_src:gsub("has_belt_immunity = true", "")) == 1, "one has_belt_immunity covers both cars")
+expect(harv_src:find("set_driver", 1, true) == nil, "belt fix does not invent a dummy driver")
+expect(io.open("control.lua"):read("*a"):find("set_driver", 1, true) == nil, "control.lua does not seat a dummy driver")
+expect(io.open("hybriddrive.lua"):read("*a"):find("set_driver", 1, true) == nil, "hybriddrive.lua does not seat a dummy driver")
+expect(io.open("harvester.lua"):read("*a"):find("set_driver", 1, true) == nil, "auto AI still teleports; no dummy driver")
 local proto_scan = {
 	"prototypes/items/hybrid_charge.lua",
 	"prototypes/entities/harv_entity.lua",
