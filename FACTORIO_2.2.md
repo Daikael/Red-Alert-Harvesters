@@ -56,7 +56,7 @@ What it actually does today:
 
 Toggle like pollution: **Alt+I**, or the shortcut-bar **Chunk index overlay** button (harvester icon). Persists in `storage.chunkindex.overlay`. Available while **Automatic harvester testing** is on. Off destroys every overlay render object.
 
-Semi-transparent chart/world rectangles, one per **visible/charted** chunk (rebuild every 30 ticks, cap 600). Unscanned chunks stay blank.
+Semi-transparent **map / minimap** rectangles (`render_mode` `chart` + `chart-zoomed-in`). They do **not** draw on the world surface. Rebuild every 30 ticks, cap 600, visible/charted chunks only. Unscanned stay blank.
 
 | Color | Meaning |
 | --- | --- |

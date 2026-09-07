@@ -807,19 +807,42 @@ function ChunkIndex.overlay_get()
 	return storage and storage.chunkindex and storage.chunkindex.overlay == true
 end
 
-local function destroy_render_id(id)
-	if not id or not rendering then
-		return
+-- 2.0 draw_* returns LuaRenderObject userdata. get_object_by_id only
+-- accepts a numeric id — passing userdata CTDs ("real number expected").
+local function resolve_render(obj)
+	if obj == nil or not rendering then
+		return nil
 	end
-	if rendering.get_object_by_id then
-		local obj = rendering.get_object_by_id(id)
-		if obj and obj.valid then
-			obj.destroy()
+	if type(obj) == "number" then
+		local got = rendering.get_object_by_id and rendering.get_object_by_id(obj)
+		if got and got.valid then
+			return got
 		end
+		return nil
+	end
+	local ok, valid = pcall(function()
+		return obj.valid
+	end)
+	if ok and valid then
+		return obj
+	end
+	return nil
+end
+
+local function destroy_render(obj)
+	obj = resolve_render(obj)
+	if obj then
+		obj.destroy()
+	end
+end
+
+local function destroy_list(list)
+	if not list then
 		return
 	end
-	if rendering.destroy then
-		pcall(rendering.destroy, id)
+	for i, obj in pairs(list) do
+		destroy_render(obj)
+		list[i] = nil
 	end
 end
 
@@ -827,28 +850,54 @@ local function destroy_rec(rec)
 	if not rec then
 		return
 	end
-	if rec.fills then
-		for _, id in pairs(rec.fills) do
-			destroy_render_id(id)
-		end
-	end
-	destroy_render_id(rec.outline)
+	destroy_list(rec.fills)
+	destroy_list(rec.outlines)
+	destroy_render(rec.outline)
+	rec.outline = nil
 end
 
-local function set_render_color(id, color)
-	if not (id and color and rendering and rendering.get_object_by_id) then
+local function set_render_color(obj, color)
+	obj = resolve_render(obj)
+	if not (obj and color) then
 		return false
 	end
-	local obj = rendering.get_object_by_id(id)
-	if obj and obj.valid then
-		obj.color = color
+	obj.color = color
+	return true
+end
+
+local function recolor_list(list, color)
+	if not list then
+		return false
+	end
+	local n, ok = 0, true
+	for _, obj in pairs(list) do
+		n = n + 1
+		if not set_render_color(obj, color) then
+			ok = false
+		end
+	end
+	return ok and n > 0
+end
+
+function ChunkIndex.overlay_is_world_mode(mode)
+	if mode == nil or mode == "game" then
 		return true
 	end
-	return false
+	local rm = defines and defines.render_mode
+	return rm ~= nil and mode == rm.game
+end
+
+-- ScriptRenderMode for map + zoomed map / minimap. Same intent as
+-- defines.render_mode.chart and chart_zoomed_in. Never "game".
+function ChunkIndex.overlay_render_modes()
+	return {"chart", "chart-zoomed-in"}
 end
 
 local function draw_rect(surface, cx, cy, color, filled, width, render_mode)
 	if not (rendering and surface and surface.valid) then
+		return nil
+	end
+	if ChunkIndex.overlay_is_world_mode(render_mode) then
 		return nil
 	end
 	local args = {
@@ -858,70 +907,61 @@ local function draw_rect(surface, cx, cy, color, filled, width, render_mode)
 		left_top = {x = cx * 32, y = cy * 32},
 		right_bottom = {x = (cx + 1) * 32, y = (cy + 1) * 32},
 		surface = surface,
-		draw_on_ground = true,
+		render_mode = render_mode,
 	}
-	if render_mode then
-		args.render_mode = render_mode
-	end
-	local ok, id = pcall(function()
+	local ok, obj = pcall(function()
 		return rendering.draw_rectangle(args)
 	end)
 	if ok then
-		return id
-	end
-	if render_mode then
-		args.render_mode = nil
-		ok, id = pcall(function()
-			return rendering.draw_rectangle(args)
-		end)
-		if ok then
-			return id
-		end
+		return obj
 	end
 	return nil
 end
 
 local function draw_chunk_fills(surface, cx, cy, color)
 	local fills = {}
-	local chart = draw_rect(surface, cx, cy, color, true, 1, "chart")
-	local world = draw_rect(surface, cx, cy, color, true, 1, "game")
-	if chart then
-		fills[#fills + 1] = chart
-	end
-	if world and world ~= chart then
-		fills[#fills + 1] = world
-	end
-	if #fills == 0 then
-		local fallback = draw_rect(surface, cx, cy, color, true, 1, nil)
-		if fallback then
-			fills[1] = fallback
+	for _, mode in ipairs(ChunkIndex.overlay_render_modes()) do
+		local obj = draw_rect(surface, cx, cy, color, true, 1, mode)
+		if obj then
+			fills[#fills + 1] = obj
 		end
 	end
 	return fills
 end
 
-local function draw_chunk_outline(surface, cx, cy, color)
-	local outline = draw_rect(surface, cx, cy, color, false, 3, "chart")
-	if not outline then
-		outline = draw_rect(surface, cx, cy, color, false, 3, "game")
+local function draw_chunk_outlines(surface, cx, cy, color)
+	local outlines = {}
+	for _, mode in ipairs(ChunkIndex.overlay_render_modes()) do
+		local obj = draw_rect(surface, cx, cy, color, false, 3, mode)
+		if obj then
+			outlines[#outlines + 1] = obj
+		end
 	end
-	if not outline then
-		outline = draw_rect(surface, cx, cy, color, false, 3, nil)
-	end
-	return outline
+	return outlines
 end
 
 local function recolor_fills(rec, color)
-	if not rec or not rec.fills then
+	return rec and recolor_list(rec.fills, color)
+end
+
+local function recolor_outlines(rec, color)
+	if not rec then
 		return false
 	end
-	local ok = true
-	for _, id in pairs(rec.fills) do
-		if not set_render_color(id, color) then
-			ok = false
-		end
+	if rec.outlines then
+		return recolor_list(rec.outlines, color)
 	end
-	return ok and #rec.fills > 0
+	return set_render_color(rec.outline, color)
+end
+
+local function ensure_outlines(rec, surface, cx, cy, color)
+	if recolor_outlines(rec, color) then
+		return
+	end
+	destroy_list(rec.outlines)
+	destroy_render(rec.outline)
+	rec.outline = nil
+	rec.outlines = draw_chunk_outlines(surface, cx, cy, color)
 end
 
 function ChunkIndex.overlay_clear()
@@ -1134,7 +1174,9 @@ local function overlay_update_blink(st)
 	if blink_key and (not scan or ChunkIndex.chunk_key(scan.si, scan.x, scan.y) ~= blink_key) then
 		local rec = st.overlay_ids[blink_key]
 		if rec then
-			destroy_render_id(rec.outline)
+			destroy_list(rec.outlines)
+			destroy_render(rec.outline)
+			rec.outlines = nil
 			rec.outline = nil
 			if rec.class and ChunkIndex.OVERLAY_COLORS[rec.class] then
 				if not recolor_fills(rec, ChunkIndex.OVERLAY_COLORS[rec.class]) then
@@ -1172,14 +1214,7 @@ local function overlay_update_blink(st)
 			}
 			st.overlay_ids[key] = rec
 		end
-		if rec.outline then
-			if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline) then
-				destroy_render_id(rec.outline)
-				rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline)
-			end
-		else
-			rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline)
-		end
+		ensure_outlines(rec, surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline)
 	else
 		if class and rec then
 			if not recolor_fills(rec, ChunkIndex.OVERLAY_COLORS[class]) then
@@ -1192,36 +1227,18 @@ local function overlay_update_blink(st)
 			else
 				rec.class = class
 			end
-			if rec.outline then
-				if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline_dim) then
-					destroy_render_id(rec.outline)
-					rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
-				end
-			else
-				rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
-			end
+			ensure_outlines(rec, surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
 		else
 			-- Unclassified off-phase: hide fill, keep a dim outline pulse.
 			if rec then
-				if rec.fills then
-					for _, id in pairs(rec.fills) do
-						destroy_render_id(id)
-					end
-					rec.fills = {}
-				end
-				if rec.outline then
-					if not set_render_color(rec.outline, ChunkIndex.OVERLAY_COLORS.outline_dim) then
-						destroy_render_id(rec.outline)
-						rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
-					end
-				else
-					rec.outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
-				end
+				destroy_list(rec.fills)
+				rec.fills = {}
+				ensure_outlines(rec, surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim)
 				rec.class = nil
 			else
 				st.overlay_ids[key] = {
 					fills = {},
-					outline = draw_chunk_outline(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim),
+					outlines = draw_chunk_outlines(surface, scan.x, scan.y, ChunkIndex.OVERLAY_COLORS.outline_dim),
 					class = nil,
 				}
 			end
@@ -1245,6 +1262,11 @@ function ChunkIndex.overlay_tick()
 		return
 	end
 	local st = ChunkIndex.ensure_storage()
+	-- Drop any pre-fix world-surface rectangles (2.0.77 default render_mode is game).
+	if not st.overlay_chart_only then
+		ChunkIndex.overlay_clear()
+		st.overlay_chart_only = true
+	end
 	local tick = game.tick
 	if tick >= (st.overlay_due or 0) then
 		st.overlay_due = tick + ChunkIndex.OVERLAY_REBUILD_TICKS

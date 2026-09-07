@@ -7,7 +7,7 @@ Date: 2026-09-07
     - Legacy per-truck teleport auto-harvester is commented out. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged. No depot / pathfinder / physical-driving AI yet.
     - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
     - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, and `chunkindex_overlay` for `/c` (ChunkIndex is not visible in the console sandbox).
-    - Map overlay (Alt+I / shortcut bar) paints indexed chunks: green Tib, yellow harvester or Tib-border, red ore, purple empty. Unscanned stay blank. Cyan blink is the chunk being scanned this tick.
+    - Map overlay (Alt+I / shortcut bar) paints indexed chunks on the map/minimap only (not the world surface): green Tib, yellow harvester or Tib-border, red ore, purple empty. Unscanned stay blank. Cyan blink is the chunk being scanned this tick.
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06
