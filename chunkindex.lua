@@ -32,6 +32,21 @@ function ChunkIndex.chunk_key(surface_index, x, y)
 	return tostring(surface_index) .. ":" .. tostring(x) .. ":" .. tostring(y)
 end
 
+-- Explicit nil checks. Do not use `x and y` for "present" — keep the
+-- intent obvious. (Lua treats 0 as truthy; JS/Python do not.)
+function ChunkIndex.coords_ok(surface_index, x, y)
+	return surface_index ~= nil and x ~= nil and y ~= nil
+end
+
+function ChunkIndex.has_index_row(orechunk, si, x, y)
+	if not ChunkIndex.coords_ok(si, x, y) then
+		return false
+	end
+	local s = orechunk and orechunk[si]
+	local row = s and s[x]
+	return row ~= nil and row[y] ~= nil
+end
+
 function ChunkIndex.neighbor_offsets()
 	return NEIGHBOR_OFFSETS
 end
@@ -129,7 +144,7 @@ end
 -- If it was only a border neighbor, drop its border slot so it is not
 -- requeued. Index rows and the scan queue are cleared either way.
 function ChunkIndex.forget_chunk_state(orechunk, tibchunk, border, holds, queue_state, si, x, y)
-	if not (si and x and y) then
+	if not ChunkIndex.coords_ok(si, x, y) then
 		return
 	end
 	border = border or {}
@@ -284,8 +299,27 @@ local function compact_queue(st)
 	st.head = 1
 end
 
+function ChunkIndex.rebuild_queued_set(st)
+	if not st then
+		return 0
+	end
+	local queued = {}
+	local n = 0
+	local q = st.queue or {}
+	local head = st.head or 1
+	for i = head, #q do
+		local item = q[i]
+		if item and ChunkIndex.coords_ok(item[1], item[2], item[3]) then
+			queued[ChunkIndex.chunk_key(item[1], item[2], item[3])] = true
+			n = n + 1
+		end
+	end
+	st.queued = queued
+	return n
+end
+
 function ChunkIndex.enqueue(surface_index, x, y)
-	if not (surface_index and x and y) then
+	if not ChunkIndex.coords_ok(surface_index, x, y) then
 		return false
 	end
 	local st = ChunkIndex.ensure_storage()
@@ -299,7 +333,7 @@ function ChunkIndex.enqueue(surface_index, x, y)
 end
 
 function ChunkIndex.forget_chunk(surface_index, x, y)
-	if not (surface_index and x and y) then
+	if not ChunkIndex.coords_ok(surface_index, x, y) then
 		return
 	end
 	if not storage then
@@ -327,11 +361,11 @@ function ChunkIndex.on_chunks_deleted(event)
 	end
 	local si = event.surface_index
 	local positions = event.positions
-	if not (si and positions) then
+	if si == nil or not positions then
 		return
 	end
 	for _, pos in pairs(positions) do
-		if pos and pos.x and pos.y then
+		if pos and pos.x ~= nil and pos.y ~= nil then
 			ChunkIndex.forget_chunk(si, pos.x, pos.y)
 		end
 	end
@@ -416,14 +450,28 @@ function ChunkIndex.enqueue_generated(surface)
 	return n
 end
 
--- Force-enqueue every generated chunk on visited / eligible surfaces.
--- Ignores `seeded` so testers can catch up after a partial first pass.
+local function empty_reseed_result(enabled)
+	return {
+		enabled = enabled,
+		surfaces = 0,
+		generated = 0,
+		indexed = 0,
+		missing = 0,
+		enqueued = 0,
+		enqueued_missing = 0,
+		enqueued_refresh = 0,
+	}
+end
+
+-- Walk surface.get_chunks() (all generated), not the index tables.
+-- Missing (no orechunk row) go first. Rebuilds st.queued from the live
+-- queue so a stale queued[key] cannot hide a gap forever.
 function ChunkIndex.reseed()
 	if not ChunkIndex.enabled() then
-		return {enabled = false, surfaces = 0, enqueued = 0}
+		return empty_reseed_result(false)
 	end
 	if not game then
-		return {enabled = true, surfaces = 0, enqueued = 0}
+		return empty_reseed_result(true)
 	end
 	local st = ChunkIndex.ensure_storage()
 	for _, player in pairs(game.players) do
@@ -431,15 +479,53 @@ function ChunkIndex.reseed()
 			ChunkIndex.mark_visited(player.surface)
 		end
 	end
-	local surfaces, enqueued = 0, 0
+	local missing_list, refresh_list = {}, {}
+	local surfaces, generated, indexed, missing = 0, 0, 0, 0
 	for _, surface in pairs(game.surfaces) do
 		if surface.valid and ChunkIndex.surface_eligible(surface) then
 			surfaces = surfaces + 1
-			enqueued = enqueued + ChunkIndex.enqueue_generated(surface)
+			local si = surface.index
+			for chunk in surface.get_chunks() do
+				local x, y = chunk.x, chunk.y
+				if ChunkIndex.coords_ok(si, x, y) then
+					generated = generated + 1
+					if ChunkIndex.has_index_row(storage.orechunk, si, x, y) then
+						indexed = indexed + 1
+						refresh_list[#refresh_list + 1] = {si, x, y}
+					else
+						missing = missing + 1
+						missing_list[#missing_list + 1] = {si, x, y}
+					end
+				end
+			end
 		end
 	end
+	st.queue = {}
+	st.head = 1
+	st.queued = {}
+	local enqueued_missing, enqueued_refresh = 0, 0
+	for _, item in ipairs(missing_list) do
+		if ChunkIndex.enqueue(item[1], item[2], item[3]) then
+			enqueued_missing = enqueued_missing + 1
+		end
+	end
+	for _, item in ipairs(refresh_list) do
+		if ChunkIndex.enqueue(item[1], item[2], item[3]) then
+			enqueued_refresh = enqueued_refresh + 1
+		end
+	end
+	ChunkIndex.rebuild_queued_set(st)
 	st.seeded = true
-	return {enabled = true, surfaces = surfaces, enqueued = enqueued}
+	return {
+		enabled = true,
+		surfaces = surfaces,
+		generated = generated,
+		indexed = indexed,
+		missing = missing,
+		enqueued = enqueued_missing + enqueued_refresh,
+		enqueued_missing = enqueued_missing,
+		enqueued_refresh = enqueued_refresh,
+	}
 end
 
 local function nest_set(root, si, x, y, value)
@@ -779,12 +865,20 @@ function ChunkIndex.debug_stats()
 		end
 	end
 	local scan = st.scan
+	local overlay_drawn = 0
+	if st.overlay_ids then
+		for _ in pairs(st.overlay_ids) do
+			overlay_drawn = overlay_drawn + 1
+		end
+	end
 	return {
 		enabled = ChunkIndex.enabled(),
 		queued = queued,
 		ore_chunks = ore_n,
 		tib_chunks = tib_n,
 		overlay = st.overlay == true,
+		overlay_drawn = overlay_drawn,
+		overlay_cap = ChunkIndex.OVERLAY_MAX_CHUNKS,
 		scan = scan and {si = scan.si, x = scan.x, y = scan.y} or nil,
 	}
 end
@@ -1201,36 +1295,8 @@ local function overlay_rebuild(st)
 	if scan then
 		consider(scan.si, scan.x, scan.y)
 	end
-	local maxn = ChunkIndex.OVERLAY_MAX_CHUNKS
-	if maxn and maxn > 0 then
-		local n = 0
-		for _ in pairs(wanted) do
-			n = n + 1
-		end
-		if n > maxn then
-			-- Prefer completeness; the cap is only a last-ditch brake.
-			-- Keep already-drawn keys first so a pan does not drop paint.
-			local extras = {}
-			for key, info in pairs(wanted) do
-				if not st.overlay_ids[key] then
-					extras[#extras + 1] = key
-				end
-			end
-			local keep_n = 0
-			for key in pairs(wanted) do
-				if st.overlay_ids[key] then
-					keep_n = keep_n + 1
-				end
-			end
-			for i = 1, #extras do
-				if keep_n >= maxn then
-					wanted[extras[i]] = nil
-				else
-					keep_n = keep_n + 1
-				end
-			end
-		end
-	end
+	-- No camera cap. OVERLAY_MAX_CHUNKS=0 means draw every wanted chunk so
+	-- newly classified purple/red always appear.
 	for key, rec in pairs(st.overlay_ids) do
 		if not wanted[key] then
 			destroy_rec(rec)

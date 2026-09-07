@@ -50,7 +50,7 @@ What it actually does today:
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 ```
 
-`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get). `chunkindex_reseed` force-enqueues every generated chunk on visited/eligible surfaces (ignores `seeded`) and returns `{enabled, surfaces, enqueued}`.
+`chunkindex_stats` returns `{enabled, queued, ore_chunks, tib_chunks, overlay, scan}` once the index has storage. `chunkindex_enabled` is the startup flag. `chunkindex_overlay` gets/sets the map overlay (`nil` = get). `chunkindex_reseed` walks `surface.get_chunks()` (all generated, not the index). Missing (no `orechunk` row) are queued first; already-indexed refresh after. Rebuilds `st.queued` from the live queue. Returns `{enabled, surfaces, generated, indexed, missing, enqueued, enqueued_missing, enqueued_refresh}`.
 
 ### Map overlay (M1 debug)
 
@@ -61,7 +61,7 @@ Semi-transparent **map / minimap** rectangles (`render_mode` `chart` + `chart-zo
 If the index is behind generated chunks, reseed then wait for the 1/tick drain:
 
 ```
-/c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_reseed")))
+/c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
 ```
 
 | Color | Meaning |

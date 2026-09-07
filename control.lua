@@ -10,7 +10,7 @@ require "specialOres"
 -- /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
 -- /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 -- /c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
--- /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_reseed")))
+-- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
 remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_stats = function()
 		return ChunkIndex.debug_stats()

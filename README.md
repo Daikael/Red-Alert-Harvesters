@@ -80,10 +80,10 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.2
 /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
 /c game.print(tostring(remote.call("Red-Alert-Harvester", "chunkindex_enabled")))
 /c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
-/c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_reseed")))
+/c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
 ```
 
-**Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style **map/minimap** overlay (not the world surface): **all** indexed charted chunks on the viewed surface. Green Tib, yellow harvester/Tib-border, red ore, **dim** purple empty scanned, blank unscanned/fog. The chunk being scanned this tick blinks cyan. If the overlay looks striped, `chunkindex_reseed` then wait — the scanner is 1 chunk/tick. Off destroys the render objects.
+**Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style **map/minimap** overlay (not the world surface): **all** indexed charted chunks on the viewed surface. Green Tib, yellow harvester/Tib-border, red ore, **dim** purple empty scanned, blank unscanned/fog. The chunk being scanned this tick blinks cyan. If the overlay looks striped, those blanks are still unindexed. Reseed queues **missing generated chunks first**, then wait — the scanner is 1 chunk/tick. Off destroys the render objects.
 
 ## Drive-and-harvest rate
 
