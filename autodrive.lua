@@ -152,11 +152,94 @@ function AutoDrive.player_driving(vehicle)
 	return AutoDrive.player_occupying(vehicle)
 end
 
+-- Auto ON + pause-on-enter OFF: AI keeps the wheel (cargo wagon). Occupying
+-- must not no-op riding_state or the truck looks bricked until replaced.
+function AutoDrive.ai_may_steer(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	if not AutoDrive.player_occupying(vehicle) then
+		return true
+	end
+	local h = storage and storage.cncharvesters and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
+	if not h then
+		return false
+	end
+	return h.auto_enabled ~= false and h.pause_on_enter ~= true
+end
+
+local function eject_occupant_player(obj)
+	if obj == nil then
+		return
+	end
+	if obj.object_name == "LuaPlayer" and obj.valid ~= false then
+		pcall(function()
+			obj.driving = false
+		end)
+		return
+	end
+	if obj.valid then
+		local p = obj.player
+		if p and p.valid then
+			pcall(function()
+				p.driving = false
+			end)
+		end
+	end
+end
+
+-- Cargo-wagon style: dump driver/passenger. Does not write auto_enabled
+-- and does not drop the tracked harvester record.
+function AutoDrive.eject_players(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	eject_occupant_player(seat_occupant(vehicle, vehicle.get_driver))
+	eject_occupant_player(seat_occupant(vehicle, vehicle.get_passenger))
+	pcall(function()
+		vehicle.set_driver(nil)
+	end)
+	pcall(function()
+		vehicle.set_driver()
+	end)
+	pcall(function()
+		vehicle.set_passenger(nil)
+	end)
+	pcall(function()
+		vehicle.set_passenger()
+	end)
+	local players = game and game.connected_players
+	if players then
+		for _, player in pairs(players) do
+			if player.valid and player.vehicle and player.vehicle.valid and player.vehicle == vehicle then
+				pcall(function()
+					player.driving = false
+				end)
+			end
+		end
+	end
+	return true
+end
+
+function AutoDrive.eject_player(player)
+	if not (player and player.valid) then
+		return false
+	end
+	local vehicle = player.vehicle
+	pcall(function()
+		player.driving = false
+	end)
+	if vehicle and vehicle.valid then
+		AutoDrive.eject_players(vehicle)
+	end
+	return true
+end
+
 local function write_riding(vehicle, acceleration, direction)
 	if not (vehicle and vehicle.valid and riding_acc and riding_dir) then
 		return
 	end
-	if AutoDrive.player_occupying(vehicle) then
+	if not AutoDrive.ai_may_steer(vehicle) then
 		return
 	end
 	vehicle.riding_state = {
@@ -238,7 +321,7 @@ function AutoDrive.steer_toward(vehicle, dest)
 	if not (vehicle and vehicle.valid and dest and riding_acc and riding_dir) then
 		return false
 	end
-	if AutoDrive.player_occupying(vehicle) then
+	if not AutoDrive.ai_may_steer(vehicle) then
 		return false
 	end
 	local pos = vehicle.position
@@ -276,7 +359,7 @@ function AutoDrive.follow_path(vehicle, path, path_index, arrive_tiles)
 	if not (vehicle and vehicle.valid and path and path_index) then
 		return path_index, false, true
 	end
-	if AutoDrive.player_occupying(vehicle) then
+	if not AutoDrive.ai_may_steer(vehicle) then
 		return path_index, false, true
 	end
 	local wp = waypoint_pos(path[path_index])

@@ -1,14 +1,14 @@
 ---------------------------------------------------------------------------------------------------
 Version: 2.2.0
-Date: 2026-09-07
+Date: 2026-09-08
   Info:
     - Pack version 2.2.0. Factorio 2.0 experimental M1 chunk-scanner test build on git branch 2.2.0 / draft PR #17. `info.json` name is Red-Alert-Harvester (singular). Zip/folder name is Red-Alert-Harvester_2.2.0. factorio_version is 2.0. Do not merge to master.
     - Startup setting Automatic harvester testing (`Auto-cncharvester-testing`) enables the slow chunk ore/Tiberium index **and** physical auto-drive. Restart required. Default off.
     - Auto-drive: `LuaSurface.request_path` + car `riding_state` (Factorio 2.0 cars are not commandable). `FindingOre` reads ChunkIndex within 256 tiles. Full/fuel-low/non-impact damage drive to the refinery. Stuck: 3 repaths → 3 alternate patches → drive home; then yellow/red alerts. No teleport.
-    - Per-truck inventory toggles (left of the car GUI): **Automatic operation** (default on for tracked trucks) and **Pause when somebody jumps in** (default off). Hidden unless Automatic harvester testing is on. Persisted on the harvester. While a player is in the seat, auto-drive never writes `riding_state` (manual drive works). Toggles can be flipped without leaving the truck.
+    - Per-truck inventory toggles (left of the car GUI): **Automatic operation** (default on for tracked trucks) and **Pause when somebody jumps in** (default off). Hidden unless Automatic harvester testing is on. Persisted on the harvester. Auto on + pause off **locks the seat** (eject; cargo-wagon style). Auto on + pause on: enter, AI yields, resume on exit. Auto off: normal drive. Player input must not clear `auto_enabled` or drop the tracked record.
   Bugfixes:
     - Loading a save no longer crashes `on_load()` with a storage CRC mismatch (`CRC before` / `CRC after`). `on_load` only rebinds metatables; auto-toggle defaults are read-time (`auto_enabled ~= false`, `pause_on_enter == true`). Stale path ids migrate on the first tick.
-    - Unmanned auto-drive was stuck off: closing the inventory fired a fake checkbox uncheck (`SetAutoEnabled(false)`). Relative auto panel is no longer destroyed on close; checked events apply only while the car GUI is open. Empty trucks with Automatic operation on `KickAuto` / FindingOre / `request_path` again. `harvester_ai` reports `auto_enabled`, `auto_on`, `occupied`, `path_id`, `has_path`, `fuel_ok`.
+    - Entering / WASD / inventory no longer permanently disables auto until the truck is replaced. Fake checkbox unchecks are ignored unless the car GUI is open (and not on the same few ticks as a sync). Auto on + pause off ejects riders (`set_driver(nil)` / `player.driving = false`) and keeps `riding_state` / KickAuto. `harvester_ai` reports `auto_enabled`, `auto_on`, `pause_on_enter`, `seat_locked`, `occupied`, `path_id`, `has_path`, `fuel_ok`.
     - Legacy per-truck teleport auto-harvester is not used. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged when a player is in the seat. No depot / circuit I/O yet.
     - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
     - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, `chunkindex_overlay`, `chunkindex_reseed`, `chunkindex_reseed_full`, and `harvester_ai` for `/c`.

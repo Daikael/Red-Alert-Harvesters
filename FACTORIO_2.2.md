@@ -24,7 +24,7 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 
 ## Current auto AI (what we are replacing)
 
-Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). While a player is in the seat, auto-drive **never writes `riding_state`** (manual steer/accelerate always work). Per-truck **Automatic operation** / **Pause when somebody jumps in** toggles live on the car inventory (relative GUI).
+Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). While a player is in the seat **and pause-on-enter is on**, auto-drive **never writes `riding_state`**. **Auto on + pause off** (default) **locks the seat** like a cargo wagon: enter is refused / ejected; AI keeps driving. Per-truck **Automatic operation** / **Pause when somebody jumps in** toggles live on the car inventory (relative GUI). Player input must not write `auto_enabled=false` or drop the tracked record.
 
 What it actually does today:
 
@@ -156,14 +156,19 @@ Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defin
 | **Automatic operation** | **On** for tracked trucks (testers with the flag already on keep AI) | `storage.cncharvesters[].auto_enabled` |
 | **Pause when somebody jumps in** | **Off** | `storage.cncharvesters[].pause_on_enter` |
 
+| Auto | Pause on enter | Player |
+| --- | --- | --- |
+| OFF | either | Normal enter + drive |
+| ON | ON | Can enter; AI yields and freezes assignment while occupied; resume on exit |
+| ON | OFF (default) | **Cannot take the seat** — eject (`set_driver(nil)` / `player.driving = false`). AI keeps driving. |
+
 Behavior:
 
 - **Auto off:** no FindingOre / path / riding AI. Manual drive works. Scoop / hitch / hybrid unchanged. Turning auto off while unmanned cancels the path and releases leftover AI accel once (does not brake every tick).
-- **Auto on** + nobody in the seat: current physical drive AI.
-- **Player in the seat:** always yield controls. Never write `riding_state`.
-  - Pause-on-enter **on:** freeze assignment (cancel pending path; do not path in the background). Resume / repath on exit if auto is still on.
-  - Pause-on-enter **off (default):** still yield controls; keep assignment/path; repath on exit if auto is on.
-- Toggles can be flipped while sitting (open inventory with E). Closing the inventory must not write Automatic operation off (Factorio fires a fake uncheck when relative checkboxes are destroyed).
+- **Auto on** + empty seat: current physical drive AI.
+- **Auto on + pause off:** lock the seat like a cargo wagon. Player input must **not** write `auto_enabled=false` or drop the tracked record. Brief enter-eject must not cancel the path.
+- **Auto on + pause on:** player may sit. Never write `riding_state` while occupied. Freeze assignment (cancel pending path). Resume / repath on exit if auto is still on.
+- Checkbox writes apply only while the car inventory is genuinely open, and ignore the same tick as a GUI sync (entering a car opens the inventory and used to fake-uncheck auto).
 - **Do not write these fields in `on_load`.** Factorio CRC-checks `storage` and will refuse the save (`Detected modifications to the 'storage' table`). Missing keys mean auto ON / pause OFF until a later mutable event (tick / GUI) writes them. Empty + auto ON calls `KickAuto` (repath or `FindingOre` → `StartDrive`).
 
 ### Suggested storage shape (implementer hint, not frozen)
@@ -331,7 +336,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 | `control.lua` | `require "chunkindex"` / `autodrive` / `autopanel`. Seeds / ticks the scanner. When the testing flag is on, tracks trucks/refineries and calls `harvester:Tick()`. Path-finished + non-impact damage hooks. Relative auto-toggle GUI. Remote `harvester_ai`. |
 | `harvester.lua` | State machine. `FindingOre` reads ChunkIndex (`PickIndexTarget`). `MovingToLocation` is physical AutoDrive. Per-truck `auto_enabled` / `pause_on_enter`. Teleport leftovers commented only. |
 | `autodrive.lua` | `request_path` + `riding_state`. Never writes `riding_state` while a player occupies the truck. Stuck tunables. Cars are not commandable. |
-| `autopanel.lua` | Left-of-inventory checkboxes for automatic operation and pause-on-enter. |
+| `autopanel.lua` | Left-of-inventory checkboxes for automatic operation and pause-on-enter. Checkbox writes only while the car GUI is open; sync grace ignores fake unchecks. |
 | `harvesterstats.lua` | Dump / approach offsets still used. `MovementSpeed` / `RotationSpeed` are unused by AutoDrive. |
 | `chunkindex.lua` | M1 slow index plus `find_ore_chunks` / `row_allows_vehicle` for FindingOre. Overlay dirty/incremental. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Home target until the M2 depot exists. |
@@ -357,7 +362,7 @@ M1 (landed):
 
 Step 3 (landed):
 
-- A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. A seated player always gets the controls (`riding_state` is not written). Pause-on-enter (off by default) freezes assignment while occupied.
+- A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. **Auto on + pause off:** eject / refuse the seat (cargo wagon); AI keeps driving. **Auto on + pause on:** seated player gets the controls (`riding_state` is not written) and assignment freezes until exit. **Auto off:** normal drive. Enter / WASD / inventory must not clear `auto_enabled` or require replacing the truck.
 - `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop).
 - Return-home (fuel / full / non-impact damage) is a physical drive to the **refinery**.
 - Stuck / path failure escalates **repath (3) → other in-range patch (3) → drive home early (3 home repaths)**, then yellow/red global alerts. No teleport past the block.

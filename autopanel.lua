@@ -17,8 +17,13 @@ local HARVESTER_NAMES = {
 }
 
 -- Nested while creating/syncing/destroying so those .state writes are not
--- treated as a player click.
+-- treated as a player click. Also ignore checked events for a few ticks after
+-- a sync: Factorio queues them until after with_ignore returns, and entering
+-- a car opens the inventory (that used to SetAutoEnabled(false) on any input
+-- and left auto off until the truck was replaced).
 local ignore_checked = 0
+local last_sync_tick = {}
+local SYNC_GRACE_TICKS = 2
 
 local function testing_on()
 	return ChunkIndex and ChunkIndex.enabled and ChunkIndex.enabled()
@@ -30,6 +35,12 @@ local function with_ignore(fn)
 	ignore_checked = ignore_checked - 1
 	if not ok then
 		error(err)
+	end
+end
+
+local function mark_sync(player)
+	if player and player.valid and game then
+		last_sync_tick[player.index] = game.tick
 	end
 end
 
@@ -68,6 +79,7 @@ function AutoPanel.sync(player, vehicle)
 	local auto_cb = frame[AUTO_CB]
 	local pause_cb = frame[PAUSE_CB]
 	local flag = testing_on()
+	mark_sync(player)
 	with_ignore(function()
 		if vehicle and vehicle.valid then
 			frame.tags = {unit_number = vehicle.unit_number}
@@ -76,7 +88,10 @@ function AutoPanel.sync(player, vehicle)
 			if vehicle and vehicle.valid then
 				auto_cb.tags = {unit_number = vehicle.unit_number}
 			end
-			auto_cb.state = h ~= nil and h.auto_enabled ~= false
+			local want_auto = h ~= nil and h.auto_enabled ~= false
+			if auto_cb.state ~= want_auto then
+				auto_cb.state = want_auto
+			end
 			auto_cb.enabled = flag and h ~= nil
 			if not flag then
 				auto_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
@@ -88,7 +103,10 @@ function AutoPanel.sync(player, vehicle)
 			if vehicle and vehicle.valid then
 				pause_cb.tags = {unit_number = vehicle.unit_number}
 			end
-			pause_cb.state = h ~= nil and h.pause_on_enter == true
+			local want_pause = h ~= nil and h.pause_on_enter == true
+			if pause_cb.state ~= want_pause then
+				pause_cb.state = want_pause
+			end
 			pause_cb.enabled = flag and h ~= nil
 			if not flag then
 				pause_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
@@ -113,6 +131,7 @@ function AutoPanel.ensure(player, vehicle)
 	if AutoPanel.track_vehicle then
 		AutoPanel.track_vehicle(vehicle)
 	end
+	mark_sync(player)
 	local rel = player.gui.relative
 	local frame = rel[FRAME]
 	if not (frame and frame.valid) then
@@ -165,6 +184,12 @@ function AutoPanel.on_checked(event)
 	if ignore_checked > 0 then
 		return
 	end
+	if game and event.player_index then
+		local synced = last_sync_tick[event.player_index]
+		if synced and game.tick <= synced + SYNC_GRACE_TICKS then
+			return
+		end
+	end
 	local el = event.element
 	if not (el and el.valid) then
 		return
@@ -172,11 +197,15 @@ function AutoPanel.on_checked(event)
 	if el.name ~= AUTO_CB and el.name ~= PAUSE_CB then
 		return
 	end
-	-- Only apply while the car inventory is open. Closing/destroying the
-	-- relative GUI must not write auto_enabled (Factorio sends state=false).
+	-- Only apply while the car inventory is genuinely open. Closing/destroying
+	-- the relative GUI must not write auto_enabled (Factorio sends state=false).
 	local player = event.player_index and game.get_player(event.player_index)
 	local vehicle = opened_harvester(player)
 	if not (vehicle and vehicle.valid) then
+		return
+	end
+	local tags = el.tags
+	if tags and tags.unit_number and tags.unit_number ~= vehicle.unit_number then
 		return
 	end
 	if AutoPanel.track_vehicle then
@@ -187,9 +216,17 @@ function AutoPanel.on_checked(event)
 		return
 	end
 	if el.name == AUTO_CB then
-		h:SetAutoEnabled(el.state)
+		local want = el.state and true or false
+		if want == (h.auto_enabled ~= false) then
+			return
+		end
+		h:SetAutoEnabled(want)
 	else
-		h:SetPauseOnEnter(el.state)
+		local want = el.state and true or false
+		if want == (h.pause_on_enter == true) then
+			return
+		end
+		h:SetPauseOnEnter(want)
 	end
 	AutoPanel.sync_viewers(vehicle)
 end

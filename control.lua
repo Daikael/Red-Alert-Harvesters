@@ -48,6 +48,7 @@ remote.add_interface("Red-Alert-Harvester", {
 				auto_enabled = h.auto_enabled,
 				auto_on = auto_on,
 				pause_on_enter = h.pause_on_enter == true,
+				seat_locked = auto_on and h.pause_on_enter ~= true,
 				occupied = occupying,
 				path_id = h.path_id,
 				has_path = h.path ~= nil,
@@ -274,15 +275,26 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	if ent and ent.valid and HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
 		HybridDrive.prepare_vehicle(ent)
+		local player = event.player_index and game.get_player(event.player_index)
 		local h = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if h then
-			local occupied = AutoDrive.player_occupying(ent)
-			if occupied ~= h.occupied then
-				h.occupied = occupied
-				h:OnOccupancyChanged(occupied)
+			-- Cargo-wagon lock: refuse the seat immediately. Do not write
+			-- auto_enabled or drop the tracked record.
+			if player and player.valid and h.seat_locked and h:seat_locked() then
+				AutoDrive.eject_player(player)
+			end
+			if h.MaybeEjectLockedSeat then
+				h:MaybeEjectLockedSeat()
+			end
+			local occupying = AutoDrive.player_occupying(ent)
+			local yield = occupying and not (h.seat_locked and h:seat_locked())
+			if yield ~= h.occupied then
+				h.occupied = yield
+				h:OnOccupancyChanged(yield)
+			elseif occupying and h.seat_locked and h:seat_locked() then
+				h.occupied = false
 			end
 		end
-		local player = event.player_index and game.get_player(event.player_index)
 		if player then
 			AutoPanel.sync(player, ent)
 		end
@@ -439,10 +451,16 @@ script.on_nth_tick(1, function()
 	for _, player in pairs(game.connected_players) do
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
-			drive_harvest(player, vehicle)
-			ModuleBay.refresh_draw_gui(player, vehicle)
-			if game.tick % 60 == 0 then
-				unload_near_refinery(vehicle)
+			local h = storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
+			local locked = h and h.auto_enabled ~= false and h.pause_on_enter ~= true
+			if locked then
+				AutoDrive.eject_player(player)
+			else
+				drive_harvest(player, vehicle)
+				ModuleBay.refresh_draw_gui(player, vehicle)
+				if game.tick % 60 == 0 then
+					unload_near_refinery(vehicle)
+				end
 			end
 		end
 	end

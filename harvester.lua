@@ -96,8 +96,8 @@ cncharvester = {
 
 			-- Per-truck (not a global startup setting). Default auto ON so
 			-- testers with Automatic harvester testing already on keep AI.
-			-- Pause-on-enter default OFF: yield controls while seated, resume
-			-- the same assignment on exit.
+			-- Pause-on-enter default OFF: lock the seat (cargo wagon). Pause
+			-- ON is the only way to sit while auto is running.
 			auto_enabled = true,
 			pause_on_enter = false,
 			occupied = false,
@@ -160,6 +160,29 @@ cncharvester = {
 		return self.auto_enabled ~= false
 	end,
 
+	-- Auto ON + pause-on-enter OFF: seat is locked (cargo wagon). Pause ON
+	-- is the only way to take the wheel while auto is running.
+	seat_locked = function(self)
+		return self:auto_on() and self.pause_on_enter ~= true
+	end,
+
+	MaybeEjectLockedSeat = function(self)
+		if not self:seat_locked() then
+			return false
+		end
+		if not AutoDrive.player_occupying(self.vehicle) then
+			return false
+		end
+		AutoDrive.eject_players(self.vehicle)
+		local now = game and game.tick or 0
+		if (self.eject_text_tick or 0) + 120 <= now then
+			self.eject_text_tick = now
+			self:FloatingText({"cncharvester.auto-locked"}, {r = 0.9, g = 0.8, b = 0.3}, 90)
+		end
+		self.occupied = false
+		return true
+	end,
+
 	CancelPendingPath = function(self)
 		if self.path_id then
 			AutoDrive.take_request(self.path_id)
@@ -170,12 +193,13 @@ cncharvester = {
 	end,
 
 	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
-	-- calls PickIndexTarget / StartDrive. Never call while occupied.
+	-- calls PickIndexTarget / StartDrive. Occupied + pause ON yields; seat
+	-- lock (pause OFF) must not skip this or input looks like it bricked AI.
 	KickAuto = function(self)
 		if not self:auto_on() then
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) then
+		if AutoDrive.player_occupying(self.vehicle) and not self:seat_locked() then
 			return
 		end
 		local st = self.state
@@ -207,11 +231,15 @@ cncharvester = {
 	end,
 
 	OnOccupancyChanged = function(self, occupied)
+		if occupied and self:MaybeEjectLockedSeat() then
+			-- Bounce-eject: do not cancel the path or clear auto_enabled.
+			return
+		end
 		if self.vehicle and self.vehicle.valid then
 			AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
 		end
 		if occupied then
-			if self.pause_on_enter then
+			if self.pause_on_enter == true then
 				-- Freeze assignment: do not keep pathing in the background.
 				self:CancelPendingPath()
 			end
@@ -230,13 +258,17 @@ cncharvester = {
 				AutoDrive.release(self.vehicle)
 			end
 		elseif on then
+			self:MaybeEjectLockedSeat()
 			self:KickAuto()
 		end
 	end,
 
 	SetPauseOnEnter = function(self, enabled)
 		self.pause_on_enter = enabled and true or false
-		if self.pause_on_enter and AutoDrive.player_occupying(self.vehicle) then
+		if self:seat_locked() then
+			self:MaybeEjectLockedSeat()
+			self:KickAuto()
+		elseif self.pause_on_enter and AutoDrive.player_occupying(self.vehicle) then
 			self:CancelPendingPath()
 			if self.vehicle and self.vehicle.valid then
 				AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
@@ -249,13 +281,22 @@ cncharvester = {
 			return
 		end
 
-		local occupied = AutoDrive.player_occupying(self.vehicle)
-		if occupied ~= self.occupied then
-			self.occupied = occupied
-			self:OnOccupancyChanged(occupied)
+		-- Input must never brick auto: eject locked-seat riders every tick
+		-- so a leftover driver cannot leave occupying stuck true.
+		self:MaybeEjectLockedSeat()
+
+		local occupying = AutoDrive.player_occupying(self.vehicle)
+		-- Pause ON: yield. Seat lock: treat as empty so WASD/enter cannot
+		-- freeze the assignment until the entity is replaced.
+		local yield = occupying and not self:seat_locked()
+		if yield ~= self.occupied then
+			self.occupied = yield
+			self:OnOccupancyChanged(yield)
+		elseif occupying and self:seat_locked() then
+			self.occupied = false
 		end
 
-		if occupied then
+		if yield then
 			-- Never write riding_state while a player is in the seat.
 			if self.state ~= States.MiningOre then
 				ModuleBay.starve(self.vehicle)
