@@ -2,7 +2,7 @@
 
 Planning doc for pack **2.2.x**. Agreed with the maintainer (Daikael). This file is the locked design; implement against it, do not invent a parallel plan.
 
-**M1 scanner and step-3 physical drive have landed on this branch** (`chunkindex.lua`, `autodrive.lua`). Gated behind startup **Automatic harvester testing**. Pack version is **2.2.0**. No M2 depot / circuit I/O. Teleport autonomy is not used. Do not merge to `master` unprompted. Testers use the GitHub **prerelease** zip `Red-Alert-Harvester_2.2.0.zip` (tag `2.2.0`).
+**M1 scanner and step-3 physical drive have landed on this branch** (`chunkindex.lua`, `autodrive.lua`). Gated behind startup **Automatic harvester testing**. Pack version is **2.2.0**. No M2 depot. The dump **refinery** can be circuit-wired to read inventory. Teleport autonomy is not used. Do not merge to `master` unprompted. Testers use the GitHub **prerelease** zip `Red-Alert-Harvester_2.2.0.zip` (tag `2.2.0`).
 
 ## Shipping baseline
 
@@ -136,7 +136,9 @@ Deployed, fueled miners **physically drive** to ore patches and **physically dri
 
 **Temporary range (until M2 depot):** `AutoDrive.RANGE_TILES = 256` (8 chunks) from the truck. After a successful scoop, `RANGE_NEAR_TILES = 96`. Accept any non-empty indexed chunk the truck can mine: ore truck skips Tib-only (mixed OK via iron/copper/etc.); `cncharvester-type2` may take Tib only if **Tiberium-Harvesting** is researched. No depot GUI.
 
-**Fuel-low:** `HybridDrive.potential_joules` below **8 MJ** (10% of the 80 MJ pool) → drive to a fueled refinery. Cargo full → drive to an unoccupied refinery. **Impact** damage is ignored (rocks). Other damage → drive home.
+**Fuel-low:** `HybridDrive.potential_joules` below **8 MJ** (10% of the 80 MJ pool) → drive to a fueled refinery (`FindingRefuelRefinery` → `ApproachedForRefuel` → `Refueling`). On arrival the refinery chest transfers **convertible burnables** (coal/wood/chemical; not nuclear / hybrid-charge) into the vehicle fuel inventory until the tank is full (Ore Truck 2 slots, type-2 3 slots) or potential is ≥ 8 MJ. Then `convert_inventory_fuels` fills the hybrid pool to the 4 MJ working floor (leftover solids stay in the tank). Belt drop still withholds one fuel stack so inserters cannot empty the chest of truck fuel. No convertible fuel → toast `no-fuel-refinery` and try another refinery. Cargo full → drive to an unoccupied refinery. **Impact** damage is ignored (rocks). Other damage → drive home.
+
+**Refinery circuit (not M2 depot):** the `refinery` container has Factorio **2.0** `circuit_connector` + `circuit_wire_max_distance` (vanilla default 9; container default is **0**, which blocks wires). Red/green wires connect on the north/dump face and **read chest contents** as item signals (vanilla container behavior — no extra read-mode flag). Use that to enable inserters when e.g. iron-ore < N. Depot GUI / spawn / filter circuit I/O is still M2.
 
 #### Locked: stuck / path failure (implemented tunables)
 

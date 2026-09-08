@@ -352,9 +352,16 @@ cncharvester = {
 			ModuleBay.starve(self.vehicle)
 		end
 
-		if not self:CheckFuel() then
+		local fuel_ok = self:CheckFuel()
+		if not fuel_ok then
 			AutoDrive.stop(self.vehicle)
-			return
+			-- Empty burner must not skip dock/refuel: arrival would never
+			-- pull chest fuel into the tank.
+			local docking = self:is_home_state()
+				or (self.state == States.MovingToLocation and self.going_home)
+			if not docking then
+				return
+			end
 		end
 		self:MaybeReturnHome()
 
@@ -434,55 +441,21 @@ cncharvester = {
 		end)
 	end,
 
+	-- Chest / trunk → vehicle fuel inventory. Fills empty fuel slots with
+	-- HybridDrive-convertible burnables (quality-aware). Does not belt-withhold;
+	-- DropOnBelt still keeps one fuel stack in the refinery for other trucks.
+	-- Returns true if the tank is full or at least one item moved.
 	RefuelFromInventory = function(self, inventory)
-		local fuelName = false
-		local fuelCount = 0
-		local vehicleFuelInventory = vehicle_fuel_inventory(self.vehicle)
-		if not (vehicleFuelInventory and inventory and inventory.valid) then
+		local dest = vehicle_fuel_inventory(self.vehicle)
+		if not (dest and dest.valid and inventory and inventory.valid) then
 			return false
 		end
-
-		if vehicleFuelInventory.is_full() then
+		HybridDrive.strip_banned_fuel(self.vehicle)
+		if dest.is_full() then
 			return true
 		end
-
-		EachInventoryItem(vehicleFuelInventory, function(itemName, count)
-			if not fuelName then
-				fuelName = itemName
-				fuelCount = count
-			end
-		end)
-
-		if not fuelName or inventory.get_item_count(fuelName) == 0 then
-			EachInventoryItem(inventory, function(itemName)
-				if fuelName then
-					return
-				end
-				local proto = ItemPrototype(itemName)
-				if proto and proto.fuel_value and proto.fuel_value > 0 then
-					fuelName = itemName
-					fuelCount = vehicleFuelInventory.get_item_count(fuelName)
-				end
-			end)
-		end
-
-		if fuelName then
-			local proto = ItemPrototype(fuelName)
-			local fuelCountInBack = inventory.get_item_count(fuelName)
-			if proto and fuelCountInBack > 0 then
-				local fuelStackSize = proto.stack_size
-				local amountToCompleteStack = fuelStackSize - (fuelCount % fuelStackSize)
-				local amountForRemainingStacks = vehicleFuelInventory.count_empty_stacks() * fuelStackSize
-				local stack = {
-					name = fuelName,
-					count = math.min(fuelCountInBack, amountToCompleteStack + amountForRemainingStacks)
-				}
-				vehicleFuelInventory.insert(stack)
-				inventory.remove(stack)
-				return true
-			end
-		end
-		return false
+		local moved = HybridDrive.transfer_convertible_fuel(inventory, dest)
+		return moved > 0 or dest.is_full()
 	end,
 
 	RefuelFromHold = function(self)
@@ -1076,23 +1049,47 @@ cncharvester = {
 		[States.Refueling] = function(self)
 			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
 			if not (targetRefinery and targetRefinery.entity and targetRefinery.entity.valid) then
+				self.reservedRefinery = false
 				self.state = States.FindingRefuelRefinery
 				return
 			end
 			local chest = targetRefinery.entity.get_inventory(defines.inventory.chest)
-			if self:RefuelFromInventory(chest) then
+			if not (chest and chest.valid) then
+				self.state = States.FindingRefuelRefinery
+				return
+			end
+			-- Physical-drive arrival: move chest burnables into the fuel tank,
+			-- then convert into the hybrid pool (4 MJ floor, rest stays in tank).
+			self:RefuelFromInventory(chest)
+			HybridDrive.convert_inventory_fuels(self.vehicle)
+			local dest = vehicle_fuel_inventory(self.vehicle)
+			local tank_full = dest and dest.valid and dest.is_full()
+			local potential = HybridDrive.potential_joules(self.vehicle)
+			-- Done when the tank is full or we are at/above the 8 MJ low-fuel trip.
+			if tank_full or potential >= AutoDrive.FUEL_LOW_J then
 				self.refueling = false
 				local trunk = vehicle_trunk(self.vehicle)
 				if trunk and trunk.get_item_count() > 0 then
 					self.state = States.DroppingOre
 				else
 					self.state = States.FindingOre
-					targetRefinery:UnReserve()
-					self.reservedRefinery = false
+					if self.reservedRefinery then
+						targetRefinery:UnReserve()
+						self.reservedRefinery = false
+					end
 				end
 				return
 			end
-			self.state = States.FindingRefuelRefinery
+			if not targetRefinery:HasFuel() then
+				if (game.tick % 120) == 0 then
+					self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+				end
+				if self.reservedRefinery then
+					targetRefinery:UnReserve()
+					self.reservedRefinery = false
+				end
+				self.state = States.FindingRefuelRefinery
+			end
 		end,
 	}
 }

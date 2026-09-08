@@ -1,4 +1,5 @@
 require "utilities"
+require "hybriddrive"
 
 local beltAreas = {
 	N = { -- North.
@@ -162,6 +163,7 @@ Refinery = {
 		return math.max(0, inv.count_empty_stacks())
 	end,
 
+	-- Convertible burnables HybridDrive will accept (not nuclear / hybrid-charge).
 	HasFuel = function(self)
 		local inv = refinery_inventory(self)
 		if not inv then
@@ -169,8 +171,7 @@ Refinery = {
 		end
 		local found = false
 		EachInventoryItem(inv, function(itemName)
-			local proto = ItemPrototype(itemName)
-			if proto and proto.fuel_value and proto.fuel_value > 0 then
+			if HybridDrive.convertible_joules(itemName) > 0 then
 				found = true
 			end
 		end)

@@ -251,6 +251,57 @@ expect(convert_vehicle.burner.remaining_burning_fuel == 8000000, "pool received 
 expect(HybridDrive.has_energy(convert_vehicle), "converted coal can drive")
 expect(HybridDrive.apply_spark_if_empty(convert_vehicle) == false, "spark skipped when the pool has energy")
 
+local chest_items = {coal = 10, ["nuclear-fuel"] = 5, ["cncharvester-hybrid-charge"] = 1, ["iron-ore"] = 20}
+local tank_fill = {}
+local function mock_fuel_inv(items, cap)
+	local inv = {valid = true, _items = items}
+	inv.is_full = function()
+		local n = 0
+		for _, c in pairs(items) do
+			n = n + c
+		end
+		return n >= cap
+	end
+	inv.insert = function(stack)
+		local n = 0
+		for _, c in pairs(items) do
+			n = n + c
+		end
+		local got = math.min(stack.count, math.max(0, cap - n))
+		if got <= 0 then
+			return 0
+		end
+		items[stack.name] = (items[stack.name] or 0) + got
+		return got
+	end
+	inv.remove = function(stack)
+		local have = items[stack.name] or 0
+		local n = math.min(stack.count, have)
+		items[stack.name] = have - n
+		return n
+	end
+	return inv
+end
+local chest_inv = mock_fuel_inv(chest_items, 1000)
+local tank_inv = mock_fuel_inv(tank_fill, 100)
+expect(HybridDrive.transfer_convertible_fuel(chest_inv, tank_inv) == 10, "refuel moves coal from chest to tank")
+expect((tank_fill.coal or 0) == 10, "tank received chest coal")
+expect((chest_items.coal or 0) == 0, "chest coal was removed by insert count")
+expect((chest_items["nuclear-fuel"] or 0) == 5, "nuclear stays in the chest")
+expect((chest_items["cncharvester-hybrid-charge"] or 0) == 1, "hidden charge is not transferred")
+expect((chest_items["iron-ore"] or 0) == 20, "ore is not transferred as fuel")
+local small_src = {coal = 10}
+local small_dst = {}
+expect(HybridDrive.transfer_convertible_fuel(mock_fuel_inv(small_src, 1000), mock_fuel_inv(small_dst, 2)) == 2, "tank fill stops at dest capacity")
+expect((small_src.coal or 0) == 8, "chest keeps fuel the tank could not take")
+expect((small_dst.coal or 0) == 2, "tank took only what fit")
+local match_src = {wood = 8, coal = 4}
+local match_dst = {coal = 1}
+expect(HybridDrive.transfer_convertible_fuel(mock_fuel_inv(match_src, 1000), mock_fuel_inv(match_dst, 5)) == 4, "prefers topping up tank coal before wood")
+expect((match_dst.coal or 0) == 5, "coal stack filled first")
+expect((match_src.coal or 0) == 0, "matching coal was taken first")
+expect((match_src.wood or 0) == 8, "wood left when tank is already full of coal")
+
 local rec_src = assert(io.open("prototypes/recipes/harv_recipe.lua", "r")):read("*a")
 expect(rec_src:find('category = "crafting"', 1, true) ~= nil, "2.0 recipes use category")
 expect(rec_src:find("categories =", 1, true) == nil, "2.0 recipes do not use 2.1 categories")
@@ -584,7 +635,17 @@ expect(hv_src:find("player_is_driver(self.vehicle) and self:pause_yields()", 1, 
 expect(hv_src:find("A passenger must not block the path", 1, true) ~= nil, "StartDrive comment forbids passenger abort")
 expect(hv_src:find("driving and self:pause_yields()", 1, true) ~= nil, "Tick yields only for driver + pause-on-enter")
 expect(hv_src:find('source ~= "player_checkbox"', 1, true) ~= nil, "SetAutoEnabled(false) requires a real checkbox click")
-expect(hv_src:find("NoteUnauthorizedAutoOff", 1, true) ~= nil, "unauthorized auto-off is logged")
+expect(hv_src:find("transfer_convertible_fuel", 1, true) ~= nil, "refuel uses HybridDrive chest-to-tank transfer")
+expect(hv_src:find("convert_inventory_fuels(self.vehicle)", 1, true) ~= nil, "Refueling converts tank solids into the hybrid pool")
+expect(hv_src:find("potential >= AutoDrive.FUEL_LOW_J", 1, true) ~= nil, "refuel leaves when potential is at least the 8 MJ trip")
+expect(hv_src:find("Empty burner must not skip dock/refuel", 1, true) ~= nil, "Tick still docks when the burner is empty")
+local refin_ent = assert(io.open("prototypes/entities/refin_entity.lua"):read("*a"))
+expect(refin_ent:find("circuit_wire_max_distance = default_circuit_wire_max_distance", 1, true) ~= nil, "refinery sets 2.0 circuit wire reach")
+expect(refin_ent:find("circuit_connector_definitions.create_vector", 1, true) ~= nil, "refinery has a 2.0 circuit_connector")
+expect(refin_ent:find("universal_connector_template", 1, true) ~= nil, "refinery uses the vanilla connector template")
+expect(io.open("refinery.lua"):read("*a"):find("HybridDrive.convertible_joules", 1, true) ~= nil, "HasFuel counts convertible burnables")
+expect(io.open("refinery.lua"):read("*a"):find("count = count - proto.stack_size", 1, true) ~= nil, "DropOnBelt still withholds one fuel stack")
+expect(io.open("hybriddrive.lua"):read("*a"):find("function HybridDrive.transfer_convertible_fuel", 1, true) ~= nil, "transfer_convertible_fuel exists")
 local hv_onload = hv_src:match("\n\tOnload = function%(self%)\n(.-)\n\tend,")
 expect(hv_onload ~= nil, "harvester Onload exists")
 expect(hv_onload:find("setmetatable", 1, true) ~= nil, "Onload rebinds metatable")

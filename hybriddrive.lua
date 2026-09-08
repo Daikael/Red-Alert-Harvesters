@@ -241,6 +241,63 @@ function HybridDrive.has_usable_energy(vehicle)
 	return HybridDrive.has_convertible_fuel(vehicle)
 end
 
+-- Move convertible burnables (coal/wood/chemical, not nuclear / hybrid-charge)
+-- from a chest or trunk into the vehicle fuel inventory. Uses insert()'s
+-- return count so we never delete extra from the source. Fills dest slots.
+-- Returns the number of items moved.
+function HybridDrive.transfer_convertible_fuel(source, dest)
+	if not (source and source.valid and dest and dest.valid) then
+		return 0
+	end
+	if dest.is_full and dest.is_full() then
+		return 0
+	end
+	local moved = 0
+	local contents = {}
+	EachInventoryItem(source, function(name, count, quality)
+		contents[#contents + 1] = {name = name, count = count, quality = quality}
+	end)
+	local prefer = {}
+	EachInventoryItem(dest, function(name, count)
+		if count and count > 0 and HybridDrive.convertible_joules(name) > 0 then
+			prefer[name] = true
+		end
+	end)
+	local function take(filter_prefer)
+		for _, item in ipairs(contents) do
+			if dest.is_full and dest.is_full() then
+				return
+			end
+			local can = item.count and item.count > 0
+				and HybridDrive.convertible_joules(item.name) > 0
+				and (not filter_prefer or prefer[item.name])
+			if can then
+				local stack = InventoryItemStack(item.name, item.count, item.quality)
+				local ok, inserted = pcall(function()
+					return dest.insert(stack)
+				end)
+				if not ok then
+					inserted = 0
+				elseif type(inserted) ~= "number" then
+					inserted = inserted and item.count or 0
+				end
+				if inserted > 0 then
+					pcall(function()
+						source.remove(InventoryItemStack(item.name, inserted, item.quality))
+					end)
+					item.count = item.count - inserted
+					moved = moved + inserted
+				end
+			end
+		end
+	end
+	if next(prefer) then
+		take(true)
+	end
+	take(false)
+	return moved
+end
+
 function HybridDrive.tank_convertible_joules(vehicle)
 	local inv = fuel_inventory(vehicle)
 	if not (inv and inv.valid) then
