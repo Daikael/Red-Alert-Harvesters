@@ -5,6 +5,8 @@ require "specialOres"
 require "modulebay"
 require "scoop"
 require "hybriddrive"
+require "autodrive"
+require "chunkindex"
 
 local States = {
 	Animating = 0,
@@ -75,6 +77,22 @@ cncharvester = {
 
 			currentEnergy = 0,
 			usingEnergy = false,
+
+			path = nil,
+			path_index = 1,
+			path_id = nil,
+			repath_n = 0,
+			alt_n = 0,
+			home_repath_n = 0,
+			failed_chunks = {},
+			assign_si = nil,
+			assign_cx = nil,
+			assign_cy = nil,
+			going_home = false,
+			home_early = false,
+			alert_tick = 0,
+			busy_until = 0,
+			search_range = AutoDrive.RANGE_TILES,
 		}
 		setmetatable(self, {__index = cncharvester})
 		self:SetIsFilled(false)
@@ -99,12 +117,26 @@ cncharvester = {
 		setmetatable(self, {__index = cncharvester})
 		-- 2.0 cannot persist functions in storage; drop any leftover 1.1 callback.
 		self.onArrivalCallback = nil
+		-- Path request ids do not survive save/load.
+		self.path_id = nil
+		self.path = self.path or nil
+		self.failed_chunks = self.failed_chunks or {}
+		self.repath_n = self.repath_n or 0
+		self.alt_n = self.alt_n or 0
+		self.home_repath_n = self.home_repath_n or 0
+		self.search_range = self.search_range or AutoDrive.RANGE_TILES
 	end,
 
-	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
-	-- control.lua no longer calls Tick. Kept for reference.
 	Tick = function(self)
 		if not (self.vehicle and self.vehicle.valid) then
+			return
+		end
+
+		if AutoDrive.player_driving(self.vehicle) then
+			AutoDrive.release(self.vehicle)
+			if self.state ~= States.MiningOre then
+				ModuleBay.starve(self.vehicle)
+			end
 			return
 		end
 
@@ -112,10 +144,13 @@ cncharvester = {
 			ModuleBay.starve(self.vehicle)
 		end
 
+		if not self:CheckFuel() then
+			AutoDrive.stop(self.vehicle)
+			return
+		end
+		self:MaybeReturnHome()
+
 		if StateUsesEnergy[self.state] then
-			if not self:CheckFuel() then
-				return
-			end
 			local consume = Stats.EnergyUsedPerTick
 			if self.state == States.MiningOre or self.state == States.Animating then
 				local effects = Scoop.read_effects(self.vehicle)
@@ -273,6 +308,213 @@ cncharvester = {
 		self.state = States.Animating
 	end,
 
+	is_home_state = function(self)
+		local st = self.state
+		return st == States.FindingRefinery
+			or st == States.ApproachedRefinery
+			or st == States.DroppingOre
+			or st == States.FindingRefuelRefinery
+			or st == States.ApproachedForRefuel
+			or st == States.Refueling
+	end,
+
+	MaybeReturnHome = function(self)
+		if self:is_home_state() or self.going_home then
+			return
+		end
+		if self.filled then
+			AutoDrive.stop(self.vehicle)
+			self.state = States.FindingRefinery
+			return
+		end
+		if HybridDrive.potential_joules(self.vehicle) < AutoDrive.FUEL_LOW_J then
+			AutoDrive.stop(self.vehicle)
+			self:FloatingText({"cncharvester.heading-for-refuel"}, {r = 0.3, g = 0.9, b = 0.3}, 90)
+			self.state = States.FindingRefuelRefinery
+		end
+	end,
+
+	OnDamaged = function(self, damage_type_name)
+		if damage_type_name == "impact" then
+			return
+		end
+		if self:is_home_state() or self.going_home then
+			return
+		end
+		AutoDrive.stop(self.vehicle)
+		self.state = States.FindingRefinery
+	end,
+
+	expire_failed = function(self)
+		local failed = self.failed_chunks or {}
+		local now = game and game.tick or 0
+		for key, tick in pairs(failed) do
+			if now - tick > AutoDrive.FAILED_CHUNK_TTL then
+				failed[key] = nil
+			end
+		end
+		self.failed_chunks = failed
+	end,
+
+	mark_failed_chunk = function(self)
+		if self.assign_si ~= nil and self.assign_cx ~= nil then
+			self.failed_chunks = self.failed_chunks or {}
+			self.failed_chunks[AutoDrive.chunk_key(self.assign_si, self.assign_cx, self.assign_cy)] = game and game.tick or 0
+		end
+	end,
+
+	resource_in_chunk = function(self, si, cx, cy)
+		local surface = self.vehicle.surface
+		if not (surface and surface.valid) then
+			return nil
+		end
+		local left, top = cx * 32, cy * 32
+		local ents = surface.find_entities_filtered{
+			type = "resource",
+			area = {{left, top}, {left + 32, top + 32}},
+		}
+		local allow_tib = AutoDrive.allow_tib(self.vehicle)
+		for _, ent in pairs(ents) do
+			if IsHarvestableResource(ent, self.vehicle) then
+				local cat = ent.prototype and ent.prototype.resource_category
+				if ChunkIndex.resource_is_tiberium(cat, ent.name) then
+					if allow_tib then
+						return ent
+					end
+				else
+					return ent
+				end
+			end
+		end
+		return nil
+	end,
+
+	PickIndexTarget = function(self)
+		self:expire_failed()
+		local vehicle = self.vehicle
+		local si = vehicle.surface.index
+		local allow_tib = AutoDrive.allow_tib(vehicle)
+		local range = self.search_range or AutoDrive.RANGE_TILES
+		local chunks = ChunkIndex.find_ore_chunks(
+			storage.orechunk,
+			storage.tibchunk,
+			si,
+			vehicle.position,
+			range,
+			allow_tib,
+			self.failed_chunks
+		)
+		if #chunks == 0 then
+			return nil, nil
+		end
+		local chunk = chunks[1]
+		local ore = self:resource_in_chunk(chunk.si, chunk.x, chunk.y)
+		return ore, chunk
+	end,
+
+	StartDrive = function(self, position, arrival_state, radius)
+		if not (self.vehicle and self.vehicle.valid and position) then
+			return
+		end
+		self.targetPosition = position
+		self.arrival_state = arrival_state
+		self.going_home = arrival_state == States.ApproachedRefinery
+			or arrival_state == States.DroppingOre
+			or arrival_state == States.ApproachedForRefuel
+			or arrival_state == States.Refueling
+		self.path = nil
+		self.path_index = 1
+		if self.path_id then
+			AutoDrive.take_request(self.path_id)
+			self.path_id = nil
+		end
+		local id = AutoDrive.request(self.vehicle.surface, self.vehicle, position, radius)
+		self.state = States.MovingToLocation
+		AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
+		if not id then
+			self:OnPathFail()
+			return
+		end
+		self.path_id = id
+		AutoDrive.remember_request(id, self.vehicle.unit_number)
+	end,
+
+	raise_stuck_alert = function(self)
+		local now = game.tick
+		if (self.alert_tick or 0) + AutoDrive.ALERT_COOLDOWN > now then
+			return
+		end
+		self.alert_tick = now
+		local home
+		if self.targetRefinery then
+			local rec = Refinery.GetByUnitNumber(self.targetRefinery)
+			home = rec and rec.entity
+		end
+		if not (home and home.valid) then
+			local nearest = Refinery.Nearest(self.vehicle)
+			home = nearest and nearest.entity
+		end
+		local deposit
+		if self.assign_si and self.vehicle.surface and self.vehicle.surface.valid then
+			deposit = self:resource_in_chunk(self.assign_si, self.assign_cx, self.assign_cy)
+		end
+		local msg = self.going_home and {"cncharvester.auto-stuck-home-trip"} or {"cncharvester.auto-stuck-miner"}
+		AutoDrive.alert(self.vehicle, home, deposit, msg)
+		self:FloatingText({"cncharvester.auto-stuck-miner"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+	end,
+
+	OnPathFail = function(self)
+		AutoDrive.stop(self.vehicle)
+		if self.going_home or self.home_early or self:is_home_state() then
+			self.home_repath_n = (self.home_repath_n or 0) + 1
+			if self.home_repath_n <= AutoDrive.HOME_REPATH_MAX and self.targetPosition then
+				self:StartDrive(self.targetPosition, self.arrival_state, AutoDrive.PATH_RADIUS_HOME)
+				return
+			end
+			self:raise_stuck_alert()
+			return
+		end
+		self.repath_n = (self.repath_n or 0) + 1
+		if self.repath_n <= AutoDrive.REPATH_MAX and self.targetPosition then
+			self:StartDrive(self.targetPosition, self.arrival_state, AutoDrive.PATH_RADIUS_ORE)
+			return
+		end
+		self:mark_failed_chunk()
+		self.alt_n = (self.alt_n or 0) + 1
+		self.repath_n = 0
+		if self.alt_n <= AutoDrive.ALT_PATCH_MAX then
+			self.state = States.FindingOre
+			return
+		end
+		self.home_early = true
+		self.alt_n = 0
+		self.home_repath_n = 0
+		self.state = States.FindingRefinery
+	end,
+
+	OnPathFinished = function(self, event)
+		if not event or event.id ~= self.path_id then
+			return
+		end
+		self.path_id = nil
+		if event.try_again_later then
+			self.path_id = nil
+			self.busy_until = game.tick + AutoDrive.BUSY_RETRY_TICKS
+			return
+		end
+		if not event.path then
+			self:OnPathFail()
+			return
+		end
+		self.path = event.path
+		self.path_index = 1
+		self.repath_n = 0
+		if self.going_home then
+			self.home_repath_n = 0
+		end
+		AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
+	end,
+
 	FindRandomOreInRadius = function(self, radius)
 		if radius ~= self.lastOreRadius then
 			self.lastOreRadius = radius
@@ -344,30 +586,54 @@ cncharvester = {
 		end,
 
 		[States.FindingOre] = function(self)
-			local tries = 0
-			local ore = false
-			while not ore and tries < 10 do
-				ore = self:FindRandomOreInRadius(self.searchRadius)
-				tries = tries + 1
-			end
-			if not ore then
-				self.searchRadius = self.searchRadius + 5
+			local ore, chunk = self:PickIndexTarget()
+			if not chunk then
+				if (game.tick % 300) == 0 then
+					self:FloatingText({"cncharvester.auto-waiting-index"}, {r = 0.8, g = 0.8, b = 0.4}, 120)
+				end
 				return
 			end
-
+			self.assign_si = chunk.si
+			self.assign_cx = chunk.x
+			self.assign_cy = chunk.y
 			self.searchRadius = Stats.DefaultSearchRadius
 			self.oresInRadius = {}
-
-			self:SetTargetPosition(ore.position, States.MiningOre)
-			self.state = States.MovingToLocation
 			self.scoopsMined = 0
+			local dest = (ore and ore.position) or chunk.center
+			self:StartDrive(dest, States.MiningOre, AutoDrive.PATH_RADIUS_ORE)
 		end,
 
 		[States.MiningOre] = function(self)
+			if self.scoopsMined == 0 then
+				local here = self.vehicle.surface.find_entities_filtered{
+					type = "resource",
+					area = GetBoundingBox(self.vehicle.position, 4),
+				}
+				local on_patch = false
+				for _, ent in pairs(here) do
+					if IsHarvestableResource(ent, self.vehicle) then
+						on_patch = true
+						break
+					end
+				end
+				if not on_patch and self.assign_cx ~= nil then
+					local ore = self:resource_in_chunk(self.assign_si, self.assign_cx, self.assign_cy)
+					if ore then
+						self:StartDrive(ore.position, States.MiningOre, AutoDrive.PATH_RADIUS_ORE)
+						return
+					end
+					self:mark_failed_chunk()
+					self.state = States.FindingOre
+					return
+				end
+			end
 			if self.scoopsMined >= Scoop.items_per_location(self.vehicle) then
 				ModuleBay.starve(self.vehicle)
 				self.state = States.FindingOre
 				self.searchRadius = Stats.CloseMineSearchRadius
+				self.search_range = AutoDrive.RANGE_NEAR_TILES
+				self.alt_n = 0
+				self.repath_n = 0
 				return
 			end
 
@@ -405,8 +671,11 @@ cncharvester = {
 			end
 
 			self.targetRefinery = refinery.entity.unit_number
-			self:SetTargetPosition(Vector.add(refinery.entity.position, Stats.RefineryApproachOffset), States.ApproachedRefinery)
-			self.state = States.MovingToLocation
+			self:StartDrive(
+				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
+				States.ApproachedRefinery,
+				AutoDrive.PATH_RADIUS_HOME
+			)
 		end,
 
 		[States.ApproachedRefinery] = function(self)
@@ -415,8 +684,11 @@ cncharvester = {
 				if not targetRefinery:IsOccupied() then
 					targetRefinery:Reserve()
 					self.reservedRefinery = true
-					self:SetTargetPosition(Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset), States.DroppingOre)
-					self.state = States.MovingToLocation
+					self:StartDrive(
+						Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
+						States.DroppingOre,
+						AutoDrive.PATH_RADIUS_HOME
+					)
 				end
 			else
 				self.state = States.FindingRefinery
@@ -445,6 +717,11 @@ cncharvester = {
 
 			self:SetIsFilled(false)
 			self.searchRadius = Stats.DefaultSearchRadius
+			self.search_range = AutoDrive.RANGE_TILES
+			self.home_early = false
+			self.alt_n = 0
+			self.repath_n = 0
+			self.home_repath_n = 0
 
 			if targetRefinery:HasFuel() then
 				self.state = States.Refueling
@@ -455,34 +732,43 @@ cncharvester = {
 			end
 		end,
 
-		-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
+		-- Physical drive: request_path + riding_state.
+		-- Legacy teleport (do not restore):
+		-- self.vehicle.teleport(self.targetPosition)
 		[States.MovingToLocation] = function(self)
-			if math.abs(self.vehicle.orientation - self.targetOrientation) > 0.001 then
-				if self.targetOrientation - self.vehicle.orientation > 0.5 then
-					self.targetOrientation = self.targetOrientation - 1
-				elseif self.targetOrientation - self.vehicle.orientation < -0.5 then
-					self.targetOrientation = self.targetOrientation + 1
-				end
-				self.vehicle.orientation = self.vehicle.orientation + math.max(math.min((self.targetOrientation - self.vehicle.orientation), Stats.RotationSpeed), -Stats.RotationSpeed)
+			if AutoDrive.player_driving(self.vehicle) then
+				AutoDrive.release(self.vehicle)
 				return
 			end
-
-			local dPos = Vector.subtract(self.targetPosition, self.vehicle.position)
-			self.targetDistance = Vector.length(dPos)
-			if self.targetDistance > 0 then
-				self.targetHeading = Vector.div(dPos, self.targetDistance)
+			if (self.busy_until or 0) > game.tick then
+				return
 			end
-
-			if self.targetDistance < Stats.MovementSpeed then
-				-- self.vehicle.teleport(self.targetPosition)
+			if self.path_id and not self.path then
+				return
+			end
+			if not self.path then
+				if self.targetPosition then
+					self:StartDrive(self.targetPosition, self.arrival_state, self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE)
+				else
+					self:OnPathFail()
+				end
+				return
+			end
+			if not AutoDrive.progress_ok(self, self.vehicle.position, game.tick) then
+				self:OnPathFail()
+				return
+			end
+			local idx, arrived = AutoDrive.follow_path(self.vehicle, self.path, self.path_index)
+			self.path_index = idx
+			if arrived then
+				AutoDrive.stop(self.vehicle)
+				self.path = nil
+				self.going_home = false
 				if self.arrival_state then
 					self.state = self.arrival_state
 					self.arrival_state = false
 				end
-				return
 			end
-			-- self.vehicle.teleport(Vector.add(self.vehicle.position, Vector.mul(self.targetHeading, Stats.MovementSpeed)))
-			self.targetDistance = self.targetDistance - Stats.MovementSpeed
 		end,
 
 		[States.FindingRefuelRefinery] = function(self)
@@ -495,11 +781,11 @@ cncharvester = {
 			end
 
 			self.targetRefinery = refinery.entity.unit_number
-			self:SetTargetPosition(
+			self:StartDrive(
 				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
-				States.ApproachedForRefuel
+				States.ApproachedForRefuel,
+				AutoDrive.PATH_RADIUS_HOME
 			)
-			self.state = States.MovingToLocation
 		end,
 
 		[States.ApproachedForRefuel] = function(self)
@@ -508,8 +794,11 @@ cncharvester = {
 				if not targetRefinery:IsOccupied() then
 					targetRefinery:Reserve()
 					self.reservedRefinery = true
-					self:SetTargetPosition(Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset), States.Refueling)
-					self.state = States.MovingToLocation
+					self:StartDrive(
+						Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
+						States.Refueling,
+						AutoDrive.PATH_RADIUS_HOME
+					)
 				end
 			else
 				self.state = States.FindingRefuelRefinery

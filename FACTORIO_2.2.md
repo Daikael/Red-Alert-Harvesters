@@ -2,7 +2,7 @@
 
 Planning doc for pack **2.2.x**. Agreed with the maintainer (Daikael). This file is the locked design; implement against it, do not invent a parallel plan.
 
-**M1 scanner has landed on this branch** (`chunkindex.lua`), gated and UPS-safe. Pack version is **2.2.0**. No physical driving, no depot / circuit I/O. Legacy teleport AI is commented out. Do not merge to `master` unprompted. Testers use the GitHub **prerelease** zip `Red-Alert-Harvester_2.2.0.zip` (tag `2.2.0`).
+**M1 scanner and step-3 physical drive have landed on this branch** (`chunkindex.lua`, `autodrive.lua`). Gated behind startup **Automatic harvester testing**. Pack version is **2.2.0**. No M2 depot / circuit I/O. Teleport autonomy is not used. Do not merge to `master` unprompted. Testers use the GitHub **prerelease** zip `Red-Alert-Harvester_2.2.0.zip` (tag `2.2.0`).
 
 ## Shipping baseline
 
@@ -24,13 +24,14 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 
 ## Current auto AI (what we are replacing)
 
-Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) now enables **`ChunkIndex` only**. The per-truck teleport loop in `harvester.lua` is commented out (kept for reference). Manual drive / hitch / scoop / hybrid / refinery dump are unchanged.
+Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). Manual drive / hitch / scoop / hybrid / refinery dump are unchanged when a player is in the seat (AI releases `riding_state`).
 
 What it actually does today:
 
-- Each tracked vehicle (`storage.cncharvesters`) runs its own state machine (`FindingOre` → move → `MiningOre` → `FindingRefinery` → dump / refuel).
-- Movement is **`vehicle.teleport`** along a heading (`States.MovingToLocation`). No pathfinder, no collision avoidance. **This is legacy test AI to replace, not keep.** 2.2.x autonomy must not reuse it — not even as a temporary M1 bridge.
-- Ore pick is **local and random**: `FindRandomOreInRadius` / `FindOresInRadius` scan a growing box around the truck (`Stats.DefaultSearchRadius` = 15, then +5). Not a map index.
+- Each tracked vehicle (`storage.cncharvesters`) runs `FindingOre` → **drive** → `MiningOre` → `FindingRefinery` → drive → dump / refuel.
+- Movement is **`LuaSurface.request_path` + `riding_state`**. Cars on Factorio **2.0.77** are **not** `commandable` (that API is units / spider-vehicles). Spidertron `autopilot_destination` is not present on these `type=car` prototypes. Do not restore `vehicle.teleport`.
+- Ore pick is **ChunkIndex** within a temporary **256 tile** range (8 chunks). Not `FindRandomOreInRadius`.
+- Refineries are found as today (`refinery.lua`); the trip is a drive.
 - Refineries are found by a full-surface `find_entities_filtered{name = "refinery"}` (`refinery.lua`).
 - `chunksearcher.lua` (dead stub) is **deleted**. The index lives in `chunkindex.lua`.
 - `storage.orechunk` / `storage.tibchunk` are the index home, written by the slow scanner when it is enabled.
@@ -41,7 +42,7 @@ What it actually does today:
 
 ## Milestone 1 — Global slow chunk scanner
 
-**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`; restart required). Default off. That flag runs the **index only** — the legacy teleport auto-harvester is commented out. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
+**Status (branch `2.2.0`):** implemented. Enable with startup **Automatic harvester testing** (`Auto-cncharvester-testing`; restart required). Default off. That flag runs the **index and the physical auto-drive AI**. `on_pre_chunk_deleted` / `on_chunk_deleted` forget the chunk (queue, ore/tib rows, Tib refcount unwind) so unloaded charted chunks do not leak or ghost-rescan.
 
 `ChunkIndex` is not visible from `/c` (Factorio mod sandbox). Read M1 stats through the **`Red-Alert-Harvester`** remote interface:
 
@@ -124,36 +125,27 @@ Chunks that have an **active harvester** on them get **periodic depletion rescan
 
 ### What M1 does *not* do
 
-- The index can land **without moving any trucks**. Do not block the scanner on driving code.
-- Do **not** retarget `FindingOre` at the index in the same drop unless driving is already real. Planned **later**: `FindingOre` reads the index instead of growing a local random radius — and then **drives** to the assigned patch.
-- Do **not** send miners to patches (or home) with `vehicle.teleport` / `States.MovingToLocation`. Teleport is not an M1 stand-in.
+- The index can land **without moving any trucks**. Driving is step 3 (landed on this branch, same gate).
+- Do **not** send miners to patches (or home) with `vehicle.teleport` / heading-step fakes.
 
-### Physical driving (locked, once trucks move)
+### Physical driving (step 3 — landed)
 
-Deployed, fueled miners must **physically drive** to ore patches and **physically drive** home. Teleport movement is **not acceptable** for 2.2.x autonomy.
+Deployed, fueled miners **physically drive** to ore patches and **physically drive** home.
 
-- Prefer Factorio **pathfinder** / **`commandable`** / autopilot-style movement over scripted teleports or heading-step hacks.
-- Handle **collision** (other vehicles, buildings, cliffs, trees). Driving into a rock must not count as a *return-home trigger* (see M2), but the truck still has to steer around it.
-- **Return-home** uses the same physical drive — fuel / cargo-full / non-collision damage still mean “drive back to the depot,” not “snap there.”
+**2.0.77 compat:** `LuaEntity.commandable` is nil on `type=car`. Autopilot fields are spidertron-only. Implementation is `surface.request_path` (prototype `collision_box` centered at 0,0 + `collision_mask`, `entity_to_ignore` = the truck, `can_open_gates`, `max_gap_size=0`) then `vehicle.riding_state` so Factorio car physics and collisions apply. Hitch helper `teleport` in `modulebay.lua` is **not** autonomy — it keeps the slave drill on the truck.
 
-#### Locked: stuck / path failure
+**Temporary range (until M2 depot):** `AutoDrive.RANGE_TILES = 256` (8 chunks) from the truck. After a successful scoop, `RANGE_NEAR_TILES = 96`. Accept any non-empty indexed chunk the truck can mine: ore truck skips Tib-only (mixed OK via iron/copper/etc.); `cncharvester-type2` may take Tib only if **Tiberium-Harvesting** is researched. No depot GUI.
 
-When pathfinding fails, or the truck **stops making progress** toward an assigned patch (or home), escalate **in this order**:
+**Fuel-low:** `HybridDrive.potential_joules` below **8 MJ** (10% of the 80 MJ pool) → drive to a fueled refinery. Cargo full → drive to an unoccupied refinery. **Impact** damage is ignored (rocks). Other damage → drive home.
 
-1. **Repath** — retry pathfinding to the **same** target.
-2. If that keeps failing: **abandon the assignment** and pick **another in-range** patch that still passes the depot filter / index.
-3. If that keeps failing: **drive home early** to the depot.
+#### Locked: stuck / path failure (implemented tunables)
 
-Do **not** teleport past the obstacle at any step.
+1. **Repath** same target — `AutoDrive.REPATH_MAX = 3`. No-progress window: `STUCK_TICKS = 180` (~3 s) without `STUCK_MIN_MOVE = 0.75` tiles.
+2. Abandon assignment, pick another in-range index chunk — `ALT_PATCH_MAX = 3`. Failed chunks excluded for `FAILED_CHUNK_TTL = 18000` (5 min).
+3. **Drive home early** to the current refinery. Home repaths: `HOME_REPATH_MAX = 3`.
+4. Still failing: **yellow** custom alert on the home refinery (depot placeholder) + **red** custom alert on the miner or the ore entity if still around. `force.print` + floating text. Cooldown `ALERT_COOLDOWN = 3600`. No teleport past the obstacle.
 
-How many repaths, how long “no progress” lasts, and how many failed alternate patches count as “keeps failing” are **implementer-tunable**. This doc does not freeze retry counts or cooldowns.
-
-**Repeated failures** after cycling that escalation: raise a **global alert** in the same spirit as Factorio’s entity-damaged / entity-destroyed notifications (map alert / console-style player attention). Not a silent log.
-
-Alert coloring / pins (Daikael):
-
-- **Yellow** on the **erroring depot** — the AI hub that owns the stuck miner.
-- **Red** on the **erroring deposit** — the problematic **ore deposit / patch** the miner could not reach (the assignment target), **not** a second building type. If the failure is on the **home trip** with no ore target, red can pin the **miner** or the **blocked approach**; prefer the ore deposit when an outbound assignment is the cause.
+Pathfinder busy (`try_again_later`) retries after `BUSY_RETRY_TICKS = 30` and does not consume a repath.
 
 ### Suggested storage shape (implementer hint, not frozen)
 
@@ -279,7 +271,7 @@ The truck no longer grows a random radius and hopes. `FindingOre` (later) asks t
 - No pre-scan of unvisited / ineligible surfaces.
 - Do not use Tib **slurry** tech as a surface or index gate.
 - Do not revive `chunksearcher.lua`. The stub is gone; use `chunkindex.lua`.
-- Do not implement depot / driving / `FindingOre` retarget in the M1 scanner drop.
+- Do not implement depot / circuit / spawn loadout in this drop. Driving + `FindingOre` retarget is **landed** (step 3).
 
 ---
 
@@ -287,7 +279,7 @@ The truck no longer grows a random radius and hopes. `FindingOre` (later) asks t
 
 1. **M1 index** — queue + one-chunk-per-budget-tick classify; fill `orechunk` / `tibchunk` (or replacement); Tib refcount borders; depletion rescans on active-harvester chunks. Hidden behind the existing auto-test flag or a new debug flag until it is trustworthy. **No truck movement required in this step.**
 2. **Surface policy** — enqueue from Tib flags + ore interest; skip unvisited-ineligible; hook surface create / `chunk_generated` / first visit.
-3. **Physical driving + retarget `FindingOre`** — any autonomy that sends a deployed, fueled truck to a patch (or home) uses Factorio pathfinder / `commandable` / autopilot-style driving. Collision handling and the locked stuck / path-failure escalation (repath → other in-range patch → drive home early; then yellow/red global alert) land with that movement, not later. Prove the index + real driving beat `FindRandomOreInRadius` + teleport before building the depot.
+3. **Physical driving + retarget `FindingOre`** — **landed** on `2.2.0`. `request_path` + `riding_state`. Index lookup in 256 tiles. Stuck escalation as locked. No depot yet.
 4. **M2 depot** — entity/GUI, 5-slot filter + toggle, spawn-one-type + fixed modules/equipment, tie miners to depot, return-home triggers (drive back; same stuck escalation if the home path fails).
 5. **Circuit I/O** — inputs (filter + range), outputs (miner count, in-range valid ores, inventory).
 6. **Dual-track 2.1 sibling** — after the 2.0 line works, same split as 2.1.17 / 2.1.18.
@@ -317,15 +309,16 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"`. Seeds / ticks the scanner. Registers `remote` `Red-Alert-Harvester` (`chunkindex_stats` / `chunkindex_enabled` / `chunkindex_overlay` / `chunkindex_reseed` / `chunkindex_reseed_full`). Alt+I / shortcut toggles the map overlay. Hooks built/removed for `cncharvester` / `cncharvester-type2` / `refinery`. |
-| `harvester.lua` | Per-truck state machine. `FindingOre` / `FindRandomOreInRadius` is the retarget point. `States.MovingToLocation` + `vehicle.teleport` is **legacy test AI to delete**, not a movement API to keep. Fuel / full already mean “go home” — depot return-home keeps those *triggers*, but the trip must be a real drive. |
-| `harvesterstats.lua` | Local search radii (`DefaultSearchRadius`, `CloseMineSearchRadius`) become obsolete once the index + depot range exist. `MovementSpeed` / `RotationSpeed` are teleport-step leftovers; dump / approach offsets may still matter at the depot pad. |
-| `refinery.lua` | Dump, reserve, fuel chest, belts. Not an index. Candidate to grow a depot GUI **or** stay dump-only. |
-| `chunkindex.lua` | M1 slow index. Queue + 1-chunk-per-10-tick classify, Tib refcount borders, harvester depletion requeue. Chart overlay (dirty/incremental) + scan blink. No `basic-solid-tiberium` string. |
-| `settings.lua` | `Auto-cncharvester-testing` (startup; the only M1 gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
+| `control.lua` | `require "chunkindex"` / `autodrive`. Seeds / ticks the scanner. When the testing flag is on, tracks trucks/refineries and calls `harvester:Tick()`. Path-finished + non-impact damage hooks. Remote `harvester_ai`. |
+| `harvester.lua` | State machine. `FindingOre` reads ChunkIndex (`PickIndexTarget`). `MovingToLocation` is physical AutoDrive. Teleport leftovers commented only. |
+| `autodrive.lua` | `request_path` + `riding_state`. Stuck tunables. Cars are not commandable. |
+| `harvesterstats.lua` | Dump / approach offsets still used. `MovementSpeed` / `RotationSpeed` are unused by AutoDrive. |
+| `chunkindex.lua` | M1 slow index plus `find_ore_chunks` / `row_allows_vehicle` for FindingOre. Overlay dirty/incremental. |
+| `refinery.lua` | Dump, reserve, fuel chest, belts. Home target until the M2 depot exists. |
+| `settings.lua` | `Auto-cncharvester-testing` (startup; index + auto-drive gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
-| `specialOres.lua` | Resource entity name ≠ item name. Index should store something the depot filter and circuit can name (item, not only entity). |
-| `modulebay.lua` / `hybriddrive.lua` / `scoop.lua` | Unchanged for M1. Depot spawn must apply the **fixed** module list + equipment to the same slave-drill / grid those files own. |
+| `specialOres.lua` | Resource entity name ≠ item name. Index stores item names. |
+| `modulebay.lua` / `hybriddrive.lua` / `scoop.lua` | Unchanged except hitch still follows the truck. |
 | `FACTORIO_2.0.md` / `FACTORIO_2.1.md` | Port notes. Not the autonomy design. |
 
 ---
@@ -342,8 +335,13 @@ M1 (landed):
 - Slurry research does not change what the index lists. Type-2 tech still gates **auto-mining** Tib.
 - UPS stays flat-ish on a large map: 1 classify / 10 ticks, no automatic full-map re-chew after coverage, overlay dirty-only after toggle-on.
 
-Later autonomy PRs (not this docs PR):
+Step 3 (landed):
 
-- A deployed, fueled miner sent to a patch or home **drives** there (pathfinder / `commandable` / autopilot). No `vehicle.teleport` on that path.
-- Return-home (fuel / full / non-collision damage) is a physical drive back.
-- Stuck / path failure escalates **repath → abandon + other in-range filtered patch → drive home early**, in that order. After cycling that without progress: **global alert** (yellow on the owning depot; red on the unreachable ore deposit, or miner / blocked approach on a home trip with no ore target). Not a silent log. No teleport past the block.
+- A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. Player in the seat pauses AI.
+- `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop).
+- Return-home (fuel / full / non-impact damage) is a physical drive to the **refinery**.
+- Stuck / path failure escalates **repath (3) → other in-range patch (3) → drive home early (3 home repaths)**, then yellow/red global alerts. No teleport past the block.
+
+Later (M2 depot — not this drop):
+
+- Depot entity/GUI, 5-slot filter, spawn loadout, circuit I/O.

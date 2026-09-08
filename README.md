@@ -74,7 +74,7 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.2
 2. New Freeplay / sandbox. **Old World Harvesting** requires **solar energy**. Craft an Ore Truck (2×2 grid) and a Refinery. There is **no Hybrid-drive** item. The Tiberium harvester is unlocked by **Tiberium Harvesting** (requires electric engines) and crafts with electric engines.
 3. Fuel the truck, drive onto iron/copper/coal/stone. The **slave miner** on the hitch should produce **~1.50 ore/s** with no modules (one item about every 40 ticks). Tiberium is **~3.00/s**. Unload when you sit next to the refinery.
 4. SHIFT+E (or click the truck) opens the slave **mining-drill** (starts empty). That GUI is the energy bar: efficiency should lower draw, speed should raise it. Productivity modules should produce bonus ore (native drill prod, not a scripted coin-flip). Recipe solar+battery are **not** in the grid or bay. A charged portable battery should climb the hybrid bar while parked. An empty pool will not mine. Driving must **not** show a moving power pole, accumulator, chest, or floating ore-truck icon square.
-5. Optional: Mods → Startup → **Automatic harvester testing** (restart). That turns on the slow chunk ore/Tiberium index only. The old teleport auto-harvester is disabled. Manual drive / dump is unchanged. `ChunkIndex` is not visible from `/c`; use the remote:
+5. Optional: Mods → Startup → **Automatic harvester testing** (restart). That turns on the slow chunk index **and** physical auto-drive (pathfinder + car physics, no teleport). Sit in a truck to pause AI. Manual dump is unchanged. Remotes:
 
 ```
 /c game.print(serpent.line(remote.call("Red-Alert-Harvester", "chunkindex_stats")))
@@ -82,9 +82,10 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.2
 /c remote.call("Red-Alert-Harvester", "chunkindex_overlay", true)
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
+/c game.print(serpent.line(remote.call('Red-Alert-Harvester','harvester_ai')))
 ```
 
-**Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style **map/minimap** overlay (not the world surface): **all** indexed charted chunks on the viewed surface. Green Tib, **orange** Tib-border+ore, yellow harvester / empty Tib-border, red ore, **dim** purple empty scanned, blank unscanned/fog. The chunk being scanned this tick blinks cyan. If the overlay looks striped, those blanks are still unindexed. Default reseed is **missing-only** (no automatic full-map re-chew). Full refresh is `chunkindex_reseed` + `true` or `chunkindex_reseed_full`. Scanner is **1 chunk / 10 ticks** (~1.85 h for 40k generated). Off destroys the render objects.
+**Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style **map/minimap** overlay (not the world surface): **all** indexed charted chunks on the viewed surface. Green Tib, **orange** Tib-border+ore, yellow harvester / empty Tib-border, red ore, **dim** purple empty scanned, blank unscanned/fog. The chunk being scanned this tick blinks cyan. If the overlay looks striped, those blanks are still unindexed. Default reseed is **missing-only** (no automatic full-map re-chew). Full refresh is `chunkindex_reseed` + `true` or `chunkindex_reseed_full`. Scanner is **1 chunk / 10 ticks** (~1.85 h for 40k generated). Auto-drive assigns from the index within **256 tiles**. Off destroys the overlay render objects.
 
 ## Drive-and-harvest rate
 

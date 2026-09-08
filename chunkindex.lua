@@ -267,7 +267,7 @@ end
 
 function ChunkIndex.enabled()
 	-- One gate: startup Automatic harvester testing. Needs a restart.
-	-- The flag now enables this index only (legacy teleport AI is commented out).
+	-- Enables the index and the physical auto-drive AI (not teleport).
 	return startup_value("Auto-cncharvester-testing") == true
 end
 
@@ -914,6 +914,79 @@ end
 
 function ChunkIndex.lookup(surface_index, x, y)
 	return nest_get(storage.orechunk, surface_index, x, y), nest_get(storage.tibchunk, surface_index, x, y)
+end
+
+function ChunkIndex.chunk_center(x, y)
+	return {x = x * 32 + 16, y = y * 32 + 16}
+end
+
+function ChunkIndex.item_is_tiberium(name)
+	return name and string.find(name, "tiberium", 1, true) ~= nil
+end
+
+-- Index row is assignable if it has a non-empty item the truck may mine.
+-- Ore trucks never take Tib-only chunks. Type-2 may take Tib when allow_tib.
+function ChunkIndex.row_allows_vehicle(ore_row, tib_flag, allow_tib)
+	if not ore_row or ore_row.empty == true then
+		return false
+	end
+	local items = ore_row.items
+	if items then
+		local any = false
+		for name, _ in pairs(items) do
+			any = true
+			if ChunkIndex.item_is_tiberium(name) then
+				if allow_tib then
+					return true
+				end
+			else
+				return true
+			end
+		end
+		if any then
+			return false
+		end
+	end
+	if tib_flag == true then
+		return allow_tib == true
+	end
+	return true
+end
+
+-- Nearest in-range non-empty indexed chunks. exclude[key]=true skips.
+function ChunkIndex.find_ore_chunks(orechunk, tibchunk, si, origin, range_tiles, allow_tib, exclude)
+	local out = {}
+	if not (orechunk and si and origin and range_tiles) then
+		return out
+	end
+	local xs = orechunk[si]
+	if not xs then
+		return out
+	end
+	local range = range_tiles
+	local range_sq = range * range
+	local ox, oy = origin.x, origin.y
+	local tibs = tibchunk and tibchunk[si]
+	for x, ys in pairs(xs) do
+		for y, row in pairs(ys) do
+			local key = ChunkIndex.chunk_key(si, x, y)
+			if not (exclude and exclude[key]) then
+				local tib = tibs and tibs[x] and tibs[x][y] == true
+				if ChunkIndex.row_allows_vehicle(row, tib, allow_tib) then
+					local c = ChunkIndex.chunk_center(x, y)
+					local dx, dy = c.x - ox, c.y - oy
+					local dsq = dx * dx + dy * dy
+					if dsq <= range_sq then
+						out[#out + 1] = {si = si, x = x, y = y, dist_sq = dsq, center = c, tib = tib}
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.dist_sq < b.dist_sq
+	end)
+	return out
 end
 
 function ChunkIndex.debug_stats()

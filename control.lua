@@ -1,5 +1,6 @@
 require "utilities"
 require "chunkindex"
+require "autodrive"
 require "modulebay"
 require "scoop"
 require "hybriddrive"
@@ -33,9 +34,27 @@ remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_reseed_full = function()
 		return ChunkIndex.reseed(true)
 	end,
+	harvester_ai = function()
+		local out = {}
+		for id, h in pairs(storage.cncharvesters or {}) do
+			out[#out + 1] = {
+				id = id,
+				state = h.state,
+				repath_n = h.repath_n,
+				alt_n = h.alt_n,
+				home_repath_n = h.home_repath_n,
+				going_home = h.going_home == true,
+				home_early = h.home_early == true,
+				range = h.search_range,
+				assign = h.assign_cx and {si = h.assign_si, x = h.assign_cx, y = h.assign_cy} or nil,
+			}
+		end
+		return out
+	end,
 })
 
--- Same startup flag ChunkIndex.enabled() reads. Legacy teleport AI below is commented out.
+-- Same startup flag ChunkIndex.enabled() reads. Teleport autonomy stays disabled;
+-- Tick runs physical AutoDrive + ChunkIndex FindingOre when this flag is on.
 local auto_harvester_enabled = settings.startup["Auto-cncharvester-testing"].value
 
 local HARVESTER_NAMES = {
@@ -63,10 +82,9 @@ local function track_harvester(ent)
 	ModuleBay.ensure(ent)
 	HybridDrive.prepare_vehicle(ent)
 	ChunkIndex.watch_harvester(ent)
-	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
-	-- if auto_harvester_enabled and not storage.cncharvesters[ent.unit_number] then
-	-- 	storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
-	-- end
+	if auto_harvester_enabled and not storage.cncharvesters[ent.unit_number] then
+		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
+	end
 end
 
 script.on_init(function()
@@ -80,22 +98,22 @@ script.on_configuration_changed(function()
 	ensure_storage()
 	ModuleBay.attach_existing()
 	ChunkIndex.seed_existing()
-	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
-	-- if not auto_harvester_enabled then
-	-- 	return
-	-- end
-	-- for _, surface in pairs(game.surfaces) do
-	-- 	for _, ent in pairs(surface.find_entities_filtered{name = {"cncharvester", "cncharvester-type2"}}) do
-	-- 		if not storage.cncharvesters[ent.unit_number] then
-	-- 			storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
-	-- 		end
-	-- 	end
-	-- 	for _, ent in pairs(surface.find_entities_filtered{name = "refinery"}) do
-	-- 		if not storage.refineries[ent.unit_number] then
-	-- 			storage.refineries[ent.unit_number] = Refinery.New(ent)
-	-- 		end
-	-- 	end
-	-- end
+	-- legacy teleport AI disabled; physical AutoDrive runs below when the flag is on.
+	if not auto_harvester_enabled then
+		return
+	end
+	for _, surface in pairs(game.surfaces) do
+		for _, ent in pairs(surface.find_entities_filtered{name = {"cncharvester", "cncharvester-type2"}}) do
+			if not storage.cncharvesters[ent.unit_number] then
+				storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
+			end
+		end
+		for _, ent in pairs(surface.find_entities_filtered{name = "refinery"}) do
+			if not storage.refineries[ent.unit_number] then
+				storage.refineries[ent.unit_number] = Refinery.New(ent)
+			end
+		end
+	end
 end)
 
 local function On_Load()
@@ -113,6 +131,7 @@ end
 script.on_load(On_Load)
 
 local function On_Built(event)
+	ensure_storage()
 	local ent = event.entity or event.created_entity or event.destination
 	if not (ent and ent.valid) then return end
 	if HARVESTER_NAMES[ent.name] then
@@ -122,10 +141,9 @@ local function On_Built(event)
 		local player = event.player_index and game.get_player(event.player_index)
 		HybridDrive.on_built(ent, player and player.valid and player or nil)
 	end
-	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
-	-- if ent.name == "refinery" and auto_harvester_enabled then
-	-- 	storage.refineries[ent.unit_number] = Refinery.New(ent)
-	-- end
+	if ent.name == "refinery" and auto_harvester_enabled then
+		storage.refineries[ent.unit_number] = Refinery.New(ent)
+	end
 end
 
 local function On_Removed(event)
@@ -365,25 +383,48 @@ script.on_nth_tick(1, function()
 
 	ChunkIndex.tick()
 
-	-- legacy teleport AI disabled; 2.2.x uses physical driving later; flag now enables ChunkIndex only.
-	-- if auto_harvester_enabled then
-	-- 	if storage.cncharvesters then
-	-- 		for id, harvester in pairs(storage.cncharvesters) do
-	-- 			if harvester.vehicle and harvester.vehicle.valid then
-	-- 				harvester:Tick()
-	-- 			else
-	-- 				storage.cncharvesters[id] = nil
-	-- 			end
-	-- 		end
-	-- 	end
-	-- 	if storage.refineries then
-	-- 		for id, refinery in pairs(storage.refineries) do
-	-- 			if refinery.entity and refinery.entity.valid then
-	-- 				refinery:Tick()
-	-- 			else
-	-- 				storage.refineries[id] = nil
-	-- 			end
-	-- 		end
-	-- 	end
-	-- end
+	if auto_harvester_enabled then
+		if storage.cncharvesters then
+			for id, harvester in pairs(storage.cncharvesters) do
+				if harvester.vehicle and harvester.vehicle.valid then
+					harvester:Tick()
+				else
+					storage.cncharvesters[id] = nil
+				end
+			end
+		end
+		if storage.refineries then
+			for id, refinery in pairs(storage.refineries) do
+				if refinery.entity and refinery.entity.valid then
+					refinery:Tick()
+				else
+					storage.refineries[id] = nil
+				end
+			end
+		end
+	end
+end)
+
+script.on_event(defines.events.on_script_path_request_finished, function(event)
+	local unit_number = AutoDrive.take_request(event.id)
+	if not unit_number then
+		return
+	end
+	local harvester = storage.cncharvesters and storage.cncharvesters[unit_number]
+	if harvester then
+		harvester:OnPathFinished(event)
+	end
+end)
+
+script.on_event(defines.events.on_entity_damaged, function(event)
+	local ent = event.entity
+	if not (ent and ent.valid and HARVESTER_NAMES[ent.name]) then
+		return
+	end
+	local harvester = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
+	if not harvester then
+		return
+	end
+	local dtype = event.damage_type and event.damage_type.name
+	harvester:OnDamaged(dtype)
 end)
