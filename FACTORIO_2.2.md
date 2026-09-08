@@ -87,12 +87,13 @@ If the index is behind generated chunks, missing-only reseed then wait for the 1
 | Color | Meaning |
 | --- | --- |
 | **Green** | Tiberium (`storage.tibchunk` true) |
-| **Yellow** | Tracked harvester on the chunk, or Tib-proximity border (`storage.chunkindex.border` count > 0) |
-| **Red** | Ore (`storage.orechunk` with `empty ~= true`) |
+| **Orange** | Tib-proximity border (`storage.chunkindex.border` count > 0) **and** non-empty ore |
+| **Yellow** | Tracked harvester on the chunk, or empty/no-ore Tib-border watch |
+| **Red** | Ore (`storage.orechunk` with `empty ~= true`), not a Tib border |
 | **Purple** | Empty scanned chunk, not border-flagged |
 | **Blank** | Not indexed yet |
 
-Priority if several match: **green → yellow → red → purple**.
+Priority if several match: **green → orange → yellow → red → purple**. Harvester-on-ore stays yellow (Tib-border + ore is the mix that becomes orange).
 
 **Blink** (~3.75 Hz cyan/white outline pulse) marks the chunk `ChunkIndex.tick` is scanning this budget tick (`storage.chunkindex.scan`). Idle (`queued = 0` / no pop this tick) blinks nothing. The active scan target may blink even if it has no classification yet.
 

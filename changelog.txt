@@ -9,7 +9,7 @@ Date: 2026-09-07
     - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, `chunkindex_overlay`, `chunkindex_reseed`, and `chunkindex_reseed_full` for `/c` (ChunkIndex is not visible in the console sandbox).
     - Scanner cadence: 1 classify / 10 ticks (`BUDGET_PER_TICK` stays 1). ~40k generated chunks ≈ 1.85 h at 60 UPS. Border requeue 10 min, harvester requeue 3 min; both skipped while the queue is draining.
     - `chunkindex_reseed` default is missing-only. Full refresh is opt-in (`true` / `"full"` or `chunkindex_reseed_full`). Player-enter / seed no longer re-queues already-indexed chunks.
-    - Map overlay (Alt+I / shortcut bar) paints **all** indexed charted chunks on the viewed surface (map/minimap only, one `chart` rect). Toggle-on full build; after that dirty/incremental. Unscanned and fog stay blank. Dim purple = empty scanned. Cyan blink is the chunk being scanned.
+    - Map overlay (Alt+I / shortcut bar) paints **all** indexed charted chunks on the viewed surface (map/minimap only, one `chart` rect). Toggle-on full build; after that dirty/incremental. Unscanned and fog stay blank. **Orange** = Tib-border chunk that still has other ore. Yellow = harvester or empty Tib-border. Dim purple = empty scanned. Cyan blink is the chunk being scanned.
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.18
 Date: 2026-09-06

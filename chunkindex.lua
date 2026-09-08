@@ -995,6 +995,7 @@ ChunkIndex.OVERLAY_BLINK_PERIOD = 16
 
 ChunkIndex.OVERLAY_COLORS = {
 	green = {r = 0.12, g = 0.80, b = 0.18, a = 0.30},
+	orange = {r = 1.0, g = 0.55, b = 0.10, a = 0.45},
 	yellow = {r = 0.95, g = 0.82, b = 0.08, a = 0.30},
 	red = {r = 0.88, g = 0.12, b = 0.10, a = 0.30},
 	purple = {r = 0.55, g = 0.18, b = 0.82, a = 0.12},
@@ -1003,13 +1004,18 @@ ChunkIndex.OVERLAY_COLORS = {
 	outline_dim = {r = 0.45, g = 0.90, b = 1.0, a = 0.55},
 }
 
--- Priority: green (Tib) → yellow (harvester or border) → red (ore) → purple (empty scanned).
--- nil = unscanned / no draw.
+-- Priority: green (Tib) → orange (Tib-border + ore) → yellow (harvester or empty border)
+-- → red (ore) → purple (empty scanned). nil = unscanned / no draw.
 function ChunkIndex.overlay_class(ore_row, tib_flag, border_count, has_harvester)
 	if tib_flag == true then
 		return "green"
 	end
-	if has_harvester or (border_count or 0) > 0 then
+	local on_border = (border_count or 0) > 0
+	local has_ore = ore_row ~= nil and ore_row.empty ~= true
+	if on_border and has_ore then
+		return "orange"
+	end
+	if has_harvester or on_border then
 		return "yellow"
 	end
 	if ore_row then
@@ -1609,6 +1615,11 @@ function ChunkIndex.overlay_tick()
 	if not st.overlay_chart_only then
 		ChunkIndex.overlay_clear()
 		st.overlay_chart_only = true
+		st.overlay_full = true
+	end
+	-- One-shot: pick up orange (Tib-border + ore) without waiting for idle reconcile.
+	if not st.overlay_orange then
+		st.overlay_orange = true
 		st.overlay_full = true
 	end
 	local _, harvest_list = harvester_chunk_set()
