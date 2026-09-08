@@ -164,6 +164,7 @@ Behavior:
   - Pause-on-enter **on:** freeze assignment (cancel pending path; do not path in the background). Resume / repath on exit if auto is still on.
   - Pause-on-enter **off (default):** still yield controls; keep assignment/path; repath on exit if auto is on.
 - Toggles can be flipped while sitting (open inventory with E).
+- **Do not write these fields in `on_load`.** Factorio CRC-checks `storage` and will refuse the save (`Detected modifications to the 'storage' table`). Missing keys mean auto ON / pause OFF until a later mutable event (tick / GUI) writes them.
 
 ### Suggested storage shape (implementer hint, not frozen)
 

@@ -122,24 +122,37 @@ cncharvester = {
 	end,
 
 	Onload = function(self)
+		-- Factorio forbids mutating `storage` in on_load (CRC before/after).
+		-- Rebind the metatable only. Field defaults are read-time or AfterLoad
+		-- (first tick / on_configuration_changed).
 		setmetatable(self, {__index = cncharvester})
-		-- 2.0 cannot persist functions in storage; drop any leftover 1.1 callback.
-		self.onArrivalCallback = nil
+	end,
+
+	-- Allowed to write storage. Call from on_configuration_changed or the
+	-- first tick after on_load, never from on_load itself.
+	AfterLoad = function(self)
 		-- Path request ids do not survive save/load.
-		self.path_id = nil
-		self.path = self.path or nil
-		self.failed_chunks = self.failed_chunks or {}
-		self.repath_n = self.repath_n or 0
-		self.alt_n = self.alt_n or 0
-		self.home_repath_n = self.home_repath_n or 0
-		self.search_range = self.search_range or AutoDrive.RANGE_TILES
-		-- nil → ON so existing tester saves keep auto. false must persist.
-		if self.auto_enabled == nil then
-			self.auto_enabled = true
+		if self.path_id then
+			AutoDrive.take_request(self.path_id)
+			self.path_id = nil
 		end
-		if self.pause_on_enter == nil then
-			self.pause_on_enter = false
+		if self.failed_chunks == nil then
+			self.failed_chunks = {}
 		end
+		if self.repath_n == nil then
+			self.repath_n = 0
+		end
+		if self.alt_n == nil then
+			self.alt_n = 0
+		end
+		if self.home_repath_n == nil then
+			self.home_repath_n = 0
+		end
+		if self.search_range == nil then
+			self.search_range = AutoDrive.RANGE_TILES
+		end
+		-- auto_enabled / pause_on_enter: do not write. nil means ON / OFF
+		-- via auto_on() and `pause_on_enter == true`.
 	end,
 
 	auto_on = function(self)

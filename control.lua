@@ -103,6 +103,11 @@ script.on_configuration_changed(function()
 	ModuleBay.attach_existing()
 	ChunkIndex.seed_existing()
 	-- legacy teleport AI disabled; physical AutoDrive runs below when the flag is on.
+	if storage.cncharvesters then
+		for _, harvester in pairs(storage.cncharvesters) do
+			harvester:AfterLoad()
+		end
+	end
 	if not auto_harvester_enabled then
 		return
 	end
@@ -120,6 +125,10 @@ script.on_configuration_changed(function()
 	end
 end)
 
+-- Factorio: on_load must not mutate `storage` (CRC before/after). Stale
+-- pathfinder ids are dropped on the first tick, not here.
+local after_load_migrate = false
+
 local function On_Load()
 	if storage.refineries then
 		for _, refinery in pairs(storage.refineries) do
@@ -131,8 +140,22 @@ local function On_Load()
 			cncharvester.Onload(harvester)
 		end
 	end
+	after_load_migrate = true
 end
 script.on_load(On_Load)
+
+local function migrate_after_load()
+	if not after_load_migrate then
+		return
+	end
+	after_load_migrate = false
+	if not storage.cncharvesters then
+		return
+	end
+	for _, harvester in pairs(storage.cncharvesters) do
+		harvester:AfterLoad()
+	end
+end
 
 local function On_Built(event)
 	ensure_storage()
@@ -369,6 +392,7 @@ end
 -- Hybrid pool, slave-miner feed, and hitch teleport run every tick.
 script.on_nth_tick(1, function()
 	ensure_storage()
+	migrate_after_load()
 
 	for _, player in pairs(game.connected_players) do
 		local vehicle = player.vehicle

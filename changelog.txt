@@ -6,6 +6,8 @@ Date: 2026-09-07
     - Startup setting Automatic harvester testing (`Auto-cncharvester-testing`) enables the slow chunk ore/Tiberium index **and** physical auto-drive. Restart required. Default off.
     - Auto-drive: `LuaSurface.request_path` + car `riding_state` (Factorio 2.0 cars are not commandable). `FindingOre` reads ChunkIndex within 256 tiles. Full/fuel-low/non-impact damage drive to the refinery. Stuck: 3 repaths → 3 alternate patches → drive home; then yellow/red alerts. No teleport.
     - Per-truck inventory toggles (left of the car GUI): **Automatic operation** (default on for tracked trucks) and **Pause when somebody jumps in** (default off). Hidden unless Automatic harvester testing is on. Persisted on the harvester. While a player is in the seat, auto-drive never writes `riding_state` (manual drive works). Toggles can be flipped without leaving the truck.
+  Bugfixes:
+    - Loading a save no longer crashes `on_load()` with a storage CRC mismatch (`CRC before` / `CRC after`). `on_load` only rebinds metatables; auto-toggle defaults are read-time (`auto_enabled ~= false`, `pause_on_enter == true`). Stale path ids migrate on the first tick.
     - Legacy per-truck teleport auto-harvester is not used. Manual drive, hitch, scoop, hybrid, and refinery dump are unchanged when a player is in the seat. No depot / circuit I/O yet.
     - Index: one generated chunk per tick, item-name classify, Tib refcount border-rescan, chunk-delete cleanup. Optional Factorio-Tiberium 2.0.x; boots without it.
     - Remote interface `Red-Alert-Harvester` exposes `chunkindex_stats`, `chunkindex_enabled`, `chunkindex_overlay`, `chunkindex_reseed`, `chunkindex_reseed_full`, and `harvester_ai` for `/c`.
