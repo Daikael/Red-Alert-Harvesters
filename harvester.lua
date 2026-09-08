@@ -153,6 +153,7 @@ cncharvester = {
 		end
 		-- auto_enabled / pause_on_enter: do not write. nil means ON / OFF
 		-- via auto_on() and `pause_on_enter == true`.
+		self:KickAuto()
 	end,
 
 	auto_on = function(self)
@@ -168,17 +169,41 @@ cncharvester = {
 		self.path_index = 1
 	end,
 
-	RepathCurrentAssignment = function(self)
+	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
+	-- calls PickIndexTarget / StartDrive. Never call while occupied.
+	KickAuto = function(self)
 		if not self:auto_on() then
 			return
 		end
 		if AutoDrive.player_occupying(self.vehicle) then
 			return
 		end
-		if self.state == States.MovingToLocation and self.targetPosition then
-			local radius = self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE
-			self:StartDrive(self.targetPosition, self.arrival_state, radius)
+		local st = self.state
+		if st == States.MovingToLocation then
+			if self.targetPosition then
+				local radius = self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE
+				self:StartDrive(self.targetPosition, self.arrival_state, radius)
+			else
+				self.state = States.FindingOre
+			end
+			return
 		end
+		if st == States.FindingOre
+		or st == States.FindingRefinery
+		or st == States.FindingRefuelRefinery
+		or st == States.MiningOre
+		or st == States.DroppingOre
+		or st == States.Refueling
+		or st == States.Animating then
+			return
+		end
+		if not self.path and not self.path_id then
+			self.state = States.FindingOre
+		end
+	end,
+
+	RepathCurrentAssignment = function(self)
+		self:KickAuto()
 	end,
 
 	OnOccupancyChanged = function(self, occupied)
@@ -190,8 +215,8 @@ cncharvester = {
 				-- Freeze assignment: do not keep pathing in the background.
 				self:CancelPendingPath()
 			end
-		elseif self:auto_on() then
-			self:RepathCurrentAssignment()
+		else
+			self:KickAuto()
 		end
 	end,
 
@@ -204,8 +229,8 @@ cncharvester = {
 			if not AutoDrive.player_occupying(self.vehicle) then
 				AutoDrive.release(self.vehicle)
 			end
-		elseif on and not was then
-			self:RepathCurrentAssignment()
+		elseif on then
+			self:KickAuto()
 		end
 	end,
 

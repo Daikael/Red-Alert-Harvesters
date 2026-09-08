@@ -88,49 +88,61 @@ function AutoDrive.allow_tib(vehicle)
 	return AutoDrive.tib_tech_researched(vehicle.force)
 end
 
+-- LuaPlayer in the seat, or a character that has a connected player.
+-- Do not call the LuaControl is_player method: it is only true for LuaPlayer
+-- objects, and a pcall-true on the wrong object would stick occupying.
 local function occupant_is_player(obj)
-	if not obj then
+	if obj == nil then
 		return false
 	end
 	if obj.object_name == "LuaPlayer" then
-		return true
+		return obj.valid ~= false
 	end
-	if type(obj.is_player) == "function" then
-		local ok, yes = pcall(function()
-			return obj:is_player()
-		end)
-		if ok and yes then
+	if obj.valid then
+		local p = obj.player
+		if p and p.valid then
 			return true
 		end
-	end
-	if obj.valid and obj.player and obj.player.valid then
-		return true
 	end
 	return false
 end
 
--- True if a player is in this vehicle (driver or passenger). Prefer this
--- over get_driver() alone: never write riding_state while occupied.
+local function seat_occupant(vehicle, getter)
+	if not getter then
+		return nil
+	end
+	local ok, occupant = pcall(function()
+		return getter(vehicle)
+	end)
+	if ok then
+		return occupant
+	end
+	ok, occupant = pcall(getter)
+	if ok then
+		return occupant
+	end
+	return nil
+end
+
+-- True only if a player is actually in this vehicle. Empty trucks must be
+-- false so Tick / StartDrive / riding_state can run.
 function AutoDrive.player_occupying(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
 	end
-	if vehicle.get_driver and occupant_is_player(vehicle.get_driver()) then
+	if occupant_is_player(seat_occupant(vehicle, vehicle.get_driver)) then
 		return true
 	end
-	if vehicle.get_passenger and occupant_is_player(vehicle.get_passenger()) then
+	if occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger)) then
 		return true
 	end
-	local players = game and (game.connected_players or game.players)
+	local players = game and game.connected_players
 	if not players then
 		return false
 	end
-	local id = vehicle.unit_number
 	for _, player in pairs(players) do
-		if player.valid and player.vehicle and player.vehicle.valid then
-			if player.vehicle == vehicle or (id and player.vehicle.unit_number == id) then
-				return true
-			end
+		if player.valid and player.driving and player.vehicle and player.vehicle.valid and player.vehicle == vehicle then
+			return true
 		end
 	end
 	return false

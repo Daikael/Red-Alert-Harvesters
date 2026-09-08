@@ -38,18 +38,26 @@ remote.add_interface("Red-Alert-Harvester", {
 	harvester_ai = function()
 		local out = {}
 		for id, h in pairs(storage.cncharvesters or {}) do
+			local veh = h.vehicle
+			local veh_ok = veh and veh.valid
+			local occupying = veh_ok and AutoDrive.player_occupying(veh) or false
+			local auto_on = h.auto_enabled ~= false
 			out[#out + 1] = {
 				id = id,
 				state = h.state,
+				auto_enabled = h.auto_enabled,
+				auto_on = auto_on,
+				pause_on_enter = h.pause_on_enter == true,
+				occupied = occupying,
+				path_id = h.path_id,
+				has_path = h.path ~= nil,
+				fuel_ok = veh_ok and HybridDrive.has_usable_energy(veh) or false,
 				repath_n = h.repath_n,
 				alt_n = h.alt_n,
 				home_repath_n = h.home_repath_n,
 				going_home = h.going_home == true,
 				home_early = h.home_early == true,
 				range = h.search_range,
-				auto_enabled = h.auto_enabled ~= false,
-				pause_on_enter = h.pause_on_enter == true,
-				occupied = h.occupied == true,
 				assign = h.assign_cx and {si = h.assign_si, x = h.assign_cx, y = h.assign_cy} or nil,
 			}
 		end
@@ -90,6 +98,7 @@ local function track_harvester(ent)
 		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
 	end
 end
+AutoPanel.track_vehicle = track_harvester
 
 script.on_init(function()
 	ensure_storage()
@@ -322,9 +331,9 @@ script.on_event(defines.events.on_gui_closed, function(event)
 	if ModuleBay.NAMES[ent.name] then
 		ModuleBay.close_draw_gui(player)
 	end
-	if HARVESTER_NAMES[ent.name] then
-		AutoPanel.destroy(player)
-	end
+	-- Do not destroy the auto panel here. Factorio fires
+	-- on_gui_checked_state_changed(false) while destroying checkboxes, which
+	-- used to SetAutoEnabled(false) and permanently stop unmanned AI.
 end)
 
 script.on_event(defines.events.on_gui_checked_state_changed, function(event)
