@@ -196,7 +196,7 @@ data:extend({
 		collision_mask = {layers = {["cncharvester-peer"] = true}},
 		picture = {
 			filename = "__core__/graphics/empty.png",
-			priority = "extra-low",
+			priority = "very-low",
 			width = 1,
 			height = 1,
 		},

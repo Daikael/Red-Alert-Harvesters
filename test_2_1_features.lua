@@ -619,6 +619,8 @@ expect(drive_src:find("allow_destroy_friendly_entities = false", 1, true) ~= nil
 expect(drive_src:find("entity_to_ignore = entity", 1, true) ~= nil, "pathfinder ignores only self")
 expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('type = "collision-layer"', 1, true) ~= nil, "private peer collision layer exists")
 expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('name = "cncharvester-path-blocker"', 1, true) ~= nil, "path-blocker prototype exists")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find("extra-low", 1, true) == nil, "path-blocker does not use invalid extra-low sprite priority")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('priority = "very-low"', 1, true) ~= nil, "path-blocker sprite priority is very-low")
 expect(io.open("harvester.lua"):read("*a"):find("peer_blocks_assignment", 1, true) ~= nil, "PickIndexTarget skips peer-occupied chunks")
 expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "paths through a sibling are rejected")
 expect(io.open("harvester.lua"):read("*a"):find("blocked_by_peer", 1, true) ~= nil, "Tick brakes instead of ramming a sibling")
