@@ -50,6 +50,8 @@ remote.add_interface("Red-Alert-Harvester", {
 				pause_on_enter = h.pause_on_enter == true,
 				seat_locked = auto_on and h.pause_on_enter ~= true,
 				occupied = occupying,
+				is_driver = veh_ok and AutoDrive.player_is_driver(veh) or false,
+				is_passenger = occupying and not (veh_ok and AutoDrive.player_is_driver(veh)),
 				path_id = h.path_id,
 				has_path = h.path ~= nil,
 				fuel_ok = veh_ok and HybridDrive.has_usable_energy(veh) or false,
@@ -278,9 +280,12 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 		local player = event.player_index and game.get_player(event.player_index)
 		local h = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if h then
-			-- No eject. Auto on + pause off: player may sit; AI keeps steering.
-			local occupying = AutoDrive.player_occupying(ent)
-			local yield = occupying and h.pause_yields and h:pause_yields()
+			-- Demote driver to passenger when auto owns the wheel. Stay aboard.
+			if h.MaybeDemoteDriver then
+				h:MaybeDemoteDriver()
+			end
+			local driving = AutoDrive.player_is_driver(ent)
+			local yield = driving and h.pause_yields and h:pause_yields()
 			if yield ~= h.occupied then
 				h.occupied = yield
 				h:OnOccupancyChanged(yield)

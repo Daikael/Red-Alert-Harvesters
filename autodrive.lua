@@ -3,8 +3,9 @@
 -- autopilot_destination does not exist on these prototypes. Movement is
 -- LuaSurface.request_path + riding_state (real car physics, collisions).
 -- Never vehicle.teleport / heading-step fakes.
--- Auto ON overwrites riding_state even if a player occupies (pause-on-enter
--- is the only yield).
+-- Auto ON writes riding_state with an empty driver seat. A player in the
+-- driver seat beats scripted riding_state (WASD/controller joyride), so
+-- demote them to passenger. Pause-on-enter is the only driver-seat yield.
 
 AutoDrive = AutoDrive or {}
 
@@ -133,8 +134,7 @@ local function seat_occupant(vehicle, getter)
 	return nil
 end
 
--- True only if a player is actually in this vehicle. Empty trucks must be
--- false so Tick / StartDrive / riding_state can run.
+-- True only if a player is actually in this vehicle (driver or passenger).
 function AutoDrive.player_occupying(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
@@ -157,12 +157,91 @@ function AutoDrive.player_occupying(vehicle)
 	return false
 end
 
+function AutoDrive.player_is_driver(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	return occupant_is_player(seat_occupant(vehicle, vehicle.get_driver))
+end
+
+local function occupant_as_rider(obj)
+	if obj == nil then
+		return nil, nil
+	end
+	if obj.object_name == "LuaPlayer" and obj.valid ~= false then
+		return obj, obj.character
+	end
+	if obj.valid then
+		local p = obj.player
+		if p and p.valid then
+			return p, obj
+		end
+	end
+	return nil, nil
+end
+
+-- Factorio gives the driver seat priority over scripted riding_state.
+-- Demote the player to passenger so they stay aboard but cannot steer.
+-- Never assign player.driving to false (that dumps them on the ground).
+-- Returns "passenger", "ground", or false.
+function AutoDrive.demote_driver_to_passenger(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	if not AutoDrive.player_is_driver(vehicle) then
+		return false
+	end
+	local driver = seat_occupant(vehicle, vehicle.get_driver)
+	local player, character = occupant_as_rider(driver)
+	if not player then
+		return false
+	end
+	local allow_passengers = true
+	local ok_proto, proto = pcall(function()
+		return vehicle.prototype
+	end)
+	if ok_proto and proto and proto.allow_passengers == false then
+		allow_passengers = false
+	end
+	-- Empty the driver seat so AI riding_state can win. Prefer passenger
+	-- immediately after; ground only if this car cannot take a passenger.
+	pcall(function()
+		vehicle.set_driver(nil)
+	end)
+	if allow_passengers then
+		local rider = character or player
+		pcall(function()
+			vehicle.set_passenger(rider)
+		end)
+		if occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger)) then
+			if AutoDrive.player_is_driver(vehicle) then
+				pcall(function()
+					vehicle.set_driver(nil)
+				end)
+			end
+			return "passenger"
+		end
+		pcall(function()
+			vehicle.set_passenger(player)
+		end)
+		if occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger)) then
+			if AutoDrive.player_is_driver(vehicle) then
+				pcall(function()
+					vehicle.set_driver(nil)
+				end)
+			end
+			return "passenger"
+		end
+	end
+	return "ground"
+end
+
 function AutoDrive.player_driving(vehicle)
 	return AutoDrive.player_occupying(vehicle)
 end
 
--- Auto ON owns the wheel unless pause-on-enter is yielding. Occupying must
--- not no-op riding_state or WASD "wins" and auto looks bricked.
+-- Auto ON owns the wheel unless pause-on-enter AND a player is the driver.
+-- A passenger must not block riding_state.
 function AutoDrive.ai_may_steer(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
@@ -170,12 +249,12 @@ function AutoDrive.ai_may_steer(vehicle)
 	local h = storage and storage.cncharvesters and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
 	local auto_on = h and h.auto_enabled ~= false
 	if auto_on then
-		if AutoDrive.player_occupying(vehicle) and h.pause_on_enter == true then
+		if AutoDrive.player_is_driver(vehicle) and h.pause_on_enter == true then
 			return false
 		end
 		return true
 	end
-	return not AutoDrive.player_occupying(vehicle)
+	return not AutoDrive.player_is_driver(vehicle)
 end
 
 local function write_riding(vehicle, acceleration, direction)

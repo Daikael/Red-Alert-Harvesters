@@ -96,6 +96,7 @@ for i=1,2 do
 		turret_rotation_speed = 0.01,
 		turret_return_timeout = 300,
 		tank_driving = true,
+		allow_passengers = true,
 		--guns = {"tank-machine-gun"},
 		--automatic_weapon_cycling = true,
 		--chain_shooting_cooldown_modifier = 0.5,

@@ -160,15 +160,35 @@ cncharvester = {
 		return self.auto_enabled ~= false
 	end,
 
-	-- Pause ON is the only yield. Auto ON + pause OFF: AI keeps the wheel
-	-- even if a player is in the seat (input lock, no eject).
+	-- Pause ON is the only yield, and only for the driver seat.
+	-- Auto ON + pause OFF: demote driver to passenger; AI keeps the wheel.
 	pause_yields = function(self)
 		return self:auto_on() and self.pause_on_enter == true
 	end,
 
-	-- Auto ON + pause OFF: WASD ignored. Debug/remote only — not an eject.
+	-- Auto ON + pause OFF: driver seat is locked (passenger is fine).
 	seat_locked = function(self)
 		return self:auto_on() and self.pause_on_enter ~= true
+	end,
+
+	MaybeDemoteDriver = function(self)
+		if not self:seat_locked() then
+			return false
+		end
+		if not AutoDrive.player_is_driver(self.vehicle) then
+			return false
+		end
+		local result = AutoDrive.demote_driver_to_passenger(self.vehicle)
+		local now = game and game.tick or 0
+		if (self.demote_text_tick or 0) + FLOATING_TEXT_TOGGLE_TTL <= now then
+			self.demote_text_tick = now
+			if result == "ground" then
+				self:NotifyToggle({"cncharvester.auto-no-passenger"})
+			else
+				self:NotifyToggle({"cncharvester.auto-passenger"})
+			end
+		end
+		return result ~= false
 	end,
 
 	NotifyToggle = function(self, text)
@@ -210,13 +230,13 @@ cncharvester = {
 	end,
 
 	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
-	-- calls PickIndexTarget / StartDrive. Occupied + pause ON yields; auto ON
-	-- otherwise must keep driving even with a player in the seat.
+	-- calls PickIndexTarget / StartDrive. Driver + pause ON yields; a
+	-- passenger must never skip this.
 	KickAuto = function(self)
 		if not self:auto_on() then
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
+		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
 			return
 		end
 		local st = self.state
@@ -278,6 +298,7 @@ cncharvester = {
 				AutoDrive.release(self.vehicle)
 			end
 		elseif on then
+			self:MaybeDemoteDriver()
 			self:KickAuto()
 		end
 	end,
@@ -285,12 +306,13 @@ cncharvester = {
 	SetPauseOnEnter = function(self, enabled)
 		self.pause_on_enter = enabled and true or false
 		self:NotifyToggle(self.pause_on_enter and {"cncharvester.pause-toggled-on"} or {"cncharvester.pause-toggled-off"})
-		if self:pause_yields() and AutoDrive.player_occupying(self.vehicle) then
+		if self:pause_yields() and AutoDrive.player_is_driver(self.vehicle) then
 			self:CancelPendingPath()
 			if self.vehicle and self.vehicle.valid then
 				AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
 			end
 		elseif self:auto_on() then
+			self:MaybeDemoteDriver()
 			self:KickAuto()
 		end
 	end,
@@ -300,9 +322,12 @@ cncharvester = {
 			return
 		end
 
-		local occupying = AutoDrive.player_occupying(self.vehicle)
-		-- Hard rule: auto_on ⇒ keep the wheel unless pause-on-enter is ON.
-		local yield = occupying and self:pause_yields()
+		-- Passenger must not steal the wheel; demote driver every tick.
+		self:MaybeDemoteDriver()
+
+		local driving = AutoDrive.player_is_driver(self.vehicle)
+		-- Hard rule: auto_on ⇒ keep the wheel unless pause-on-enter AND driver.
+		local yield = driving and self:pause_yields()
 		if yield ~= self.occupied then
 			self.occupied = yield
 			self:OnOccupancyChanged(yield)
@@ -524,7 +549,7 @@ cncharvester = {
 		if not self:auto_on() then
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) then
+		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
 			return
 		end
 		if self:is_home_state() or self.going_home then
@@ -633,8 +658,8 @@ cncharvester = {
 		if not self:auto_on() then
 			return
 		end
-		-- Occupying must not block the path while auto owns the wheel.
-		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
+		-- A passenger must not block the path. Only pause + driver yields.
+		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
 			return
 		end
 		self.targetPosition = position
@@ -728,7 +753,7 @@ cncharvester = {
 			self.path = nil
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
+		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
 			self.path = nil
 			return
 		end
