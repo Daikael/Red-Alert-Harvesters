@@ -278,8 +278,7 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 		local player = event.player_index and game.get_player(event.player_index)
 		local h = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if h then
-			-- Cargo-wagon lock: refuse the seat immediately. Do not write
-			-- auto_enabled or drop the tracked record.
+			-- Eject is a nicety when pause is off. Never write auto_enabled.
 			if player and player.valid and h.seat_locked and h:seat_locked() then
 				AutoDrive.eject_player(player)
 			end
@@ -287,7 +286,7 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 				h:MaybeEjectLockedSeat()
 			end
 			local occupying = AutoDrive.player_occupying(ent)
-			local yield = occupying and not (h.seat_locked and h:seat_locked())
+			local yield = occupying and h.pause_yields and h:pause_yields()
 			if yield ~= h.occupied then
 				h.occupied = yield
 				h:OnOccupancyChanged(yield)
@@ -350,6 +349,10 @@ end)
 
 script.on_event(defines.events.on_gui_checked_state_changed, function(event)
 	AutoPanel.on_checked(event)
+end)
+
+script.on_event(defines.events.on_gui_click, function(event)
+	AutoPanel.on_click(event)
 end)
 
 local function unload_near_refinery(vehicle)
@@ -452,8 +455,10 @@ script.on_nth_tick(1, function()
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
 			local h = storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
-			local locked = h and h.auto_enabled ~= false and h.pause_on_enter ~= true
-			if locked then
+			local auto_on = h and h.auto_enabled ~= false
+			local pause = h and h.pause_on_enter == true
+			if auto_on and not pause then
+				-- Auto owns the wheel. Eject is optional; do not player-scoop.
 				AutoDrive.eject_player(player)
 			else
 				drive_harvest(player, vehicle)

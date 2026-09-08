@@ -1,9 +1,10 @@
 -- Per-harvester auto-drive toggles on the car inventory (relative GUI).
 -- Factorio 2.0: player.gui.relative + defines.relative_gui_type.car_gui.
 --
--- Do not destroy checkboxes on inventory close. Factorio fires
--- on_gui_checked_state_changed with state=false while destroying the
--- element; that used to SetAutoEnabled(false) and left unmanned trucks idle.
+-- Never write auto_enabled from on_gui_checked_state_changed. Closing,
+-- destroying, or entering a car fires state=false on those checkboxes
+-- while the inventory is still "open", which used to SetAutoEnabled(false).
+-- Real toggles apply only from on_gui_click while the car GUI is open.
 
 AutoPanel = AutoPanel or {}
 
@@ -17,12 +18,10 @@ local HARVESTER_NAMES = {
 }
 
 -- Nested while creating/syncing/destroying so those .state writes are not
--- treated as a player click. Also ignore checked events for a few ticks after
--- a sync: Factorio queues them until after with_ignore returns, and entering
--- a car opens the inventory (that used to SetAutoEnabled(false) on any input
--- and left auto off until the truck was replaced).
+-- treated as a player click.
 local ignore_checked = 0
 local last_sync_tick = {}
+local pending_click = {}
 local SYNC_GRACE_TICKS = 2
 
 local function testing_on()
@@ -53,6 +52,14 @@ local function opened_harvester(player)
 		return opened
 	end
 	return nil
+end
+
+local function in_sync_grace(player_index)
+	if not (game and player_index) then
+		return false
+	end
+	local synced = last_sync_tick[player_index]
+	return synced ~= nil and game.tick <= synced + SYNC_GRACE_TICKS
 end
 
 function AutoPanel.destroy(player)
@@ -180,15 +187,76 @@ function AutoPanel.sync_viewers(vehicle)
 	end
 end
 
+local function apply_toggle(el, player)
+	if ignore_checked > 0 then
+		return false
+	end
+	if player and player.valid and in_sync_grace(player.index) then
+		return false
+	end
+	if not (el and el.valid) then
+		return false
+	end
+	if el.name ~= AUTO_CB and el.name ~= PAUSE_CB then
+		return false
+	end
+	-- Only apply while the car inventory is genuinely open.
+	local vehicle = opened_harvester(player)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	local tags = el.tags
+	if tags and tags.unit_number and tags.unit_number ~= vehicle.unit_number then
+		return false
+	end
+	if AutoPanel.track_vehicle then
+		AutoPanel.track_vehicle(vehicle)
+	end
+	local h = storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
+	if not h then
+		return false
+	end
+	if el.name == AUTO_CB then
+		local want = el.state and true or false
+		if want == (h.auto_enabled ~= false) then
+			return true
+		end
+		h:SetAutoEnabled(want, "player_checkbox")
+	else
+		local want = el.state and true or false
+		if want == (h.pause_on_enter == true) then
+			return true
+		end
+		h:SetPauseOnEnter(want)
+	end
+	AutoPanel.sync_viewers(vehicle)
+	return true
+end
+
+-- User click is the only path that may write auto_enabled.
+function AutoPanel.on_click(event)
+	local el = event.element
+	if not (el and el.valid) then
+		return
+	end
+	if el.name ~= AUTO_CB and el.name ~= PAUSE_CB then
+		return
+	end
+	local player = event.player_index and game.get_player(event.player_index)
+	if event.player_index then
+		pending_click[event.player_index] = {
+			name = el.name,
+			tick = game and game.tick or 0,
+		}
+	end
+	apply_toggle(el, player)
+end
+
+-- Destroy/close/enter fire this with state=false. Never write storage from
+-- a checked event unless it is the same tick as a real click.
 function AutoPanel.on_checked(event)
 	if ignore_checked > 0 then
 		return
-	end
-	if game and event.player_index then
-		local synced = last_sync_tick[event.player_index]
-		if synced and game.tick <= synced + SYNC_GRACE_TICKS then
-			return
-		end
 	end
 	local el = event.element
 	if not (el and el.valid) then
@@ -197,36 +265,28 @@ function AutoPanel.on_checked(event)
 	if el.name ~= AUTO_CB and el.name ~= PAUSE_CB then
 		return
 	end
-	-- Only apply while the car inventory is genuinely open. Closing/destroying
-	-- the relative GUI must not write auto_enabled (Factorio sends state=false).
-	local player = event.player_index and game.get_player(event.player_index)
-	local vehicle = opened_harvester(player)
-	if not (vehicle and vehicle.valid) then
+	local pending = event.player_index and pending_click[event.player_index]
+	local same_click = pending
+		and pending.name == el.name
+		and game
+		and pending.tick == game.tick
+	if same_click then
+		pending_click[event.player_index] = nil
+		local player = game.get_player(event.player_index)
+		apply_toggle(el, player)
 		return
 	end
-	local tags = el.tags
-	if tags and tags.unit_number and tags.unit_number ~= vehicle.unit_number then
+	if in_sync_grace(event.player_index) then
 		return
 	end
-	if AutoPanel.track_vehicle then
-		AutoPanel.track_vehicle(vehicle)
-	end
-	local h = storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
-	if not h then
-		return
-	end
-	if el.name == AUTO_CB then
-		local want = el.state and true or false
-		if want == (h.auto_enabled ~= false) then
-			return
+	if el.name == AUTO_CB and el.state ~= true then
+		local player = event.player_index and game.get_player(event.player_index)
+		local vehicle = opened_harvester(player)
+		local h = vehicle and storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
+		if h and h.NoteUnauthorizedAutoOff then
+			h:NoteUnauthorizedAutoOff("gui-checked")
+		else
+			log("Red-Alert-Harvester: ignored checkbox uncheck without a click")
 		end
-		h:SetAutoEnabled(want)
-	else
-		local want = el.state and true or false
-		if want == (h.pause_on_enter == true) then
-			return
-		end
-		h:SetPauseOnEnter(want)
 	end
-	AutoPanel.sync_viewers(vehicle)
 end

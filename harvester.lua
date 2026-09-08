@@ -96,8 +96,8 @@ cncharvester = {
 
 			-- Per-truck (not a global startup setting). Default auto ON so
 			-- testers with Automatic harvester testing already on keep AI.
-			-- Pause-on-enter default OFF: lock the seat (cargo wagon). Pause
-			-- ON is the only way to sit while auto is running.
+			-- Pause-on-enter default OFF: auto keeps the wheel (input ignored).
+			-- Pause ON is the only way to sit and yield while auto is running.
 			auto_enabled = true,
 			pause_on_enter = false,
 			occupied = false,
@@ -160,8 +160,13 @@ cncharvester = {
 		return self.auto_enabled ~= false
 	end,
 
-	-- Auto ON + pause-on-enter OFF: seat is locked (cargo wagon). Pause ON
-	-- is the only way to take the wheel while auto is running.
+	-- Pause ON is the only yield. Auto ON + pause OFF: AI keeps the wheel
+	-- even if a player is somehow in the seat.
+	pause_yields = function(self)
+		return self:auto_on() and self.pause_on_enter == true
+	end,
+
+	-- Auto ON + pause OFF: optional cargo-wagon eject. Not what keeps AI alive.
 	seat_locked = function(self)
 		return self:auto_on() and self.pause_on_enter ~= true
 	end,
@@ -179,8 +184,17 @@ cncharvester = {
 			self.eject_text_tick = now
 			self:FloatingText({"cncharvester.auto-locked"}, {r = 0.9, g = 0.8, b = 0.3}, 90)
 		end
-		self.occupied = false
 		return true
+	end,
+
+	NoteUnauthorizedAutoOff = function(self, why)
+		local reason = tostring(why or "unknown")
+		log("Red-Alert-Harvester: refused auto_enabled=false (" .. reason .. ")")
+		local now = game and game.tick or 0
+		if (self.refuse_text_tick or 0) + 180 <= now then
+			self.refuse_text_tick = now
+			self:FloatingText({"cncharvester.auto-off-blocked", reason}, {r = 1, g = 0.55, b = 0.2}, 120)
+		end
 	end,
 
 	CancelPendingPath = function(self)
@@ -193,13 +207,13 @@ cncharvester = {
 	end,
 
 	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
-	-- calls PickIndexTarget / StartDrive. Occupied + pause ON yields; seat
-	-- lock (pause OFF) must not skip this or input looks like it bricked AI.
+	-- calls PickIndexTarget / StartDrive. Occupied + pause ON yields; auto ON
+	-- otherwise must keep driving even with a player in the seat.
 	KickAuto = function(self)
 		if not self:auto_on() then
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) and not self:seat_locked() then
+		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
 			return
 		end
 		local st = self.state
@@ -231,16 +245,16 @@ cncharvester = {
 	end,
 
 	OnOccupancyChanged = function(self, occupied)
-		if occupied and self:MaybeEjectLockedSeat() then
-			-- Bounce-eject: do not cancel the path or clear auto_enabled.
+		-- Occupancy must never write auto_enabled.
+		if occupied and self:seat_locked() then
+			self:MaybeEjectLockedSeat()
 			return
 		end
 		if self.vehicle and self.vehicle.valid then
 			AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
 		end
 		if occupied then
-			if self.pause_on_enter == true then
-				-- Freeze assignment: do not keep pathing in the background.
+			if self:pause_yields() then
 				self:CancelPendingPath()
 			end
 		else
@@ -248,8 +262,14 @@ cncharvester = {
 		end
 	end,
 
-	SetAutoEnabled = function(self, enabled)
+	-- source must be "player_checkbox" to turn auto OFF. Enter / eject / GUI
+	-- destroy / occupancy must not clear auto_enabled.
+	SetAutoEnabled = function(self, enabled, source)
 		local on = enabled and true or false
+		if not on and source ~= "player_checkbox" then
+			self:NoteUnauthorizedAutoOff(source)
+			return
+		end
 		local was = self:auto_on()
 		self.auto_enabled = on
 		if was and not on then
@@ -268,7 +288,7 @@ cncharvester = {
 		if self:seat_locked() then
 			self:MaybeEjectLockedSeat()
 			self:KickAuto()
-		elseif self.pause_on_enter and AutoDrive.player_occupying(self.vehicle) then
+		elseif self:pause_yields() and AutoDrive.player_occupying(self.vehicle) then
 			self:CancelPendingPath()
 			if self.vehicle and self.vehicle.valid then
 				AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
@@ -281,14 +301,14 @@ cncharvester = {
 			return
 		end
 
-		-- Input must never brick auto: eject locked-seat riders every tick
-		-- so a leftover driver cannot leave occupying stuck true.
-		self:MaybeEjectLockedSeat()
+		-- Eject is a nicety when pause is off. Auto ON still drives if they sit.
+		if self:seat_locked() then
+			self:MaybeEjectLockedSeat()
+		end
 
 		local occupying = AutoDrive.player_occupying(self.vehicle)
-		-- Pause ON: yield. Seat lock: treat as empty so WASD/enter cannot
-		-- freeze the assignment until the entity is replaced.
-		local yield = occupying and not self:seat_locked()
+		-- Hard rule: auto_on ⇒ keep the wheel unless pause-on-enter is ON.
+		local yield = occupying and self:pause_yields()
 		if yield ~= self.occupied then
 			self.occupied = yield
 			self:OnOccupancyChanged(yield)
@@ -297,7 +317,7 @@ cncharvester = {
 		end
 
 		if yield then
-			-- Never write riding_state while a player is in the seat.
+			-- Pause-on-enter: player has the seat; do not write riding_state.
 			if self.state ~= States.MiningOre then
 				ModuleBay.starve(self.vehicle)
 			end
@@ -308,6 +328,8 @@ cncharvester = {
 			ModuleBay.starve(self.vehicle)
 			return
 		end
+
+		-- auto_on: FindingOre / path / riding_state every tick, even occupied.
 
 		if self.state ~= States.MiningOre then
 			ModuleBay.starve(self.vehicle)

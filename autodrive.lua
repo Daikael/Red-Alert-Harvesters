@@ -152,20 +152,21 @@ function AutoDrive.player_driving(vehicle)
 	return AutoDrive.player_occupying(vehicle)
 end
 
--- Auto ON + pause-on-enter OFF: AI keeps the wheel (cargo wagon). Occupying
--- must not no-op riding_state or the truck looks bricked until replaced.
+-- Auto ON owns the wheel unless pause-on-enter is yielding. Occupying must
+-- not no-op riding_state or WASD "wins" and auto looks bricked.
 function AutoDrive.ai_may_steer(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
 	end
-	if not AutoDrive.player_occupying(vehicle) then
+	local h = storage and storage.cncharvesters and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
+	local auto_on = h and h.auto_enabled ~= false
+	if auto_on then
+		if AutoDrive.player_occupying(vehicle) and h.pause_on_enter == true then
+			return false
+		end
 		return true
 	end
-	local h = storage and storage.cncharvesters and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
-	if not h then
-		return false
-	end
-	return h.auto_enabled ~= false and h.pause_on_enter ~= true
+	return not AutoDrive.player_occupying(vehicle)
 end
 
 local function eject_occupant_player(obj)
