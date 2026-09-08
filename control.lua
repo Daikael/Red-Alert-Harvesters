@@ -161,6 +161,11 @@ local function migrate_after_load()
 		return
 	end
 	after_load_migrate = false
+	if game and game.surfaces then
+		for _, surface in pairs(game.surfaces) do
+			AutoDrive.destroy_orphan_blockers(surface)
+		end
+	end
 	if not storage.cncharvesters then
 		return
 	end

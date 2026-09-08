@@ -32,6 +32,12 @@ AutoDrive.ORE_NEAR_TILES = 16
 -- Stuck: no 0.75-tile progress for 3 seconds @ 60 UPS.
 AutoDrive.STUCK_TICKS = 180
 AutoDrive.STUCK_MIN_MOVE = 0.75
+-- Do not assign two trucks onto the same patch. 16 tiles = half a chunk.
+AutoDrive.PEER_EXCLUDE_TILES = 16
+-- Runtime / path check: keep centers ~4 tiles apart (truck is 2.8 wide).
+AutoDrive.PEER_CLEARANCE_TILES = 4
+AutoDrive.PATH_BLOCKER = "cncharvester-path-blocker"
+AutoDrive.PEER_LAYER = "cncharvester-peer"
 -- Escalation (implementer-tunable; documented in FACTORIO_2.2.md).
 AutoDrive.REPATH_MAX = 3
 AutoDrive.ALT_PATCH_MAX = 3
@@ -294,14 +300,232 @@ function AutoDrive.collision_mask(entity)
 	return nil
 end
 
-function AutoDrive.request(surface, entity, goal, radius)
-	if not (surface and surface.valid and entity and entity.valid and goal) then
-		return nil
-	end
+-- 2.0.77 unit pathfinder does not reliably treat type=car as obstacles
+-- (off-grid vehicles). Requests union a private collision layer and we
+-- spawn hidden simple-entity blockers on sibling trucks. entity_to_ignore
+-- is only self — never other cncharvester / cncharvester-type2.
+function AutoDrive.path_collision_mask(entity)
 	local mask = AutoDrive.collision_mask(entity)
 	if not mask then
 		return nil
 	end
+	local layers = {}
+	if mask.layers then
+		for name, on in pairs(mask.layers) do
+			layers[name] = on
+		end
+	end
+	layers[AutoDrive.PEER_LAYER] = true
+	return {layers = layers}
+end
+
+local HARVESTER_NAMES = {
+	["cncharvester"] = true,
+	["cncharvester-type2"] = true,
+}
+
+function AutoDrive.is_harvester_name(name)
+	return name ~= nil and HARVESTER_NAMES[name] == true
+end
+
+function AutoDrive.each_peer(vehicle, fn)
+	if not (vehicle and vehicle.valid and storage and storage.cncharvesters) then
+		return
+	end
+	local self_id = vehicle.unit_number
+	local surface = vehicle.surface
+	for id, h in pairs(storage.cncharvesters) do
+		if id ~= self_id then
+			local other = h and h.vehicle
+			if other and other.valid and other.surface == surface then
+				fn(h, other)
+			end
+		end
+	end
+end
+
+function AutoDrive.peer_blocks_assignment(vehicle, si, cx, cy, center)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	local exclude = AutoDrive.PEER_EXCLUDE_TILES
+	local exclude_sq = exclude * exclude
+	local blocked = false
+	AutoDrive.each_peer(vehicle, function(h, other)
+		if blocked then
+			return
+		end
+		local pos = other.position
+		if center and pos then
+			local dx = (pos.x or 0) - (center.x or 0)
+			local dy = (pos.y or 0) - (center.y or 0)
+			if dx * dx + dy * dy <= exclude_sq then
+				blocked = true
+				return
+			end
+		end
+		if h.going_home then
+			return
+		end
+		if h.assign_si == si and h.assign_cx == cx and h.assign_cy == cy then
+			blocked = true
+		end
+	end)
+	return blocked
+end
+
+function AutoDrive.clear_path_blockers(vehicle)
+	local rec = storage and storage.cncharvesters and vehicle and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
+	local list = rec and rec.path_blockers
+	if not list then
+		return
+	end
+	for i = 1, #list do
+		local ent = list[i]
+		if ent and ent.valid then
+			pcall(function()
+				ent.destroy()
+			end)
+		end
+	end
+	rec.path_blockers = nil
+end
+
+function AutoDrive.destroy_orphan_blockers(surface)
+	if not (surface and surface.valid) then
+		return
+	end
+	local found = surface.find_entities_filtered{name = AutoDrive.PATH_BLOCKER}
+	for _, ent in pairs(found) do
+		if ent.valid then
+			pcall(function()
+				ent.destroy()
+			end)
+		end
+	end
+end
+
+function AutoDrive.spawn_path_blockers(vehicle)
+	AutoDrive.clear_path_blockers(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return
+	end
+	local rec = storage and storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
+	if not rec then
+		return
+	end
+	local surface = vehicle.surface
+	if not (surface and surface.valid) then
+		return
+	end
+	local range = AutoDrive.RANGE_TILES
+	local range_sq = range * range
+	local origin = vehicle.position
+	local list = {}
+	AutoDrive.each_peer(vehicle, function(_, other)
+		local pos = other.position
+		local dx = pos.x - origin.x
+		local dy = pos.y - origin.y
+		if dx * dx + dy * dy > range_sq then
+			return
+		end
+		local ok, ent = pcall(function()
+			return surface.create_entity{
+				name = AutoDrive.PATH_BLOCKER,
+				position = pos,
+				force = "neutral",
+				create_build_effect_smoke = false,
+			}
+		end)
+		if ok and ent and ent.valid then
+			list[#list + 1] = ent
+		end
+	end)
+	if #list > 0 then
+		rec.path_blockers = list
+	end
+end
+
+function AutoDrive.path_hits_peer(path, vehicle)
+	if not (path and vehicle and vehicle.valid) then
+		return false
+	end
+	local clear_sq = AutoDrive.PEER_CLEARANCE_TILES * AutoDrive.PEER_CLEARANCE_TILES
+	local hit = false
+	AutoDrive.each_peer(vehicle, function(_, other)
+		if hit then
+			return
+		end
+		local pos = other.position
+		for i = 1, #path do
+			local wp = path[i]
+			if wp and wp.needs_destroy_to_reach then
+				hit = true
+				return
+			end
+			local p = wp and (wp.position or wp)
+			if p and p.x ~= nil then
+				local dx = p.x - pos.x
+				local dy = p.y - pos.y
+				if dx * dx + dy * dy <= clear_sq then
+					hit = true
+					return
+				end
+			end
+		end
+	end)
+	if hit then
+		return true
+	end
+	for i = 1, #path do
+		if path[i] and path[i].needs_destroy_to_reach then
+			return true
+		end
+	end
+	return false
+end
+
+-- True when another harvester is in front inside the clearance bubble.
+-- Brake; do not keep writing accelerating riding_state into them.
+function AutoDrive.blocked_by_peer(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	local pos = vehicle.position
+	local o = vehicle.orientation or 0
+	local ang = o * 2 * math.pi
+	local fx, fy = math.sin(ang), -math.cos(ang)
+	local clear = AutoDrive.PEER_CLEARANCE_TILES
+	local clear_sq = clear * clear
+	local blocked = false
+	AutoDrive.each_peer(vehicle, function(_, other)
+		if blocked then
+			return
+		end
+		local op = other.position
+		local dx, dy = op.x - pos.x, op.y - pos.y
+		local dsq = dx * dx + dy * dy
+		if dsq > clear_sq or dsq < 0.01 then
+			return
+		end
+		local dist = math.sqrt(dsq)
+		local ahead = (dx * fx + dy * fy) / dist
+		if ahead > 0.25 then
+			blocked = true
+		end
+	end)
+	return blocked
+end
+
+function AutoDrive.request(surface, entity, goal, radius)
+	if not (surface and surface.valid and entity and entity.valid and goal) then
+		return nil
+	end
+	local mask = AutoDrive.path_collision_mask(entity)
+	if not mask then
+		return nil
+	end
+	AutoDrive.spawn_path_blockers(entity)
 	local ok, id = pcall(function()
 		return surface.request_path{
 			bounding_box = AutoDrive.collision_box(entity),
@@ -317,12 +541,15 @@ function AutoDrive.request(surface, entity, goal, radius)
 			pathfind_flags = {
 				cache = false,
 				prefer_straight_paths = true,
+				allow_destroy_friendly_entities = false,
+				allow_paths_through_own_entities = false,
 			},
 		}
 	end)
 	if ok then
 		return id
 	end
+	AutoDrive.clear_path_blockers(entity)
 	return nil
 end
 
@@ -399,6 +626,10 @@ function AutoDrive.follow_path(vehicle, path, path_index, arrive_tiles)
 	if not wp then
 		AutoDrive.stop(vehicle)
 		return path_index, true, false
+	end
+	if AutoDrive.blocked_by_peer(vehicle) then
+		AutoDrive.stop(vehicle)
+		return path_index, false, false
 	end
 	AutoDrive.steer_toward(vehicle, wp)
 	return path_index, false, false

@@ -116,6 +116,7 @@ cncharvester = {
 			end
 		end
 		if self.vehicle and self.vehicle.valid then
+			AutoDrive.clear_path_blockers(self.vehicle)
 			ModuleBay.destroy_for_vehicle(self.vehicle)
 		end
 		self.vehicle = nil
@@ -136,6 +137,7 @@ cncharvester = {
 			AutoDrive.take_request(self.path_id)
 			self.path_id = nil
 		end
+		AutoDrive.clear_path_blockers(self.vehicle)
 		if self.failed_chunks == nil then
 			self.failed_chunks = {}
 		end
@@ -227,6 +229,7 @@ cncharvester = {
 		end
 		self.path = nil
 		self.path_index = 1
+		AutoDrive.clear_path_blockers(self.vehicle)
 	end,
 
 	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
@@ -619,9 +622,14 @@ cncharvester = {
 		if #chunks == 0 then
 			return nil, nil
 		end
-		local chunk = chunks[1]
-		local ore = self:resource_in_chunk(chunk.si, chunk.x, chunk.y)
-		return ore, chunk
+		for i = 1, #chunks do
+			local chunk = chunks[i]
+			if not AutoDrive.peer_blocks_assignment(vehicle, chunk.si, chunk.x, chunk.y, chunk.center) then
+				local ore = self:resource_in_chunk(chunk.si, chunk.x, chunk.y)
+				return ore, chunk
+			end
+		end
+		return nil, nil
 	end,
 
 	StartDrive = function(self, position, arrival_state, radius)
@@ -722,6 +730,7 @@ cncharvester = {
 			return
 		end
 		self.path_id = nil
+		AutoDrive.clear_path_blockers(self.vehicle)
 		if not self:auto_on() then
 			self.path = nil
 			return
@@ -736,6 +745,11 @@ cncharvester = {
 			return
 		end
 		if not event.path then
+			self:OnPathFail()
+			return
+		end
+		if AutoDrive.path_hits_peer(event.path, self.vehicle) then
+			self.path = nil
 			self:OnPathFail()
 			return
 		end
@@ -995,8 +1009,14 @@ cncharvester = {
 				end
 				return
 			end
+			if AutoDrive.blocked_by_peer(self.vehicle) then
+				AutoDrive.stop(self.vehicle)
+			end
 			if not AutoDrive.progress_ok(self, self.vehicle.position, game.tick) then
 				self:OnPathFail()
+				return
+			end
+			if AutoDrive.blocked_by_peer(self.vehicle) then
 				return
 			end
 			local idx, arrived = AutoDrive.follow_path(self.vehicle, self.path, self.path_index, self.arrive_tiles)

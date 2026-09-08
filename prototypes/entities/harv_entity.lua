@@ -174,3 +174,32 @@ for i=1,2 do
 
 	data:extend{vehicle}
 end
+
+-- Pathfinder-only obstacle. 2.0.77's unit pathfinder does not treat type=car
+-- as a reliable blocker. Hidden simple-entities on this private layer are
+-- unioned into request_path's collision_mask. Cars do not collide with the
+-- layer, so a parked truck is not trapped inside the dummy.
+data:extend({
+	{
+		type = "collision-layer",
+		name = "cncharvester-peer",
+	},
+	{
+		type = "simple-entity",
+		name = "cncharvester-path-blocker",
+		localised_name = {"entity-name.cncharvester"},
+		hidden = true,
+		flags = {"not-on-map", "not-blueprintable", "not-deconstructable", "not-flammable"},
+		collision_box = {{-2.0, -2.0}, {2.0, 2.0}},
+		selection_box = {{-0.1, -0.1}, {0.1, 0.1}},
+		selectable_in_game = false,
+		collision_mask = {layers = {["cncharvester-peer"] = true}},
+		picture = {
+			filename = "__core__/graphics/empty.png",
+			priority = "extra-low",
+			width = 1,
+			height = 1,
+		},
+		max_health = 1,
+	},
+})

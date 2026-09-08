@@ -612,6 +612,16 @@ expect(drive_src:find("player_occupying", 1, true) ~= nil, "autodrive detects pl
 expect(drive_src:find("ai_may_steer", 1, true) ~= nil, "riding writes allow seat-lock AI")
 expect(drive_src:find("PATH_RADIUS_ORE_ENTITY = 1.5", 1, true) ~= nil, "ore entity path radius is tight")
 expect(drive_src:find("ORE_RETARGET_MAX = 3", 1, true) ~= nil, "off-patch retarget budget is 3")
+expect(drive_src:find("PEER_EXCLUDE_TILES = 16", 1, true) ~= nil, "assignment exclusion is 16 tiles")
+expect(drive_src:find("PEER_CLEARANCE_TILES = 4", 1, true) ~= nil, "runtime peer clearance is 4 tiles")
+expect(drive_src:find("cncharvester-path-blocker", 1, true) ~= nil, "pathfinder uses sibling path blockers")
+expect(drive_src:find("allow_destroy_friendly_entities = false", 1, true) ~= nil, "pathfinder may not destroy friendlies")
+expect(drive_src:find("entity_to_ignore = entity", 1, true) ~= nil, "pathfinder ignores only self")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('type = "collision-layer"', 1, true) ~= nil, "private peer collision layer exists")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('name = "cncharvester-path-blocker"', 1, true) ~= nil, "path-blocker prototype exists")
+expect(io.open("harvester.lua"):read("*a"):find("peer_blocks_assignment", 1, true) ~= nil, "PickIndexTarget skips peer-occupied chunks")
+expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "paths through a sibling are rejected")
+expect(io.open("harvester.lua"):read("*a"):find("blocked_by_peer", 1, true) ~= nil, "Tick brakes instead of ramming a sibling")
 expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
 expect(drive_src:find("function AutoDrive.demote_driver_to_passenger", 1, true) ~= nil, "demote helper exists")
 expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "demote clears the driver seat")
@@ -804,6 +814,36 @@ local ground_veh = {
 }
 expect(AutoDrive.demote_driver_to_passenger(ground_veh) == "ground", "no passenger seat returns ground")
 expect(ground_driver == nil, "driver still cleared when passenger is impossible")
+local peer_surf = {}
+local truck_a = {valid = true, unit_number = 11, surface = peer_surf, position = {x = 0, y = 0}, orientation = 0.25}
+local truck_b = {valid = true, unit_number = 12, surface = peer_surf, position = {x = 8, y = 0}, orientation = 0}
+storage = {
+	cncharvesters = {
+		[11] = {vehicle = truck_a, assign_si = 1, assign_cx = 0, assign_cy = 0, going_home = false},
+		[12] = {vehicle = truck_b, assign_si = nil, assign_cx = nil, assign_cy = nil, going_home = false},
+	},
+}
+expect(AutoDrive.PEER_EXCLUDE_TILES == 16, "exclude radius is 16 tiles")
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 0, {x = 16, y = 16}) == true, "same assigned chunk is blocked for the other truck")
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 5, 5, {x = 176, y = 176}) == false, "far chunk is not blocked")
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 1, {x = 10, y = 0}) == true, "chunk center within 16 tiles of a sitting truck is blocked")
+storage.cncharvesters[11].going_home = true
+storage.cncharvesters[11].assign_cx = 0
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 0, {x = 176, y = 176}) == false, "going-home assignment does not keep the chunk claimed")
+expect(AutoDrive.path_hits_peer({{position = {x = 8, y = 0}}}, truck_a) == true, "path waypoint on a sibling is rejected")
+expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}}}, truck_a) == false, "path far from siblings is accepted")
+expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}, needs_destroy_to_reach = true}}, truck_a) == true, "destroy-to-reach paths are rejected")
+truck_b.position = {x = 3, y = 0}
+expect(AutoDrive.blocked_by_peer(truck_a) == true, "eastbound truck brakes for a sibling ahead")
+truck_b.position = {x = 0, y = 20}
+expect(AutoDrive.blocked_by_peer(truck_a) == false, "sibling behind/beside does not brake")
+local merged = AutoDrive.path_collision_mask({
+	valid = true,
+	prototype = {collision_mask = {layers = {player = true}}},
+})
+expect(merged.layers.player == true, "path mask keeps the car layers")
+expect(merged.layers["cncharvester-peer"] == true, "path mask unions the peer blocker layer")
+storage = nil
 expect(io.open("locale/en/all.cfg"):read("*a"):find("auto-stuck-miner=", 1, true) ~= nil, "stuck miner locale exists")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
 expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")
