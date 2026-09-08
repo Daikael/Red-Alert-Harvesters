@@ -45,9 +45,14 @@ AutoDrive.HOME_REPATH_MAX = 3
 AutoDrive.FAILED_CHUNK_TTL = 18000
 AutoDrive.ALERT_COOLDOWN = 3600
 AutoDrive.BUSY_RETRY_TICKS = 30
--- Facing: orientation is 0..1. ~0.04 ≈ 14°.
+-- Peer pin: reverse ~1.5 s (~4–8 tiles) if the rear is clear, then repath.
+AutoDrive.REVERSE_TICKS = 90
+AutoDrive.REVERSE_CHECK_TILES = 6
+-- Facing: orientation is 0..1. ~0.04 ≈ 14°. Above this, rotate in place
+-- (tank_driving + acceleration nothing) instead of creeping forward to turn.
 AutoDrive.TURN_DEADZONE = 0.04
 AutoDrive.TURN_HARD = 0.12
+AutoDrive.ALIGN_SPEED = 0.08
 
 local riding_acc = defines and defines.riding and defines.riding.acceleration
 local riding_dir = defines and defines.riding and defines.riding.direction
@@ -71,6 +76,32 @@ function AutoDrive.orientation_delta(current, target)
 		d = d - 1
 	end
 	return d
+end
+
+-- Unit facing. orientation 0 = north; +x is east.
+function AutoDrive.facing_xy(orientation)
+	local ang = (orientation or 0) * 2 * math.pi
+	return math.sin(ang), -math.cos(ang)
+end
+
+-- Pure riding plan: align in place, then accelerate. accel is
+-- "accelerating" / "braking" / "nothing"; dir is "left" / "right" / "straight".
+function AutoDrive.steer_plan(speed, delta)
+	local ad = math.abs(delta or 0)
+	local dir = "straight"
+	if (delta or 0) > AutoDrive.TURN_DEADZONE then
+		dir = "right"
+	elseif (delta or 0) < -AutoDrive.TURN_DEADZONE then
+		dir = "left"
+	end
+	if ad <= AutoDrive.TURN_DEADZONE then
+		return "accelerating", dir
+	end
+	local spd = math.abs(speed or 0)
+	if spd >= AutoDrive.ALIGN_SPEED and ad > AutoDrive.TURN_HARD then
+		return "braking", dir
+	end
+	return "nothing", dir
 end
 
 function AutoDrive.commandable_of(entity)
@@ -276,12 +307,33 @@ local function write_riding(vehicle, acceleration, direction)
 	}
 end
 
+local function write_riding_keys(vehicle, accel_key, dir_key)
+	if not (riding_acc and riding_dir) then
+		return
+	end
+	local accel = riding_acc.accelerating
+	if accel_key == "braking" then
+		accel = riding_acc.braking
+	elseif accel_key == "nothing" then
+		accel = riding_acc.nothing
+	elseif accel_key == "reversing" then
+		accel = riding_acc.reversing
+	end
+	local dir = riding_dir.straight
+	if dir_key == "left" then
+		dir = riding_dir.left
+	elseif dir_key == "right" then
+		dir = riding_dir.right
+	end
+	write_riding(vehicle, accel, dir)
+end
+
 function AutoDrive.stop(vehicle)
-	write_riding(vehicle, riding_acc and (riding_acc.braking or riding_acc.nothing), riding_dir and riding_dir.straight)
+	write_riding_keys(vehicle, "braking", "straight")
 end
 
 function AutoDrive.release(vehicle)
-	write_riding(vehicle, riding_acc and riding_acc.nothing, riding_dir and riding_dir.straight)
+	write_riding_keys(vehicle, "nothing", "straight")
 end
 
 function AutoDrive.collision_box(entity)
@@ -492,9 +544,7 @@ function AutoDrive.blocked_by_peer(vehicle)
 		return false
 	end
 	local pos = vehicle.position
-	local o = vehicle.orientation or 0
-	local ang = o * 2 * math.pi
-	local fx, fy = math.sin(ang), -math.cos(ang)
+	local fx, fy = AutoDrive.facing_xy(vehicle.orientation)
 	local clear = AutoDrive.PEER_CLEARANCE_TILES
 	local clear_sq = clear * clear
 	local blocked = false
@@ -515,6 +565,107 @@ function AutoDrive.blocked_by_peer(vehicle)
 		end
 	end)
 	return blocked
+end
+
+-- True when no sibling sits behind inside REVERSE_CHECK_TILES.
+function AutoDrive.rear_clear(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	local pos = vehicle.position
+	local fx, fy = AutoDrive.facing_xy(vehicle.orientation)
+	local r = AutoDrive.REVERSE_CHECK_TILES
+	local r_sq = r * r
+	local blocked = false
+	AutoDrive.each_peer(vehicle, function(_, other)
+		if blocked then
+			return
+		end
+		local op = other.position
+		local dx, dy = op.x - pos.x, op.y - pos.y
+		local dsq = dx * dx + dy * dy
+		if dsq > r_sq or dsq < 0.01 then
+			return
+		end
+		local dist = math.sqrt(dsq)
+		local along = (dx * fx + dy * fy) / dist
+		if along < -0.2 then
+			blocked = true
+		end
+	end)
+	return not blocked
+end
+
+-- Reverse away from a peer on the right by peeling left (and vice versa).
+function AutoDrive.peer_peel_direction(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return "right"
+	end
+	local pos = vehicle.position
+	local fx, fy = AutoDrive.facing_xy(vehicle.orientation)
+	local side_sum = 0
+	local r = AutoDrive.REVERSE_CHECK_TILES
+	AutoDrive.each_peer(vehicle, function(_, other)
+		local op = other.position
+		local dx, dy = op.x - pos.x, op.y - pos.y
+		local dist = math.sqrt(dx * dx + dy * dy)
+		if dist < 0.1 or dist > r then
+			return
+		end
+		local along = (dx * fx + dy * fy) / dist
+		if along > 0.15 then
+			side_sum = side_sum + (dx * (-fy) + dy * fx)
+		end
+	end)
+	if side_sum > 0 then
+		return "left"
+	end
+	return "right"
+end
+
+function AutoDrive.clear_wiggle(rec)
+	if not rec then
+		return
+	end
+	rec.reverse_until = nil
+	rec.reverse_steer = nil
+end
+
+function AutoDrive.steer_reverse_wiggle(vehicle, rec)
+	write_riding_keys(vehicle, "reversing", rec and rec.reverse_steer or "right")
+end
+
+-- Peer pin during MovingToLocation. "reverse" / "wait" / "clear" / "repath".
+function AutoDrive.tick_peer_block(rec, vehicle, tick)
+	if not rec then
+		return "clear"
+	end
+	tick = tick or 0
+	if rec.reverse_until then
+		if tick < rec.reverse_until then
+			AutoDrive.steer_reverse_wiggle(vehicle, rec)
+			return "reverse"
+		end
+		AutoDrive.clear_wiggle(rec)
+		return "repath"
+	end
+	if not (vehicle and vehicle.valid) then
+		return "clear"
+	end
+	if not AutoDrive.blocked_by_peer(vehicle) then
+		return "clear"
+	end
+	AutoDrive.stop(vehicle)
+	if AutoDrive.rear_clear(vehicle) then
+		rec.reverse_until = tick + AutoDrive.REVERSE_TICKS
+		rec.reverse_steer = AutoDrive.peer_peel_direction(vehicle)
+		AutoDrive.steer_reverse_wiggle(vehicle, rec)
+		if vehicle.position then
+			AutoDrive.progress_reset(rec, vehicle.position, tick)
+		end
+		return "reverse"
+	end
+	return "wait"
 end
 
 function AutoDrive.request(surface, entity, goal, radius)
@@ -567,7 +718,7 @@ local function waypoint_pos(wp)
 end
 
 function AutoDrive.steer_toward(vehicle, dest)
-	if not (vehicle and vehicle.valid and dest and riding_acc and riding_dir) then
+	if not (vehicle and vehicle.valid and dest) then
 		return false
 	end
 	if not AutoDrive.ai_may_steer(vehicle) then
@@ -583,23 +734,8 @@ function AutoDrive.steer_toward(vehicle, dest)
 	end
 	local want = DeltaposToOrientation({x = dx, y = dy})
 	local delta = AutoDrive.orientation_delta(vehicle.orientation, want)
-	local ad = math.abs(delta)
-	local dir = riding_dir.straight
-	if delta > AutoDrive.TURN_DEADZONE then
-		dir = riding_dir.right
-	elseif delta < -AutoDrive.TURN_DEADZONE then
-		dir = riding_dir.left
-	end
-	local acc = riding_acc.accelerating
-	if ad > AutoDrive.TURN_HARD then
-		local speed = vehicle.speed or 0
-		if math.abs(speed) > 0.08 then
-			acc = riding_acc.braking
-		else
-			acc = riding_acc.accelerating
-		end
-	end
-	write_riding(vehicle, acc, dir)
+	local accel_key, dir_key = AutoDrive.steer_plan(vehicle.speed, delta)
+	write_riding_keys(vehicle, accel_key, dir_key)
 	return false
 end
 

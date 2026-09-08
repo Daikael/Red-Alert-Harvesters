@@ -229,6 +229,7 @@ cncharvester = {
 		end
 		self.path = nil
 		self.path_index = 1
+		AutoDrive.clear_wiggle(self)
 		AutoDrive.clear_path_blockers(self.vehicle)
 	end,
 
@@ -657,6 +658,7 @@ cncharvester = {
 			or arrival_state == States.Refueling
 		self.path = nil
 		self.path_index = 1
+		AutoDrive.clear_wiggle(self)
 		if self.path_id then
 			AutoDrive.take_request(self.path_id)
 			self.path_id = nil
@@ -1009,14 +1011,19 @@ cncharvester = {
 				end
 				return
 			end
-			if AutoDrive.blocked_by_peer(self.vehicle) then
-				AutoDrive.stop(self.vehicle)
+			local action = AutoDrive.tick_peer_block(self, self.vehicle, game.tick)
+			if action == "repath" then
+				self:OnPathFail()
+				return
+			end
+			if action == "reverse" then
+				return
 			end
 			if not AutoDrive.progress_ok(self, self.vehicle.position, game.tick) then
 				self:OnPathFail()
 				return
 			end
-			if AutoDrive.blocked_by_peer(self.vehicle) then
+			if action == "wait" then
 				return
 			end
 			local idx, arrived = AutoDrive.follow_path(self.vehicle, self.path, self.path_index, self.arrive_tiles)

@@ -614,6 +614,11 @@ expect(drive_src:find("PATH_RADIUS_ORE_ENTITY = 1.5", 1, true) ~= nil, "ore enti
 expect(drive_src:find("ORE_RETARGET_MAX = 3", 1, true) ~= nil, "off-patch retarget budget is 3")
 expect(drive_src:find("PEER_EXCLUDE_TILES = 16", 1, true) ~= nil, "assignment exclusion is 16 tiles")
 expect(drive_src:find("PEER_CLEARANCE_TILES = 4", 1, true) ~= nil, "runtime peer clearance is 4 tiles")
+expect(drive_src:find("REVERSE_TICKS = 90", 1, true) ~= nil, "peer reverse wiggle is 90 ticks")
+expect(drive_src:find("REVERSE_CHECK_TILES = 6", 1, true) ~= nil, "rear-clear check is 6 tiles")
+expect(drive_src:find("ALIGN_SPEED = 0.08", 1, true) ~= nil, "in-place align speed threshold is 0.08")
+expect(drive_src:find("function AutoDrive.steer_plan", 1, true) ~= nil, "steer_plan is the testable in-place turn helper")
+expect(drive_src:find("function AutoDrive.tick_peer_block", 1, true) ~= nil, "tick_peer_block handles reverse-then-repath")
 expect(drive_src:find("cncharvester-path-blocker", 1, true) ~= nil, "pathfinder uses sibling path blockers")
 expect(drive_src:find("allow_destroy_friendly_entities = false", 1, true) ~= nil, "pathfinder may not destroy friendlies")
 expect(drive_src:find("entity_to_ignore = entity", 1, true) ~= nil, "pathfinder ignores only self")
@@ -623,7 +628,8 @@ expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find("extra-low
 expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('priority = "very-low"', 1, true) ~= nil, "path-blocker sprite priority is very-low")
 expect(io.open("harvester.lua"):read("*a"):find("peer_blocks_assignment", 1, true) ~= nil, "PickIndexTarget skips peer-occupied chunks")
 expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "paths through a sibling are rejected")
-expect(io.open("harvester.lua"):read("*a"):find("blocked_by_peer", 1, true) ~= nil, "Tick brakes instead of ramming a sibling")
+expect(io.open("harvester.lua"):read("*a"):find("tick_peer_block", 1, true) ~= nil, "Tick reverse-wiggles then repaths instead of freezing on a sibling")
+expect(drive_src:find("blocked_by_peer(vehicle)", 1, true) ~= nil, "follow_path still brakes instead of ramming a sibling")
 expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
 expect(drive_src:find("function AutoDrive.demote_driver_to_passenger", 1, true) ~= nil, "demote helper exists")
 expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "demote clears the driver seat")
@@ -837,8 +843,49 @@ expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}}}, truck_a) == fal
 expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}, needs_destroy_to_reach = true}}, truck_a) == true, "destroy-to-reach paths are rejected")
 truck_b.position = {x = 3, y = 0}
 expect(AutoDrive.blocked_by_peer(truck_a) == true, "eastbound truck brakes for a sibling ahead")
+expect(AutoDrive.rear_clear(truck_a) == true, "rear is clear when the sibling is ahead")
+truck_b.position = {x = 3, y = 1}
+expect(AutoDrive.peer_peel_direction(truck_a) == "left", "peer on the right peels reverse-left")
+truck_b.position = {x = -3, y = 0}
+expect(AutoDrive.blocked_by_peer(truck_a) == false, "sibling behind does not count as ahead")
+expect(AutoDrive.rear_clear(truck_a) == false, "sibling behind blocks reverse")
 truck_b.position = {x = 0, y = 20}
 expect(AutoDrive.blocked_by_peer(truck_a) == false, "sibling behind/beside does not brake")
+expect(AutoDrive.rear_clear(truck_a) == true, "far sibling does not block reverse")
+local accel, dir
+accel, dir = AutoDrive.steer_plan(0, 0)
+expect(accel == "accelerating" and dir == "straight", "aligned and stopped accelerates forward")
+accel, dir = AutoDrive.steer_plan(0, 0.2)
+expect(accel == "nothing" and dir == "right", "stopped with yaw error tank-rotates right")
+accel, dir = AutoDrive.steer_plan(0, -0.2)
+expect(accel == "nothing" and dir == "left", "stopped with yaw error tank-rotates left")
+accel, dir = AutoDrive.steer_plan(0.01, 0.05)
+expect(accel == "nothing" and dir == "right", "nearly stopped does not creep forward to turn")
+accel, dir = AutoDrive.steer_plan(0.5, 0.2)
+expect(accel == "braking" and dir == "right", "moving with hard yaw brakes to align")
+accel, dir = AutoDrive.steer_plan(0.5, 0.06)
+expect(accel == "nothing" and dir == "right", "moving with medium yaw coasts instead of powering an arc")
+accel, dir = AutoDrive.steer_plan(0.5, 0)
+expect(accel == "accelerating" and dir == "straight", "aligned at speed accelerates")
+local wiggle_rec = {}
+truck_b.position = {x = 3, y = 1}
+expect(AutoDrive.tick_peer_block(wiggle_rec, truck_a, 100) == "reverse", "pinned truck reverse-wiggles when rear is clear")
+expect(wiggle_rec.reverse_until == 190, "reverse wiggle lasts REVERSE_TICKS")
+expect(wiggle_rec.reverse_steer == "left", "wiggle peels away from the peer")
+expect(AutoDrive.tick_peer_block(wiggle_rec, truck_a, 150) == "reverse", "wiggle keeps reversing until the timer elapses")
+expect(AutoDrive.tick_peer_block(wiggle_rec, truck_a, 190) == "repath", "wiggle then repaths")
+expect(wiggle_rec.reverse_until == nil, "repath clears the wiggle timer")
+local wait_rec = {}
+truck_b.position = {x = -3, y = 0}
+local truck_c = {valid = true, unit_number = 13, surface = peer_surf, position = {x = 3, y = 0}, orientation = 0}
+storage.cncharvesters[13] = {vehicle = truck_c, going_home = false}
+expect(AutoDrive.blocked_by_peer(truck_a) == true, "ahead sibling still blocks")
+expect(AutoDrive.rear_clear(truck_a) == false, "behind sibling blocks reverse")
+expect(AutoDrive.tick_peer_block(wait_rec, truck_a, 200) == "wait", "boxed-in truck waits instead of reversing into a peer")
+expect(wait_rec.reverse_until == nil, "wait does not start a wiggle")
+storage.cncharvesters[13] = nil
+truck_b.position = {x = 0, y = 20}
+expect(AutoDrive.tick_peer_block({}, truck_a, 0) == "clear", "no peer ahead is clear")
 local merged = AutoDrive.path_collision_mask({
 	valid = true,
 	prototype = {collision_mask = {layers = {player = true}}},
