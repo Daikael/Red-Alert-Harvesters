@@ -148,6 +148,8 @@ end
 -- Informational text (refuel, etc.) must pass its own color and must not use these.
 FLOATING_TEXT_ERROR_RED = {r = 1, g = 0.2, b = 0.2, a = 1}
 FLOATING_TEXT_ERROR_TTL = 150
+-- Toggle / inventory feedback. 300 ticks ≈ 5s at 60 UPS (Steam Deck readable).
+FLOATING_TEXT_TOGGLE_TTL = 300
 
 function DrawFloatingText(surface, target, text, color, ttl)
 	if not (surface and surface.valid) then

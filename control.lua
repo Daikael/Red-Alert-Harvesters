@@ -278,20 +278,12 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 		local player = event.player_index and game.get_player(event.player_index)
 		local h = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
 		if h then
-			-- Eject is a nicety when pause is off. Never write auto_enabled.
-			if player and player.valid and h.seat_locked and h:seat_locked() then
-				AutoDrive.eject_player(player)
-			end
-			if h.MaybeEjectLockedSeat then
-				h:MaybeEjectLockedSeat()
-			end
+			-- No eject. Auto on + pause off: player may sit; AI keeps steering.
 			local occupying = AutoDrive.player_occupying(ent)
 			local yield = occupying and h.pause_yields and h:pause_yields()
 			if yield ~= h.occupied then
 				h.occupied = yield
 				h:OnOccupancyChanged(yield)
-			elseif occupying and h.seat_locked and h:seat_locked() then
-				h.occupied = false
 			end
 		end
 		if player then
@@ -458,8 +450,11 @@ script.on_nth_tick(1, function()
 			local auto_on = h and h.auto_enabled ~= false
 			local pause = h and h.pause_on_enter == true
 			if auto_on and not pause then
-				-- Auto owns the wheel. Eject is optional; do not player-scoop.
-				AutoDrive.eject_player(player)
+				-- Auto owns the wheel. Player may stay seated; AI scoops.
+				ModuleBay.refresh_draw_gui(player, vehicle)
+				if game.tick % 60 == 0 then
+					unload_near_refinery(vehicle)
+				end
 			else
 				drive_harvest(player, vehicle)
 				ModuleBay.refresh_draw_gui(player, vehicle)

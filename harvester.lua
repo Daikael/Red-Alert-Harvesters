@@ -161,39 +161,42 @@ cncharvester = {
 	end,
 
 	-- Pause ON is the only yield. Auto ON + pause OFF: AI keeps the wheel
-	-- even if a player is somehow in the seat.
+	-- even if a player is in the seat (input lock, no eject).
 	pause_yields = function(self)
 		return self:auto_on() and self.pause_on_enter == true
 	end,
 
-	-- Auto ON + pause OFF: optional cargo-wagon eject. Not what keeps AI alive.
+	-- Auto ON + pause OFF: WASD ignored. Debug/remote only — not an eject.
 	seat_locked = function(self)
 		return self:auto_on() and self.pause_on_enter ~= true
 	end,
 
-	MaybeEjectLockedSeat = function(self)
-		if not self:seat_locked() then
-			return false
+	NotifyToggle = function(self, text)
+		self:FloatingText(text, {r = 0.55, g = 0.9, b = 1}, FLOATING_TEXT_TOGGLE_TTL)
+		if not (game and game.connected_players and self.vehicle and self.vehicle.valid) then
+			return
 		end
-		if not AutoDrive.player_occupying(self.vehicle) then
-			return false
+		for _, player in pairs(game.connected_players) do
+			if player.valid then
+				local in_truck = player.vehicle and player.vehicle.valid and player.vehicle == self.vehicle
+				local opened = player.opened
+				local looking = opened and opened.valid and opened == self.vehicle
+				if in_truck or looking then
+					pcall(function()
+						player.print(text)
+					end)
+				end
+			end
 		end
-		AutoDrive.eject_players(self.vehicle)
-		local now = game and game.tick or 0
-		if (self.eject_text_tick or 0) + 120 <= now then
-			self.eject_text_tick = now
-			self:FloatingText({"cncharvester.auto-locked"}, {r = 0.9, g = 0.8, b = 0.3}, 90)
-		end
-		return true
 	end,
 
 	NoteUnauthorizedAutoOff = function(self, why)
 		local reason = tostring(why or "unknown")
 		log("Red-Alert-Harvester: refused auto_enabled=false (" .. reason .. ")")
 		local now = game and game.tick or 0
-		if (self.refuse_text_tick or 0) + 180 <= now then
+		if (self.refuse_text_tick or 0) + FLOATING_TEXT_TOGGLE_TTL <= now then
 			self.refuse_text_tick = now
-			self:FloatingText({"cncharvester.auto-off-blocked", reason}, {r = 1, g = 0.55, b = 0.2}, 120)
+			self:NotifyToggle({"cncharvester.auto-off-blocked", reason})
 		end
 	end,
 
@@ -245,11 +248,7 @@ cncharvester = {
 	end,
 
 	OnOccupancyChanged = function(self, occupied)
-		-- Occupancy must never write auto_enabled.
-		if occupied and self:seat_locked() then
-			self:MaybeEjectLockedSeat()
-			return
-		end
+		-- Occupancy must never write auto_enabled or eject the player.
 		if self.vehicle and self.vehicle.valid then
 			AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
 		end
@@ -262,7 +261,7 @@ cncharvester = {
 		end
 	end,
 
-	-- source must be "player_checkbox" to turn auto OFF. Enter / eject / GUI
+	-- source must be "player_checkbox" to turn auto OFF. Enter / GUI
 	-- destroy / occupancy must not clear auto_enabled.
 	SetAutoEnabled = function(self, enabled, source)
 		local on = enabled and true or false
@@ -272,27 +271,27 @@ cncharvester = {
 		end
 		local was = self:auto_on()
 		self.auto_enabled = on
+		self:NotifyToggle(on and {"cncharvester.auto-toggled-on"} or {"cncharvester.auto-toggled-off"})
 		if was and not on then
 			self:CancelPendingPath()
 			if not AutoDrive.player_occupying(self.vehicle) then
 				AutoDrive.release(self.vehicle)
 			end
 		elseif on then
-			self:MaybeEjectLockedSeat()
 			self:KickAuto()
 		end
 	end,
 
 	SetPauseOnEnter = function(self, enabled)
 		self.pause_on_enter = enabled and true or false
-		if self:seat_locked() then
-			self:MaybeEjectLockedSeat()
-			self:KickAuto()
-		elseif self:pause_yields() and AutoDrive.player_occupying(self.vehicle) then
+		self:NotifyToggle(self.pause_on_enter and {"cncharvester.pause-toggled-on"} or {"cncharvester.pause-toggled-off"})
+		if self:pause_yields() and AutoDrive.player_occupying(self.vehicle) then
 			self:CancelPendingPath()
 			if self.vehicle and self.vehicle.valid then
 				AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
 			end
+		elseif self:auto_on() then
+			self:KickAuto()
 		end
 	end,
 
@@ -301,19 +300,12 @@ cncharvester = {
 			return
 		end
 
-		-- Eject is a nicety when pause is off. Auto ON still drives if they sit.
-		if self:seat_locked() then
-			self:MaybeEjectLockedSeat()
-		end
-
 		local occupying = AutoDrive.player_occupying(self.vehicle)
 		-- Hard rule: auto_on ⇒ keep the wheel unless pause-on-enter is ON.
 		local yield = occupying and self:pause_yields()
 		if yield ~= self.occupied then
 			self.occupied = yield
 			self:OnOccupancyChanged(yield)
-		elseif occupying and self:seat_locked() then
-			self.occupied = false
 		end
 
 		if yield then
@@ -364,7 +356,7 @@ cncharvester = {
 		if not (self.vehicle and self.vehicle.valid) then
 			return
 		end
-		DrawFloatingText(self.vehicle.surface, self.vehicle, text, color or {r = 1, g = 1, b = 1}, ttl or 60)
+		DrawFloatingText(self.vehicle.surface, self.vehicle, text, color or {r = 1, g = 1, b = 1}, ttl or FLOATING_TEXT_TOGGLE_TTL)
 	end,
 
 	CheckFuel = function(self)
@@ -566,24 +558,49 @@ cncharvester = {
 			return nil
 		end
 		local left, top = cx * 32, cy * 32
+		return self:nearest_harvestable_in_area({{left, top}, {left + 32, top + 32}})
+	end,
+
+	nearest_harvestable_in_area = function(self, area)
+		local surface = self.vehicle and self.vehicle.surface
+		if not (surface and surface.valid) then
+			return nil
+		end
 		local ents = surface.find_entities_filtered{
 			type = "resource",
-			area = {{left, top}, {left + 32, top + 32}},
+			area = area,
 		}
 		local allow_tib = AutoDrive.allow_tib(self.vehicle)
+		local origin = self.vehicle.position
+		local best, best_d
 		for _, ent in pairs(ents) do
 			if IsHarvestableResource(ent, self.vehicle) then
 				local cat = ent.prototype and ent.prototype.resource_category
-				if ChunkIndex.resource_is_tiberium(cat, ent.name) then
-					if allow_tib then
-						return ent
-					end
+				local tib = ChunkIndex.resource_is_tiberium(cat, ent.name)
+				if tib and not allow_tib then
+					-- skip
 				else
-					return ent
+					local d = Vector.dist(origin, ent.position)
+					if not best or d < best_d then
+						best, best_d = ent, d
+					end
 				end
 			end
 		end
-		return nil
+		return best
+	end,
+
+	on_ore_patch = function(self)
+		local here = self.vehicle.surface.find_entities_filtered{
+			type = "resource",
+			area = GetBoundingBox(self.vehicle.position, AutoDrive.MINE_SENSE_TILES),
+		}
+		for _, ent in pairs(here) do
+			if IsHarvestableResource(ent, self.vehicle) then
+				return true
+			end
+		end
+		return false
 	end,
 
 	PickIndexTarget = function(self)
@@ -616,11 +633,18 @@ cncharvester = {
 		if not self:auto_on() then
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) then
+		-- Occupying must not block the path while auto owns the wheel.
+		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
 			return
 		end
 		self.targetPosition = position
 		self.arrival_state = arrival_state
+		self.drive_radius = radius
+		if radius and radius <= AutoDrive.PATH_RADIUS_ORE_ENTITY + 0.01 then
+			self.arrive_tiles = AutoDrive.ARRIVE_ORE_ENTITY
+		else
+			self.arrive_tiles = nil
+		end
 		self.going_home = arrival_state == States.ApproachedRefinery
 			or arrival_state == States.DroppingOre
 			or arrival_state == States.ApproachedForRefuel
@@ -704,7 +728,7 @@ cncharvester = {
 			self.path = nil
 			return
 		end
-		if AutoDrive.player_occupying(self.vehicle) and self.pause_on_enter then
+		if AutoDrive.player_occupying(self.vehicle) and self:pause_yields() then
 			self.path = nil
 			return
 		end
@@ -810,34 +834,42 @@ cncharvester = {
 			self.searchRadius = Stats.DefaultSearchRadius
 			self.oresInRadius = {}
 			self.scoopsMined = 0
-			local dest = (ore and ore.position) or chunk.center
-			self:StartDrive(dest, States.MiningOre, AutoDrive.PATH_RADIUS_ORE)
+			self.ore_retarget_n = 0
+			if ore then
+				self:StartDrive(ore.position, States.MiningOre, AutoDrive.PATH_RADIUS_ORE_ENTITY)
+			else
+				self:StartDrive(chunk.center, States.MiningOre, AutoDrive.PATH_RADIUS_ORE)
+			end
 		end,
 
 		[States.MiningOre] = function(self)
-			if self.scoopsMined == 0 then
-				local here = self.vehicle.surface.find_entities_filtered{
-					type = "resource",
-					area = GetBoundingBox(self.vehicle.position, 4),
-				}
-				local on_patch = false
-				for _, ent in pairs(here) do
-					if IsHarvestableResource(ent, self.vehicle) then
-						on_patch = true
-						break
-					end
-				end
-				if not on_patch and self.assign_cx ~= nil then
-					local ore = self:resource_in_chunk(self.assign_si, self.assign_cx, self.assign_cy)
-					if ore then
-						self:StartDrive(ore.position, States.MiningOre, AutoDrive.PATH_RADIUS_ORE)
-						return
-					end
+			if not self:on_ore_patch() then
+				self.ore_retarget_n = (self.ore_retarget_n or 0) + 1
+				if self.ore_retarget_n > AutoDrive.ORE_RETARGET_MAX then
 					self:mark_failed_chunk()
+					self.ore_retarget_n = 0
 					self.state = States.FindingOre
 					return
 				end
+				local ore
+				if self.assign_cx ~= nil then
+					ore = self:resource_in_chunk(self.assign_si, self.assign_cx, self.assign_cy)
+				end
+				if not ore then
+					ore = self:nearest_harvestable_in_area(
+						GetBoundingBox(self.vehicle.position, AutoDrive.ORE_NEAR_TILES)
+					)
+				end
+				if ore then
+					self:StartDrive(ore.position, States.MiningOre, AutoDrive.PATH_RADIUS_ORE_ENTITY)
+					return
+				end
+				self:mark_failed_chunk()
+				self.ore_retarget_n = 0
+				self.state = States.FindingOre
+				return
 			end
+			self.ore_retarget_n = 0
 			if self.scoopsMined >= Scoop.items_per_location(self.vehicle) then
 				ModuleBay.starve(self.vehicle)
 				self.state = States.FindingOre
@@ -955,7 +987,11 @@ cncharvester = {
 			end
 			if not self.path then
 				if self.targetPosition then
-					self:StartDrive(self.targetPosition, self.arrival_state, self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE)
+					local radius = self.drive_radius
+					if not radius then
+						radius = self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE
+					end
+					self:StartDrive(self.targetPosition, self.arrival_state, radius)
 				else
 					self:OnPathFail()
 				end
@@ -965,7 +1001,7 @@ cncharvester = {
 				self:OnPathFail()
 				return
 			end
-			local idx, arrived = AutoDrive.follow_path(self.vehicle, self.path, self.path_index)
+			local idx, arrived = AutoDrive.follow_path(self.vehicle, self.path, self.path_index, self.arrive_tiles)
 			self.path_index = idx
 			if arrived then
 				AutoDrive.stop(self.vehicle)

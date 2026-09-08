@@ -24,7 +24,7 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 
 ## Current auto AI (what we are replacing)
 
-Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). While **Automatic operation** is on, auto-drive **keeps writing `riding_state`** even if a player is in the seat (WASD is ignored). **Pause when somebody jumps in** is the only yield: sit, AI pauses, exit resumes. Default pause is **off**. Per-truck toggles live on the car inventory (relative GUI). `auto_enabled` is written **only** from a real inventory checkbox click — never from occupancy, eject, or GUI destroy/close.
+Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). While **Automatic operation** is on, auto-drive **keeps writing `riding_state`** even if a player is in the seat (WASD is ignored). **Pause when somebody jumps in** is the only yield: sit, AI pauses, exit resumes. Default pause is **off**. Per-truck toggles live on the car inventory (relative GUI). `auto_enabled` is written **only** from a real inventory checkbox click — never from occupancy or GUI destroy/close.
 
 What it actually does today:
 
@@ -160,15 +160,16 @@ Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defin
 | --- | --- | --- |
 | OFF | either | Normal enter + drive |
 | ON | ON | Can enter; AI yields and freezes assignment while occupied; resume on exit |
-| ON | OFF (default) | **AI keeps the wheel** — overwrite `riding_state` every tick; WASD ignored. Eject is optional. Auto stays on. |
+| ON | OFF (default) | **AI keeps the wheel** — overwrite `riding_state` every tick; WASD ignored. Player may stay in the seat. Auto stays on. |
 
 Behavior:
 
 - **Auto off:** no FindingOre / path / riding AI. Manual drive works. Scoop / hitch / hybrid unchanged. Turning auto off while unmanned cancels the path and releases leftover AI accel once (does not brake every tick).
 - **Auto on** + empty seat: current physical drive AI.
-- **Auto on + pause off:** do **not** yield Tick / `riding_state` because a player is occupying. Player input must **not** write `auto_enabled=false` or drop the tracked record. Eject (`set_driver(nil)`) is a nicety, not the lock.
+- **Auto on + pause off:** do **not** yield Tick / `riding_state` because a player is occupying. Do **not** eject. Player input must **not** write `auto_enabled=false` or drop the tracked record.
 - **Auto on + pause on:** player may sit. Never write `riding_state` while occupied. Freeze assignment (cancel pending path). Resume / repath on exit if auto is still on.
-- Checkbox writes: **`on_gui_click` only**, and only while the car inventory is genuinely open. `on_gui_checked_state_changed` (destroy/close/enter fake uncheck) must not call `SetAutoEnabled(false)`. `SetAutoEnabled(false)` requires source `player_checkbox`.
+- Checkbox writes: **`on_gui_click` only**, and only while the car inventory is genuinely open. Toggle feedback uses ~5 s floating text plus `player.print`.
+- Ore assignment drives to a **resource entity** when `resource_in_chunk` finds one (tight path/arrive). If `MiningOre` is off-patch, short-range retarget (up to 3) then mark the chunk failed / `FindingOre`.
 - **Do not write these fields in `on_load`.** Factorio CRC-checks `storage` and will refuse the save (`Detected modifications to the 'storage' table`). Missing keys mean auto ON / pause OFF until a later mutable event (tick / GUI) writes them. Empty + auto ON calls `KickAuto` (repath or `FindingOre` → `StartDrive`).
 
 ### Suggested storage shape (implementer hint, not frozen)
@@ -363,7 +364,7 @@ M1 (landed):
 Step 3 (landed):
 
 - A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. **Auto on:** AI keeps writing `riding_state` even if a player is in the seat (WASD ignored) unless **pause-on-enter** is on. **Auto off:** normal drive. Enter / WASD / inventory must not clear `auto_enabled`. Uncheck Automatic operation in the open inventory to take the wheel.
-- `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop).
+- `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop). Drive to a harvestable **resource entity** when known, not only `chunk.center`. Off-patch `MiningOre` retargets in-chunk / nearby.
 - Return-home (fuel / full / non-impact damage) is a physical drive to the **refinery**.
 - Stuck / path failure escalates **repath (3) → other in-range patch (3) → drive home early (3 home repaths)**, then yellow/red global alerts. No teleport past the block.
 

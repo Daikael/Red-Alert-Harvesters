@@ -3,7 +3,8 @@
 -- autopilot_destination does not exist on these prototypes. Movement is
 -- LuaSurface.request_path + riding_state (real car physics, collisions).
 -- Never vehicle.teleport / heading-step fakes.
--- Never write riding_state while a player occupies the vehicle.
+-- Auto ON overwrites riding_state even if a player occupies (pause-on-enter
+-- is the only yield).
 
 AutoDrive = AutoDrive or {}
 
@@ -13,12 +14,20 @@ AutoDrive.RANGE_TILES = 256
 AutoDrive.RANGE_NEAR_TILES = 96
 -- Hybrid pool + grid + tank below this → drive home for fuel (10% of 80 MJ).
 AutoDrive.FUEL_LOW_J = 8000000
--- Pathfinder goal radius (tiles). Home pad is tight; outbound ore can be looser.
+-- Pathfinder goal radius (tiles). Home pad is tight; chunk-center ore can be
+-- looser. A known resource entity uses a tight radius so we do not stop 4
+-- tiles off the patch.
 AutoDrive.PATH_RADIUS_ORE = 4
+AutoDrive.PATH_RADIUS_ORE_ENTITY = 1.5
 AutoDrive.PATH_RADIUS_HOME = 6
 -- Advance to the next waypoint / declare arrival.
 AutoDrive.WAYPOINT_TILES = 4.5
 AutoDrive.ARRIVE_TILES = 3.0
+AutoDrive.ARRIVE_ORE_ENTITY = 1.25
+-- MiningOre: walk onto a resource if we landed off-patch.
+AutoDrive.MINE_SENSE_TILES = 4
+AutoDrive.ORE_RETARGET_MAX = 3
+AutoDrive.ORE_NEAR_TILES = 16
 -- Stuck: no 0.75-tile progress for 3 seconds @ 60 UPS.
 AutoDrive.STUCK_TICKS = 180
 AutoDrive.STUCK_MIN_MOVE = 0.75
@@ -167,73 +176,6 @@ function AutoDrive.ai_may_steer(vehicle)
 		return true
 	end
 	return not AutoDrive.player_occupying(vehicle)
-end
-
-local function eject_occupant_player(obj)
-	if obj == nil then
-		return
-	end
-	if obj.object_name == "LuaPlayer" and obj.valid ~= false then
-		pcall(function()
-			obj.driving = false
-		end)
-		return
-	end
-	if obj.valid then
-		local p = obj.player
-		if p and p.valid then
-			pcall(function()
-				p.driving = false
-			end)
-		end
-	end
-end
-
--- Cargo-wagon style: dump driver/passenger. Does not write auto_enabled
--- and does not drop the tracked harvester record.
-function AutoDrive.eject_players(vehicle)
-	if not (vehicle and vehicle.valid) then
-		return false
-	end
-	eject_occupant_player(seat_occupant(vehicle, vehicle.get_driver))
-	eject_occupant_player(seat_occupant(vehicle, vehicle.get_passenger))
-	pcall(function()
-		vehicle.set_driver(nil)
-	end)
-	pcall(function()
-		vehicle.set_driver()
-	end)
-	pcall(function()
-		vehicle.set_passenger(nil)
-	end)
-	pcall(function()
-		vehicle.set_passenger()
-	end)
-	local players = game and game.connected_players
-	if players then
-		for _, player in pairs(players) do
-			if player.valid and player.vehicle and player.vehicle.valid and player.vehicle == vehicle then
-				pcall(function()
-					player.driving = false
-				end)
-			end
-		end
-	end
-	return true
-end
-
-function AutoDrive.eject_player(player)
-	if not (player and player.valid) then
-		return false
-	end
-	local vehicle = player.vehicle
-	pcall(function()
-		player.driving = false
-	end)
-	if vehicle and vehicle.valid then
-		AutoDrive.eject_players(vehicle)
-	end
-	return true
 end
 
 local function write_riding(vehicle, acceleration, direction)

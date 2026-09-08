@@ -559,9 +559,11 @@ expect(io.open("harvester.lua"):read("*a"):find("PickIndexTarget", 1, true) ~= n
 expect(io.open("harvester.lua"):read("*a"):find("StartDrive", 1, true) ~= nil, "harvester starts physical drives")
 expect(drive_src:find("player_occupying", 1, true) ~= nil, "autodrive detects player occupancy")
 expect(drive_src:find("ai_may_steer", 1, true) ~= nil, "riding writes allow seat-lock AI")
-expect(drive_src:find("function AutoDrive.eject_players", 1, true) ~= nil, "cargo-wagon eject exists")
-expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "eject uses set_driver(nil)")
-expect(drive_src:find("player.driving = false", 1, true) ~= nil, "eject uses player.driving = false")
+expect(drive_src:find("PATH_RADIUS_ORE_ENTITY = 1.5", 1, true) ~= nil, "ore entity path radius is tight")
+expect(drive_src:find("ORE_RETARGET_MAX = 3", 1, true) ~= nil, "off-patch retarget budget is 3")
+expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
+expect(drive_src:find("vehicle.set_driver(nil)", 1, true) == nil, "no set_driver eject")
+expect(drive_src:find("player.driving = false", 1, true) == nil, "no player.driving eject")
 local hv_src = assert(io.open("harvester.lua"):read("*a"))
 expect(hv_src:find("auto_enabled = true", 1, true) ~= nil, "new trucks default auto ON")
 expect(hv_src:find("pause_on_enter = false", 1, true) ~= nil, "pause-on-enter defaults OFF")
@@ -569,7 +571,11 @@ expect(hv_src:find("return self.auto_enabled ~= false", 1, true) ~= nil, "nil au
 expect(hv_src:find("pause_on_enter == true", 1, true) ~= nil, "nil pause_on_enter reads as OFF")
 expect(hv_src:find("seat_locked = function", 1, true) ~= nil, "seat_locked helper exists")
 expect(hv_src:find("pause_yields = function", 1, true) ~= nil, "pause_yields helper exists")
-expect(hv_src:find("MaybeEjectLockedSeat", 1, true) ~= nil, "locked-seat eject helper exists")
+expect(hv_src:find("MaybeEjectLockedSeat", 1, true) == nil, "locked-seat eject helper is gone")
+expect(hv_src:find("NotifyToggle", 1, true) ~= nil, "toggle feedback helper exists")
+expect(hv_src:find("nearest_harvestable_in_area", 1, true) ~= nil, "ore retarget finds a resource entity")
+expect(hv_src:find("PATH_RADIUS_ORE_ENTITY", 1, true) ~= nil, "FindingOre drives to ore entity tightly")
+expect(hv_src:find("pause_yields()", 1, true) ~= nil, "StartDrive is not blocked by occupying when auto owns the wheel")
 expect(hv_src:find("occupying and self:pause_yields()", 1, true) ~= nil, "Tick yields only when pause-on-enter is on")
 expect(hv_src:find('source ~= "player_checkbox"', 1, true) ~= nil, "SetAutoEnabled(false) requires a real checkbox click")
 expect(hv_src:find("NoteUnauthorizedAutoOff", 1, true) ~= nil, "unauthorized auto-off is logged")
@@ -620,10 +626,14 @@ expect(io.open("control.lua"):read("*a"):find("path_id = h.path_id", 1, true) ~=
 expect(io.open("control.lua"):read("*a"):find("has_path = h.path ~= nil", 1, true) ~= nil, "harvester_ai reports has_path")
 expect(io.open("control.lua"):read("*a"):find("fuel_ok =", 1, true) ~= nil, "harvester_ai reports fuel_ok")
 expect(io.open("control.lua"):read("*a"):find("occupied = occupying", 1, true) ~= nil, "harvester_ai occupied is live player_occupying")
-expect(io.open("control.lua"):read("*a"):find("AutoDrive.eject_player", 1, true) ~= nil, "driving-changed ejects locked seats")
+expect(io.open("control.lua"):read("*a"):find("AutoDrive.eject_player", 1, true) == nil, "driving-changed does not eject")
+expect(io.open("utilities.lua"):read("*a"):find("FLOATING_TEXT_TOGGLE_TTL = 300", 1, true) ~= nil, "toggle floating text lasts 5 seconds")
+expect(hv_src:find("player.print(text)", 1, true) ~= nil, "toggle feedback also player.prints")
 expect(loc:find("auto%-operation=Automatic operation", 1) ~= nil, "automatic operation locale exists")
 expect(loc:find("pause%-on%-enter=Pause when somebody jumps in", 1) ~= nil, "pause-on-enter locale exists")
-expect(loc:find("auto%-locked=", 1) ~= nil, "auto-locked floating text locale exists")
+expect(loc:find("auto%-toggled%-on=", 1) ~= nil, "auto-on toggle locale exists")
+expect(loc:find("pause%-toggled%-on=", 1) ~= nil, "pause-on toggle locale exists")
+expect(loc:find("auto%-locked=", 1) == nil, "eject toast locale is gone")
 expect(loc:find("auto%-off%-blocked=", 1) ~= nil, "auto-off-blocked locale exists")
 expect(loc:find("needs%-testing%-flag=", 1) ~= nil, "testing-flag tooltip locale exists")
 dofile("autodrive.lua")
@@ -687,18 +697,6 @@ expect(AutoDrive.ai_may_steer({
 	get_passenger = function() return nil end,
 }) == false, "pause-on-enter occupied does not steer")
 storage = nil
-local driver_arg = "unset"
-AutoDrive.eject_players({
-	valid = true,
-	unit_number = 8,
-	get_driver = function()
-		return {object_name = "LuaPlayer", valid = true}
-	end,
-	get_passenger = function() return nil end,
-	set_driver = function(d) driver_arg = d end,
-	set_passenger = function() end,
-})
-expect(driver_arg == nil, "eject calls set_driver(nil)")
 expect(io.open("locale/en/all.cfg"):read("*a"):find("auto-stuck-miner=", 1, true) ~= nil, "stuck miner locale exists")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
 expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")
