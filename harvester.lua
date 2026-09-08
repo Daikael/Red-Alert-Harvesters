@@ -93,6 +93,14 @@ cncharvester = {
 			alert_tick = 0,
 			busy_until = 0,
 			search_range = AutoDrive.RANGE_TILES,
+
+			-- Per-truck (not a global startup setting). Default auto ON so
+			-- testers with Automatic harvester testing already on keep AI.
+			-- Pause-on-enter default OFF: yield controls while seated, resume
+			-- the same assignment on exit.
+			auto_enabled = true,
+			pause_on_enter = false,
+			occupied = false,
 		}
 		setmetatable(self, {__index = cncharvester})
 		self:SetIsFilled(false)
@@ -125,6 +133,77 @@ cncharvester = {
 		self.alt_n = self.alt_n or 0
 		self.home_repath_n = self.home_repath_n or 0
 		self.search_range = self.search_range or AutoDrive.RANGE_TILES
+		-- nil → ON so existing tester saves keep auto. false must persist.
+		if self.auto_enabled == nil then
+			self.auto_enabled = true
+		end
+		if self.pause_on_enter == nil then
+			self.pause_on_enter = false
+		end
+	end,
+
+	auto_on = function(self)
+		return self.auto_enabled ~= false
+	end,
+
+	CancelPendingPath = function(self)
+		if self.path_id then
+			AutoDrive.take_request(self.path_id)
+			self.path_id = nil
+		end
+		self.path = nil
+		self.path_index = 1
+	end,
+
+	RepathCurrentAssignment = function(self)
+		if not self:auto_on() then
+			return
+		end
+		if AutoDrive.player_occupying(self.vehicle) then
+			return
+		end
+		if self.state == States.MovingToLocation and self.targetPosition then
+			local radius = self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE
+			self:StartDrive(self.targetPosition, self.arrival_state, radius)
+		end
+	end,
+
+	OnOccupancyChanged = function(self, occupied)
+		if self.vehicle and self.vehicle.valid then
+			AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
+		end
+		if occupied then
+			if self.pause_on_enter then
+				-- Freeze assignment: do not keep pathing in the background.
+				self:CancelPendingPath()
+			end
+		elseif self:auto_on() then
+			self:RepathCurrentAssignment()
+		end
+	end,
+
+	SetAutoEnabled = function(self, enabled)
+		local on = enabled and true or false
+		local was = self:auto_on()
+		self.auto_enabled = on
+		if was and not on then
+			self:CancelPendingPath()
+			if not AutoDrive.player_occupying(self.vehicle) then
+				AutoDrive.release(self.vehicle)
+			end
+		elseif on and not was then
+			self:RepathCurrentAssignment()
+		end
+	end,
+
+	SetPauseOnEnter = function(self, enabled)
+		self.pause_on_enter = enabled and true or false
+		if self.pause_on_enter and AutoDrive.player_occupying(self.vehicle) then
+			self:CancelPendingPath()
+			if self.vehicle and self.vehicle.valid then
+				AutoDrive.progress_reset(self, self.vehicle.position, game and game.tick or 0)
+			end
+		end
 	end,
 
 	Tick = function(self)
@@ -132,11 +211,22 @@ cncharvester = {
 			return
 		end
 
-		if AutoDrive.player_driving(self.vehicle) then
-			AutoDrive.release(self.vehicle)
+		local occupied = AutoDrive.player_occupying(self.vehicle)
+		if occupied ~= self.occupied then
+			self.occupied = occupied
+			self:OnOccupancyChanged(occupied)
+		end
+
+		if occupied then
+			-- Never write riding_state while a player is in the seat.
 			if self.state ~= States.MiningOre then
 				ModuleBay.starve(self.vehicle)
 			end
+			return
+		end
+
+		if not self:auto_on() then
+			ModuleBay.starve(self.vehicle)
 			return
 		end
 
@@ -338,6 +428,12 @@ cncharvester = {
 		if damage_type_name == "impact" then
 			return
 		end
+		if not self:auto_on() then
+			return
+		end
+		if AutoDrive.player_occupying(self.vehicle) then
+			return
+		end
 		if self:is_home_state() or self.going_home then
 			return
 		end
@@ -414,6 +510,12 @@ cncharvester = {
 
 	StartDrive = function(self, position, arrival_state, radius)
 		if not (self.vehicle and self.vehicle.valid and position) then
+			return
+		end
+		if not self:auto_on() then
+			return
+		end
+		if AutoDrive.player_occupying(self.vehicle) then
 			return
 		end
 		self.targetPosition = position
@@ -497,6 +599,14 @@ cncharvester = {
 			return
 		end
 		self.path_id = nil
+		if not self:auto_on() then
+			self.path = nil
+			return
+		end
+		if AutoDrive.player_occupying(self.vehicle) and self.pause_on_enter then
+			self.path = nil
+			return
+		end
 		if event.try_again_later then
 			self.path_id = nil
 			self.busy_until = game.tick + AutoDrive.BUSY_RETRY_TICKS
@@ -736,10 +846,6 @@ cncharvester = {
 		-- Legacy teleport (do not restore):
 		-- self.vehicle.teleport(self.targetPosition)
 		[States.MovingToLocation] = function(self)
-			if AutoDrive.player_driving(self.vehicle) then
-				AutoDrive.release(self.vehicle)
-				return
-			end
 			if (self.busy_until or 0) > game.tick then
 				return
 			end

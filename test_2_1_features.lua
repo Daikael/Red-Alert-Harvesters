@@ -557,6 +557,42 @@ expect(drive_src:find("STUCK_TICKS = 180", 1, true) ~= nil, "no-progress window 
 expect(index_src:find("function ChunkIndex.find_ore_chunks", 1, true) ~= nil, "FindingOre reads the chunk index")
 expect(io.open("harvester.lua"):read("*a"):find("PickIndexTarget", 1, true) ~= nil, "FindingOre uses PickIndexTarget")
 expect(io.open("harvester.lua"):read("*a"):find("StartDrive", 1, true) ~= nil, "harvester starts physical drives")
+expect(drive_src:find("player_occupying", 1, true) ~= nil, "autodrive detects player occupancy")
+expect(drive_src:find("if AutoDrive.player_occupying(vehicle) then", 1, true) ~= nil, "riding writes no-op when occupied")
+local hv_src = assert(io.open("harvester.lua"):read("*a"))
+expect(hv_src:find("auto_enabled = true", 1, true) ~= nil, "new trucks default auto ON")
+expect(hv_src:find("pause_on_enter = false", 1, true) ~= nil, "pause-on-enter defaults OFF")
+expect(hv_src:find("Never write riding_state while a player is in the seat", 1, true) ~= nil, "Tick yields controls while occupied")
+expect(hv_src:find("SetAutoEnabled", 1, true) ~= nil, "per-truck auto setter exists")
+expect(hv_src:find("SetPauseOnEnter", 1, true) ~= nil, "per-truck pause-on-enter setter exists")
+expect(io.open("autopanel.lua") ~= nil, "autopanel.lua exists")
+local panel_src = assert(io.open("autopanel.lua"):read("*a"))
+expect(panel_src:find("relative_gui_type.car_gui", 1, true) ~= nil, "auto panel anchors to car GUI")
+expect(panel_src:find("relative_gui_position.left", 1, true) ~= nil, "auto panel sits on the inventory side")
+expect(panel_src:find("cncharvester-auto-enabled", 1, true) ~= nil, "automatic operation checkbox")
+expect(panel_src:find("cncharvester-pause-on-enter", 1, true) ~= nil, "pause-on-enter checkbox")
+expect(io.open("control.lua"):read("*a"):find('require "autopanel"', 1, true) ~= nil, "control requires autopanel")
+expect(io.open("control.lua"):read("*a"):find("on_gui_checked_state_changed", 1, true) ~= nil, "control hooks checkbox toggles")
+expect(io.open("control.lua"):read("*a"):find("auto_enabled", 1, true) ~= nil, "harvester_ai reports auto_enabled")
+expect(loc:find("auto%-operation=Automatic operation", 1) ~= nil, "automatic operation locale exists")
+expect(loc:find("pause%-on%-enter=Pause when somebody jumps in", 1) ~= nil, "pause-on-enter locale exists")
+expect(loc:find("needs%-testing%-flag=", 1) ~= nil, "testing-flag tooltip locale exists")
+dofile("autodrive.lua")
+expect(AutoDrive.player_occupying(nil) == false, "nil vehicle is not occupied")
+expect(AutoDrive.player_occupying({
+	valid = true,
+	unit_number = 1,
+	get_driver = function() return nil end,
+	get_passenger = function() return nil end,
+}) == false, "empty mock vehicle is not occupied")
+expect(AutoDrive.player_occupying({
+	valid = true,
+	unit_number = 2,
+	get_driver = function()
+		return {object_name = "LuaPlayer", valid = true}
+	end,
+	get_passenger = function() return nil end,
+}) == true, "LuaPlayer driver counts as occupying")
 expect(io.open("locale/en/all.cfg"):read("*a"):find("auto-stuck-miner=", 1, true) ~= nil, "stuck miner locale exists")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")
 expect(io.open("control.lua"):read("*a"):find("on_pre_chunk_deleted", 1, true) ~= nil, "control hooks on_pre_chunk_deleted")

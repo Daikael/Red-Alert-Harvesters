@@ -3,6 +3,7 @@
 -- autopilot_destination does not exist on these prototypes. Movement is
 -- LuaSurface.request_path + riding_state (real car physics, collisions).
 -- Never vehicle.teleport / heading-step fakes.
+-- Never write riding_state while a player occupies the vehicle.
 
 AutoDrive = AutoDrive or {}
 
@@ -87,49 +88,77 @@ function AutoDrive.allow_tib(vehicle)
 	return AutoDrive.tib_tech_researched(vehicle.force)
 end
 
-function AutoDrive.player_driving(vehicle)
-	if not (vehicle and vehicle.valid and vehicle.get_driver) then
+local function occupant_is_player(obj)
+	if not obj then
 		return false
 	end
-	local driver = vehicle.get_driver()
-	if not driver then
-		return false
+	if obj.object_name == "LuaPlayer" then
+		return true
 	end
-	if type(driver.is_player) == "function" then
+	if type(obj.is_player) == "function" then
 		local ok, yes = pcall(function()
-			return driver:is_player()
+			return obj:is_player()
 		end)
 		if ok and yes then
 			return true
 		end
 	end
-	if driver.object_name == "LuaPlayer" then
-		return true
-	end
-	if driver.player and driver.player.valid then
+	if obj.valid and obj.player and obj.player.valid then
 		return true
 	end
 	return false
 end
 
-function AutoDrive.stop(vehicle)
+-- True if a player is in this vehicle (driver or passenger). Prefer this
+-- over get_driver() alone: never write riding_state while occupied.
+function AutoDrive.player_occupying(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	if vehicle.get_driver and occupant_is_player(vehicle.get_driver()) then
+		return true
+	end
+	if vehicle.get_passenger and occupant_is_player(vehicle.get_passenger()) then
+		return true
+	end
+	local players = game and (game.connected_players or game.players)
+	if not players then
+		return false
+	end
+	local id = vehicle.unit_number
+	for _, player in pairs(players) do
+		if player.valid and player.vehicle and player.vehicle.valid then
+			if player.vehicle == vehicle or (id and player.vehicle.unit_number == id) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function AutoDrive.player_driving(vehicle)
+	return AutoDrive.player_occupying(vehicle)
+end
+
+local function write_riding(vehicle, acceleration, direction)
 	if not (vehicle and vehicle.valid and riding_acc and riding_dir) then
 		return
 	end
+	if AutoDrive.player_occupying(vehicle) then
+		return
+	end
 	vehicle.riding_state = {
-		acceleration = riding_acc.braking or riding_acc.nothing,
-		direction = riding_dir.straight,
+		acceleration = acceleration,
+		direction = direction,
 	}
 end
 
+function AutoDrive.stop(vehicle)
+	write_riding(vehicle, riding_acc and (riding_acc.braking or riding_acc.nothing), riding_dir and riding_dir.straight)
+end
+
 function AutoDrive.release(vehicle)
-	if not (vehicle and vehicle.valid and riding_acc and riding_dir) then
-		return
-	end
-	vehicle.riding_state = {
-		acceleration = riding_acc.nothing,
-		direction = riding_dir.straight,
-	}
+	write_riding(vehicle, riding_acc and riding_acc.nothing, riding_dir and riding_dir.straight)
 end
 
 function AutoDrive.collision_box(entity)
@@ -197,6 +226,9 @@ function AutoDrive.steer_toward(vehicle, dest)
 	if not (vehicle and vehicle.valid and dest and riding_acc and riding_dir) then
 		return false
 	end
+	if AutoDrive.player_occupying(vehicle) then
+		return false
+	end
 	local pos = vehicle.position
 	local dx = dest.x - pos.x
 	local dy = dest.y - pos.y
@@ -223,13 +255,16 @@ function AutoDrive.steer_toward(vehicle, dest)
 			acc = riding_acc.accelerating
 		end
 	end
-	vehicle.riding_state = {acceleration = acc, direction = dir}
+	write_riding(vehicle, acc, dir)
 	return false
 end
 
 function AutoDrive.follow_path(vehicle, path, path_index, arrive_tiles)
 	arrive_tiles = arrive_tiles or AutoDrive.ARRIVE_TILES
 	if not (vehicle and vehicle.valid and path and path_index) then
+		return path_index, false, true
+	end
+	if AutoDrive.player_occupying(vehicle) then
 		return path_index, false, true
 	end
 	local wp = waypoint_pos(path[path_index])

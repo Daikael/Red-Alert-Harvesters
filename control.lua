@@ -1,6 +1,7 @@
 require "utilities"
 require "chunkindex"
 require "autodrive"
+require "autopanel"
 require "modulebay"
 require "scoop"
 require "hybriddrive"
@@ -46,6 +47,9 @@ remote.add_interface("Red-Alert-Harvester", {
 				going_home = h.going_home == true,
 				home_early = h.home_early == true,
 				range = h.search_range,
+				auto_enabled = h.auto_enabled ~= false,
+				pause_on_enter = h.pause_on_enter == true,
+				occupied = h.occupied == true,
 				assign = h.assign_cx and {si = h.assign_si, x = h.assign_cx, y = h.assign_cy} or nil,
 			}
 		end
@@ -238,6 +242,18 @@ script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	if ent and ent.valid and HARVESTER_NAMES[ent.name] then
 		track_harvester(ent)
 		HybridDrive.prepare_vehicle(ent)
+		local h = storage.cncharvesters and storage.cncharvesters[ent.unit_number]
+		if h then
+			local occupied = AutoDrive.player_occupying(ent)
+			if occupied ~= h.occupied then
+				h.occupied = occupied
+				h:OnOccupancyChanged(occupied)
+			end
+		end
+		local player = event.player_index and game.get_player(event.player_index)
+		if player then
+			AutoPanel.sync(player, ent)
+		end
 	end
 end)
 
@@ -262,17 +278,34 @@ end)
 script.on_event(defines.events.on_gui_opened, function(event)
 	local player = game.get_player(event.player_index)
 	local ent = event.entity
-	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+	if not (player and ent and ent.valid) then
+		return
+	end
+	if ModuleBay.NAMES[ent.name] then
 		ModuleBay.ensure_draw_gui(player, ent)
+	end
+	if HARVESTER_NAMES[ent.name] then
+		track_harvester(ent)
+		AutoPanel.ensure(player, ent)
 	end
 end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
 	local player = game.get_player(event.player_index)
 	local ent = event.entity
-	if player and ent and ent.valid and ModuleBay.NAMES[ent.name] then
+	if not (player and ent and ent.valid) then
+		return
+	end
+	if ModuleBay.NAMES[ent.name] then
 		ModuleBay.close_draw_gui(player)
 	end
+	if HARVESTER_NAMES[ent.name] then
+		AutoPanel.destroy(player)
+	end
+end)
+
+script.on_event(defines.events.on_gui_checked_state_changed, function(event)
+	AutoPanel.on_checked(event)
 end)
 
 local function unload_near_refinery(vehicle)

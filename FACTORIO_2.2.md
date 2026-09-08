@@ -24,7 +24,7 @@ See `FACTORIO_2.0.md` / `FACTORIO_2.1.md` for the 2.1.17 ↔ 2.1.18 gameplay por
 
 ## Current auto AI (what we are replacing)
 
-Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). Manual drive / hitch / scoop / hybrid / refinery dump are unchanged when a player is in the seat (AI releases `riding_state`).
+Startup flag **`Auto-cncharvester-testing`** (`settings.lua`) enables **`ChunkIndex` plus physical auto-drive**. The per-truck teleport loop in `harvester.lua` is not used (commented leftovers only). While a player is in the seat, auto-drive **never writes `riding_state`** (manual steer/accelerate always work). Per-truck **Automatic operation** / **Pause when somebody jumps in** toggles live on the car inventory (relative GUI).
 
 What it actually does today:
 
@@ -146,6 +146,24 @@ Deployed, fueled miners **physically drive** to ore patches and **physically dri
 4. Still failing: **yellow** custom alert on the home refinery (depot placeholder) + **red** custom alert on the miner or the ore entity if still around. `force.print` + floating text. Cooldown `ALERT_COOLDOWN = 3600`. No teleport past the obstacle.
 
 Pathfinder busy (`try_again_later`) retries after `BUSY_RETRY_TICKS = 30` and does not consume a repath.
+
+#### Per-vehicle inventory toggles
+
+Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defines.relative_gui_type.car_gui`). Not a global startup setting. Hidden when **Automatic harvester testing** is off.
+
+| Toggle | Default | Persist |
+| --- | --- | --- |
+| **Automatic operation** | **On** for tracked trucks (testers with the flag already on keep AI) | `storage.cncharvesters[].auto_enabled` |
+| **Pause when somebody jumps in** | **Off** | `storage.cncharvesters[].pause_on_enter` |
+
+Behavior:
+
+- **Auto off:** no FindingOre / path / riding AI. Manual drive works. Scoop / hitch / hybrid unchanged. Turning auto off while unmanned cancels the path and releases leftover AI accel once (does not brake every tick).
+- **Auto on** + nobody in the seat: current physical drive AI.
+- **Player in the seat:** always yield controls. Never write `riding_state`.
+  - Pause-on-enter **on:** freeze assignment (cancel pending path; do not path in the background). Resume / repath on exit if auto is still on.
+  - Pause-on-enter **off (default):** still yield controls; keep assignment/path; repath on exit if auto is on.
+- Toggles can be flipped while sitting (open inventory with E).
 
 ### Suggested storage shape (implementer hint, not frozen)
 
@@ -309,9 +327,10 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 
 | File | Role for 2.2.x |
 | --- | --- |
-| `control.lua` | `require "chunkindex"` / `autodrive`. Seeds / ticks the scanner. When the testing flag is on, tracks trucks/refineries and calls `harvester:Tick()`. Path-finished + non-impact damage hooks. Remote `harvester_ai`. |
-| `harvester.lua` | State machine. `FindingOre` reads ChunkIndex (`PickIndexTarget`). `MovingToLocation` is physical AutoDrive. Teleport leftovers commented only. |
-| `autodrive.lua` | `request_path` + `riding_state`. Stuck tunables. Cars are not commandable. |
+| `control.lua` | `require "chunkindex"` / `autodrive` / `autopanel`. Seeds / ticks the scanner. When the testing flag is on, tracks trucks/refineries and calls `harvester:Tick()`. Path-finished + non-impact damage hooks. Relative auto-toggle GUI. Remote `harvester_ai`. |
+| `harvester.lua` | State machine. `FindingOre` reads ChunkIndex (`PickIndexTarget`). `MovingToLocation` is physical AutoDrive. Per-truck `auto_enabled` / `pause_on_enter`. Teleport leftovers commented only. |
+| `autodrive.lua` | `request_path` + `riding_state`. Never writes `riding_state` while a player occupies the truck. Stuck tunables. Cars are not commandable. |
+| `autopanel.lua` | Left-of-inventory checkboxes for automatic operation and pause-on-enter. |
 | `harvesterstats.lua` | Dump / approach offsets still used. `MovementSpeed` / `RotationSpeed` are unused by AutoDrive. |
 | `chunkindex.lua` | M1 slow index plus `find_ore_chunks` / `row_allows_vehicle` for FindingOre. Overlay dirty/incremental. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Home target until the M2 depot exists. |
@@ -337,7 +356,7 @@ M1 (landed):
 
 Step 3 (landed):
 
-- A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. Player in the seat pauses AI.
+- A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. A seated player always gets the controls (`riding_state` is not written). Pause-on-enter (off by default) freezes assignment while occupied.
 - `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop).
 - Return-home (fuel / full / non-impact damage) is a physical drive to the **refinery**.
 - Stuck / path failure escalates **repath (3) → other in-range patch (3) → drive home early (3 home repaths)**, then yellow/red global alerts. No teleport past the block.
