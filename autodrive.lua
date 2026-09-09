@@ -29,15 +29,19 @@ AutoDrive.ARRIVE_ORE_ENTITY = 1.25
 AutoDrive.ARRIVE_HOME = 8
 -- Close enough to the refinery entity to dump/refuel (chest-side 7-tile stall).
 AutoDrive.DOCK_ACCEPT_TILES = 8
--- Long trips use a biter-sized box + coarser grid (same unit pathfinder).
+-- Always path with the car collision_box at resolution 0. A biter-sized box
+-- plus a coarse grid (tried in 2.2.0) returned paths the 2.8-wide car cannot
+-- follow, which exhausted OnPathFail and spammed stuck alerts.
 AutoDrive.LONG_PATH_TILES = 48
-AutoDrive.PATH_RES_LONG = -2
-AutoDrive.UNIT_PATH_BOX = {{-0.4, -0.4}, {0.4, 0.4}}
--- Opportunistic tree clear: only flora that threatens collision, not forests.
-AutoDrive.TREE_CLEAR_RADIUS = 4.5
-AutoDrive.TREE_CLEAR_INTERVAL = 8
-AutoDrive.TREE_CLEAR_MAX = 2
-AutoDrive.TREE_TOUCH_TILES = 2.2
+AutoDrive.PATH_RES_LONG = 0
+AutoDrive.UNIT_PATH_BOX = {{-1.4, -1.4}, {1.4, 1.4}}
+-- Trees that threaten the hull. Destroy if the trunk cannot take the wood.
+AutoDrive.TREE_CLEAR_RADIUS = 8
+AutoDrive.TREE_CLEAR_INTERVAL = 5
+AutoDrive.TREE_CLEAR_MAX = 4
+AutoDrive.TREE_TOUCH_TILES = 3.0
+-- After a real stuck alert, wait before retrying so floating text does not spam.
+AutoDrive.STUCK_RETRY_TICKS = 300
 -- North is the dump / belt / circuit face (collision to y=-3). South is chest.
 AutoDrive.DOCK_OFFSETS = {
 	{0.75, -5.5},
@@ -125,23 +129,16 @@ function AutoDrive.steer_plan(speed, delta)
 	return "nothing", dir
 end
 
--- request_path already IS the unit/biter algorithm. Long trips use a
--- biter-sized box + coarser grid instead of spawning a dummy unit.
--- Dock / short trips keep the car collision_box so we fit at the pad.
+-- request_path is the unit/biter algorithm, but the traveler is a car.
+-- Always use the car box and 1-tile resolution so waypoints are driveable.
 function AutoDrive.path_request_plan(start, goal, precise)
-	if precise then
-		return "car", 0
-	end
-	if not (start and goal) then
-		return "car", 0
-	end
-	local dx = (goal.x or 0) - (start.x or 0)
-	local dy = (goal.y or 0) - (start.y or 0)
-	local limit = AutoDrive.LONG_PATH_TILES
-	if (dx * dx + dy * dy) >= (limit * limit) then
-		return "unit", AutoDrive.PATH_RES_LONG
-	end
 	return "car", 0
+end
+
+-- True while tank-rotating: do not treat that as a no-progress stuck.
+function AutoDrive.aligning_in_place(speed, delta)
+	return math.abs(delta or 0) > AutoDrive.TURN_DEADZONE
+		and math.abs(speed or 0) < AutoDrive.ALIGN_SPEED
 end
 
 function AutoDrive.dock_goal(origin, try_n)
@@ -161,17 +158,43 @@ function AutoDrive.near_dock(pos, refinery_pos)
 	return (dx * dx + dy * dy) <= (r * r)
 end
 
--- Collision-threat flora: touching, or ahead inside TREE_CLEAR_RADIUS.
+-- Collision-threat flora: touching / beside, or anywhere ahead in the bubble.
 function AutoDrive.tree_is_threat(dx, dy, fx, fy)
 	local dist = math.sqrt((dx or 0) * (dx or 0) + (dy or 0) * (dy or 0))
 	if dist < 0.05 or dist > AutoDrive.TREE_CLEAR_RADIUS then
 		return false
 	end
+	local along = (dx * fx + dy * fy) / dist
 	if dist <= AutoDrive.TREE_TOUCH_TILES then
+		return along >= -0.2
+	end
+	return along > 0
+end
+
+-- Mine into the trunk when there is room; otherwise destroy so the hull can move.
+function AutoDrive.remove_tree(tree, inv)
+	if not (tree and tree.valid) then
+		return false
+	end
+	if inv and inv.valid then
+		local full = inv.is_full and inv.is_full()
+		if not full then
+			local ok, res = pcall(function()
+				return tree.mine{inventory = inv, force = false, raise_destroyed = true}
+			end)
+			if ok and res then
+				return true
+			end
+		end
+	end
+	if pcall(function()
+		tree.destroy({raise_destroy = true})
+	end) then
 		return true
 	end
-	local along = (dx * fx + dy * fy) / dist
-	return along > 0.15
+	return pcall(function()
+		tree.destroy()
+	end)
 end
 
 function AutoDrive.clear_nearby_trees(vehicle, rec, tick)
@@ -202,11 +225,10 @@ function AutoDrive.clear_nearby_trees(vehicle, rec, tick)
 	end
 	local inv
 	pcall(function()
-		inv = vehicle.get_inventory(defines.inventory.car_trunk)
+		if vehicle.get_inventory and defines and defines.inventory then
+			inv = vehicle.get_inventory(defines.inventory.car_trunk)
+		end
 	end)
-	if inv and inv.valid and inv.is_full and inv.is_full() then
-		return 0
-	end
 	local n = 0
 	for _, tree in pairs(trees) do
 		if n >= AutoDrive.TREE_CLEAR_MAX then
@@ -215,14 +237,7 @@ function AutoDrive.clear_nearby_trees(vehicle, rec, tick)
 		if tree and tree.valid and tree.position then
 			local tp = tree.position
 			if AutoDrive.tree_is_threat(tp.x - pos.x, tp.y - pos.y, fx, fy) then
-				local mined = false
-				if inv and inv.valid then
-					local mok, res = pcall(function()
-						return tree.mine{inventory = inv, force = false, raise_destroyed = true}
-					end)
-					mined = mok and res
-				end
-				if mined then
+				if AutoDrive.remove_tree(tree, inv) then
 					n = n + 1
 				end
 			end
@@ -796,11 +811,8 @@ function AutoDrive.request(surface, entity, goal, radius, opts)
 		return nil
 	end
 	AutoDrive.spawn_path_blockers(entity)
-	local box_kind, res = AutoDrive.path_request_plan(entity.position, goal, opts and opts.precise)
+	local _, res = AutoDrive.path_request_plan(entity.position, goal, opts and opts.precise)
 	local box = AutoDrive.collision_box(entity)
-	if box_kind == "unit" then
-		box = AutoDrive.UNIT_PATH_BOX
-	end
 	local ok, id = pcall(function()
 		return surface.request_path{
 			bounding_box = box,

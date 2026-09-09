@@ -676,12 +676,13 @@ cncharvester = {
 			AutoDrive.take_request(self.path_id)
 			self.path_id = nil
 		end
+		AutoDrive.clear_nearby_trees(self.vehicle, self, game and game.tick or 0)
 		local id = AutoDrive.request(
 			self.vehicle.surface,
 			self.vehicle,
 			position,
 			radius,
-			{precise = self.going_home}
+			{precise = true}
 		)
 		self.state = States.MovingToLocation
 		AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
@@ -734,6 +735,7 @@ cncharvester = {
 				end
 			end
 			self:raise_stuck_alert()
+			self.busy_until = (game and game.tick or 0) + AutoDrive.STUCK_RETRY_TICKS
 			return
 		end
 		self.repath_n = (self.repath_n or 0) + 1
@@ -1062,8 +1064,19 @@ cncharvester = {
 			if action == "reverse" then
 				return
 			end
-			if action ~= "wait" then
-				AutoDrive.clear_nearby_trees(self.vehicle, self, game.tick)
+			AutoDrive.clear_nearby_trees(self.vehicle, self, game.tick)
+			local wp = self.path[self.path_index]
+			local dest = wp and (wp.position or wp)
+			if dest and dest.x ~= nil and DeltaposToOrientation then
+				local dx = dest.x - self.vehicle.position.x
+				local dy = dest.y - self.vehicle.position.y
+				if (dx * dx + dy * dy) > 0.0025 then
+					local want = DeltaposToOrientation({x = dx, y = dy})
+					local delta = AutoDrive.orientation_delta(self.vehicle.orientation, want)
+					if AutoDrive.aligning_in_place(self.vehicle.speed, delta) then
+						AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
+					end
+				end
 			end
 			if not AutoDrive.progress_ok(self, self.vehicle.position, game.tick) then
 				self:OnPathFail()
