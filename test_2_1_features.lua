@@ -601,7 +601,7 @@ local drive_src = assert(io.open("autodrive.lua"):read("*a"))
 expect(drive_src:find("vehicle.teleport(", 1, true) == nil, "autodrive never teleports")
 expect(drive_src:find("request_path", 1, true) ~= nil, "autodrive uses surface.request_path")
 expect(drive_src:find("riding_state", 1, true) ~= nil, "autodrive steers with riding_state")
-expect(drive_src:find("RANGE_TILES = 256", 1, true) ~= nil, "temporary auto range is 256 tiles")
+expect(drive_src:find("RANGE_TILES = 10000000", 1, true) ~= nil, "auto assignment is not capped at 256 tiles")
 expect(drive_src:find("REPATH_MAX = 3", 1, true) ~= nil, "repath budget is 3")
 expect(drive_src:find("ALT_PATCH_MAX = 3", 1, true) ~= nil, "alternate-patch budget is 3")
 expect(drive_src:find("STUCK_TICKS = 180", 1, true) ~= nil, "no-progress window is 180 ticks")
@@ -619,6 +619,12 @@ expect(drive_src:find("REVERSE_CHECK_TILES = 6", 1, true) ~= nil, "rear-clear ch
 expect(drive_src:find("ALIGN_SPEED = 0.08", 1, true) ~= nil, "in-place align speed threshold is 0.08")
 expect(drive_src:find("function AutoDrive.steer_plan", 1, true) ~= nil, "steer_plan is the testable in-place turn helper")
 expect(drive_src:find("function AutoDrive.tick_peer_block", 1, true) ~= nil, "tick_peer_block handles reverse-then-repath")
+expect(drive_src:find("function AutoDrive.path_request_plan", 1, true) ~= nil, "long trips use unit-sized request_path")
+expect(drive_src:find("function AutoDrive.clear_nearby_trees", 1, true) ~= nil, "auto-drive harvests nearby trees")
+expect(drive_src:find("DOCK_ACCEPT_TILES = 8", 1, true) ~= nil, "dock accept radius is 8 tiles")
+expect(drive_src:find("PATH_RADIUS_HOME = 10", 1, true) ~= nil, "home path radius is 10 tiles")
+expect(drive_src:find("PATH_RES_LONG = -2", 1, true) ~= nil, "long-range pathfinder uses coarser unit grid")
+expect(io.open("harvesterstats.lua"):read("*a"):find("RefineryDumpOffset = {0.75, -5.5}", 1, true) ~= nil, "dump offset is the north dump face")
 expect(drive_src:find("cncharvester-path-blocker", 1, true) ~= nil, "pathfinder uses sibling path blockers")
 expect(drive_src:find("allow_destroy_friendly_entities = false", 1, true) ~= nil, "pathfinder may not destroy friendlies")
 expect(drive_src:find("entity_to_ignore = entity", 1, true) ~= nil, "pathfinder ignores only self")
@@ -629,6 +635,9 @@ expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('priority 
 expect(io.open("harvester.lua"):read("*a"):find("peer_blocks_assignment", 1, true) ~= nil, "PickIndexTarget skips peer-occupied chunks")
 expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "paths through a sibling are rejected")
 expect(io.open("harvester.lua"):read("*a"):find("tick_peer_block", 1, true) ~= nil, "Tick reverse-wiggles then repaths instead of freezing on a sibling")
+expect(io.open("harvester.lua"):read("*a"):find("clear_nearby_trees", 1, true) ~= nil, "Tick mines trees that threaten collision")
+expect(io.open("harvester.lua"):read("*a"):find("near_dock", 1, true) ~= nil, "home trip accepts a close-enough dock")
+expect(io.open("harvester.lua"):read("*a"):find("dock_goal", 1, true) ~= nil, "stuck home trips try alternate dock faces")
 expect(drive_src:find("blocked_by_peer(vehicle)", 1, true) ~= nil, "follow_path still brakes instead of ramming a sibling")
 expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
 expect(drive_src:find("function AutoDrive.demote_driver_to_passenger", 1, true) ~= nil, "demote helper exists")
@@ -997,7 +1006,7 @@ expect(io.open("prototypes/equipment/equipment.lua") == nil, "Hybrid-drive equip
 dofile("chunkindex.lua")
 dofile("autodrive.lua")
 
-expect(AutoDrive.RANGE_TILES == 256, "auto range is 256 tiles")
+expect(AutoDrive.RANGE_TILES >= 1000000, "auto range is effectively unlimited")
 expect(math.abs(AutoDrive.orientation_delta(0, 0.25) - 0.25) < 1e-9, "turn right is positive delta")
 expect(math.abs(AutoDrive.orientation_delta(0, 0.75) + 0.25) < 1e-9, "turn left is negative delta")
 expect(math.abs(AutoDrive.wrap01(-0.25) - 0.75) < 1e-9, "wrap01 handles negative")
@@ -1018,7 +1027,47 @@ expect(#found == 1 and found[1].x == 0 and found[1].y == 0, "find_ore_chunks ret
 local excluded = ChunkIndex.find_ore_chunks(orechunk, {}, 1, {x = 16, y = 16}, 256, false, {[ChunkIndex.chunk_key(1, 0, 0)] = true})
 expect(#excluded == 0, "find_ore_chunks honors exclude keys")
 local far = ChunkIndex.find_ore_chunks(orechunk, {}, 1, {x = 10000, y = 10000}, 256, false, nil)
-expect(#far == 0, "find_ore_chunks drops chunks outside range")
+expect(#far == 0, "find_ore_chunks still honors a small range cap")
+local far_open = ChunkIndex.find_ore_chunks(orechunk, {}, 1, {x = 10000, y = 10000}, AutoDrive.RANGE_TILES, false, nil)
+expect(#far_open == 1, "unlimited range includes a far indexed chunk")
+local kind, res
+kind, res = AutoDrive.path_request_plan({x = 0, y = 0}, {x = 10, y = 0}, false)
+expect(kind == "car" and res == 0, "short trips keep the car collision box")
+kind, res = AutoDrive.path_request_plan({x = 0, y = 0}, {x = 200, y = 0}, false)
+expect(kind == "unit" and res == AutoDrive.PATH_RES_LONG, "long trips use unit box and coarser grid")
+kind, res = AutoDrive.path_request_plan({x = 0, y = 0}, {x = 200, y = 0}, true)
+expect(kind == "car" and res == 0, "dock trips stay precise")
+expect(AutoDrive.near_dock({x = 7, y = 0}, {x = 0, y = 0}) == true, "7 tiles from the refinery is close enough to dump")
+expect(AutoDrive.near_dock({x = 20, y = 0}, {x = 0, y = 0}) == false, "far from the refinery is not docked")
+local dock0 = AutoDrive.dock_goal({x = 0, y = 0}, 0)
+expect(dock0.y < -3, "first dock goal is north of the building")
+expect(AutoDrive.tree_is_threat(3, 0, 1, 0) == true, "tree ahead is a collision threat")
+expect(AutoDrive.tree_is_threat(-3, 0, 1, 0) == false, "tree behind is not cleared")
+expect(AutoDrive.tree_is_threat(1.5, 0, 1, 0) == true, "touching tree is a collision threat")
+expect(AutoDrive.tree_is_threat(20, 0, 1, 0) == false, "distant trees are left standing")
+local tree_rec = {}
+local tree_veh = {
+	valid = true,
+	position = {x = 0, y = 0},
+	orientation = 0.25,
+	surface = {
+		find_entities_filtered = function()
+			return {
+				{valid = true, position = {x = 3, y = 0}, mine = function() return true end},
+			}
+		end,
+	},
+	get_inventory = function()
+		return {valid = true, is_full = function() return false end}
+	end,
+}
+expect(AutoDrive.clear_nearby_trees(tree_veh, tree_rec, 1) == 1, "ahead tree is mined into the trunk")
+expect(AutoDrive.clear_nearby_trees(tree_veh, tree_rec, 2) == 0, "tree clear is interval-throttled")
+tree_rec.tree_tick = nil
+tree_veh.get_inventory = function()
+	return {valid = true, is_full = function() return true end}
+end
+expect(AutoDrive.clear_nearby_trees(tree_veh, tree_rec, 100) == 0, "full trunk skips tree harvest")
 
 local offs = ChunkIndex.neighbor_offsets()
 expect(#offs == 8, "Tib border uses 8 neighbors")

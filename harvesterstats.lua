@@ -13,8 +13,8 @@ Stats = {
 	TicksPerAnimationFrame = 4, -- Less means faster animations.
 	TotalAnimationFrames = 117, -- Technical, can not adjust.
 	
-	RefineryApproachOffset = {5, 2}, -- Location to drive to before approaching a refinery.
-	RefineryDumpOffset = {1, 2.5}, -- Location to dump the ores.
+	RefineryApproachOffset = {0.75, -9}, -- North of the dump / belt face.
+	RefineryDumpOffset = {0.75, -5.5}, -- North dump (not the south chest face).
 	
 	-- Adjust this in the prototype definition as well! (prototypes/entities/harv_entity.lua, line 8) Mismatch will result in issues.
 	cncharvesterCargoSlots = 20,

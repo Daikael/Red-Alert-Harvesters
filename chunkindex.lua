@@ -953,10 +953,13 @@ function ChunkIndex.row_allows_vehicle(ore_row, tib_flag, allow_tib)
 	return true
 end
 
--- Nearest in-range non-empty indexed chunks. exclude[key]=true skips.
+-- Nearest non-empty indexed chunks. range_tiles nil / <=0 / huge = no cap
+-- (whole surface index). Results are nearest-first, truncated to FIND_ORE_MAX.
+ChunkIndex.FIND_ORE_MAX = 96
+
 function ChunkIndex.find_ore_chunks(orechunk, tibchunk, si, origin, range_tiles, allow_tib, exclude)
 	local out = {}
-	if not (orechunk and si and origin and range_tiles) then
+	if not (orechunk and si and origin) then
 		return out
 	end
 	local xs = orechunk[si]
@@ -964,7 +967,10 @@ function ChunkIndex.find_ore_chunks(orechunk, tibchunk, si, origin, range_tiles,
 		return out
 	end
 	local range = range_tiles
-	local range_sq = range * range
+	local range_sq = nil
+	if range and range > 0 and range < 1000000 then
+		range_sq = range * range
+	end
 	local ox, oy = origin.x, origin.y
 	local tibs = tibchunk and tibchunk[si]
 	for x, ys in pairs(xs) do
@@ -976,7 +982,7 @@ function ChunkIndex.find_ore_chunks(orechunk, tibchunk, si, origin, range_tiles,
 					local c = ChunkIndex.chunk_center(x, y)
 					local dx, dy = c.x - ox, c.y - oy
 					local dsq = dx * dx + dy * dy
-					if dsq <= range_sq then
+					if not range_sq or dsq <= range_sq then
 						out[#out + 1] = {si = si, x = x, y = y, dist_sq = dsq, center = c, tib = tib}
 					end
 				end
@@ -986,6 +992,12 @@ function ChunkIndex.find_ore_chunks(orechunk, tibchunk, si, origin, range_tiles,
 	table.sort(out, function(a, b)
 		return a.dist_sq < b.dist_sq
 	end)
+	local maxn = ChunkIndex.FIND_ORE_MAX
+	if maxn and #out > maxn then
+		for i = maxn + 1, #out do
+			out[i] = nil
+		end
+	end
 	return out
 end
 

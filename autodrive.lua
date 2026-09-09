@@ -9,22 +9,43 @@
 
 AutoDrive = AutoDrive or {}
 
--- Temporary assignment range until the M2 depot exists. 256 tiles = 8 chunks.
-AutoDrive.RANGE_TILES = 256
--- After a scoop, prefer a nearby patch so the truck does not re-cross the map.
+-- Assignment: nearest indexed chunk on this surface (no 8-chunk / 256-tile
+-- cap). Path failure uses the existing repath → other patch → home ladder.
+-- 1e7 tiles is "the whole map" for find_ore_chunks distance checks.
+AutoDrive.RANGE_TILES = 10000000
+-- After a scoop, try nearby first, then expand to RANGE_TILES.
 AutoDrive.RANGE_NEAR_TILES = 96
 -- Hybrid pool + grid + tank below this → drive home for fuel (10% of 80 MJ).
 AutoDrive.FUEL_LOW_J = 8000000
--- Pathfinder goal radius (tiles). Home pad is tight; chunk-center ore can be
--- looser. A known resource entity uses a tight radius so we do not stop 4
--- tiles off the patch.
+-- Pathfinder goal radius (tiles). Home pad is looser so a blocked chest-side
+-- approach still counts; ore entity stays tight.
 AutoDrive.PATH_RADIUS_ORE = 4
 AutoDrive.PATH_RADIUS_ORE_ENTITY = 1.5
-AutoDrive.PATH_RADIUS_HOME = 6
+AutoDrive.PATH_RADIUS_HOME = 10
 -- Advance to the next waypoint / declare arrival.
 AutoDrive.WAYPOINT_TILES = 4.5
 AutoDrive.ARRIVE_TILES = 3.0
 AutoDrive.ARRIVE_ORE_ENTITY = 1.25
+AutoDrive.ARRIVE_HOME = 8
+-- Close enough to the refinery entity to dump/refuel (chest-side 7-tile stall).
+AutoDrive.DOCK_ACCEPT_TILES = 8
+-- Long trips use a biter-sized box + coarser grid (same unit pathfinder).
+AutoDrive.LONG_PATH_TILES = 48
+AutoDrive.PATH_RES_LONG = -2
+AutoDrive.UNIT_PATH_BOX = {{-0.4, -0.4}, {0.4, 0.4}}
+-- Opportunistic tree clear: only flora that threatens collision, not forests.
+AutoDrive.TREE_CLEAR_RADIUS = 4.5
+AutoDrive.TREE_CLEAR_INTERVAL = 8
+AutoDrive.TREE_CLEAR_MAX = 2
+AutoDrive.TREE_TOUCH_TILES = 2.2
+-- North is the dump / belt / circuit face (collision to y=-3). South is chest.
+AutoDrive.DOCK_OFFSETS = {
+	{0.75, -5.5},
+	{0.75, -9.0},
+	{-4.5, -3.5},
+	{6.5, -3.5},
+	{0.75, 4.0},
+}
 -- MiningOre: walk onto a resource if we landed off-patch.
 AutoDrive.MINE_SENSE_TILES = 4
 AutoDrive.ORE_RETARGET_MAX = 3
@@ -41,7 +62,7 @@ AutoDrive.PEER_LAYER = "cncharvester-peer"
 -- Escalation (implementer-tunable; documented in FACTORIO_2.2.md).
 AutoDrive.REPATH_MAX = 3
 AutoDrive.ALT_PATCH_MAX = 3
-AutoDrive.HOME_REPATH_MAX = 3
+AutoDrive.HOME_REPATH_MAX = 5
 AutoDrive.FAILED_CHUNK_TTL = 18000
 AutoDrive.ALERT_COOLDOWN = 3600
 AutoDrive.BUSY_RETRY_TICKS = 30
@@ -102,6 +123,112 @@ function AutoDrive.steer_plan(speed, delta)
 		return "braking", dir
 	end
 	return "nothing", dir
+end
+
+-- request_path already IS the unit/biter algorithm. Long trips use a
+-- biter-sized box + coarser grid instead of spawning a dummy unit.
+-- Dock / short trips keep the car collision_box so we fit at the pad.
+function AutoDrive.path_request_plan(start, goal, precise)
+	if precise then
+		return "car", 0
+	end
+	if not (start and goal) then
+		return "car", 0
+	end
+	local dx = (goal.x or 0) - (start.x or 0)
+	local dy = (goal.y or 0) - (start.y or 0)
+	local limit = AutoDrive.LONG_PATH_TILES
+	if (dx * dx + dy * dy) >= (limit * limit) then
+		return "unit", AutoDrive.PATH_RES_LONG
+	end
+	return "car", 0
+end
+
+function AutoDrive.dock_goal(origin, try_n)
+	local offsets = AutoDrive.DOCK_OFFSETS
+	local i = ((try_n or 0) % #offsets) + 1
+	local off = offsets[i]
+	return {x = (origin.x or 0) + off[1], y = (origin.y or 0) + off[2]}
+end
+
+function AutoDrive.near_dock(pos, refinery_pos)
+	if not (pos and refinery_pos) then
+		return false
+	end
+	local dx = (pos.x or 0) - (refinery_pos.x or 0)
+	local dy = (pos.y or 0) - (refinery_pos.y or 0)
+	local r = AutoDrive.DOCK_ACCEPT_TILES
+	return (dx * dx + dy * dy) <= (r * r)
+end
+
+-- Collision-threat flora: touching, or ahead inside TREE_CLEAR_RADIUS.
+function AutoDrive.tree_is_threat(dx, dy, fx, fy)
+	local dist = math.sqrt((dx or 0) * (dx or 0) + (dy or 0) * (dy or 0))
+	if dist < 0.05 or dist > AutoDrive.TREE_CLEAR_RADIUS then
+		return false
+	end
+	if dist <= AutoDrive.TREE_TOUCH_TILES then
+		return true
+	end
+	local along = (dx * fx + dy * fy) / dist
+	return along > 0.15
+end
+
+function AutoDrive.clear_nearby_trees(vehicle, rec, tick)
+	if not (vehicle and vehicle.valid) then
+		return 0
+	end
+	if rec and rec.tree_tick and tick and (tick - rec.tree_tick) < AutoDrive.TREE_CLEAR_INTERVAL then
+		return 0
+	end
+	if rec then
+		rec.tree_tick = tick
+	end
+	local surface = vehicle.surface
+	if not (surface and surface.find_entities_filtered) then
+		return 0
+	end
+	local pos = vehicle.position
+	local fx, fy = AutoDrive.facing_xy(vehicle.orientation)
+	local ok, trees = pcall(function()
+		return surface.find_entities_filtered{
+			type = "tree",
+			position = pos,
+			radius = AutoDrive.TREE_CLEAR_RADIUS,
+		}
+	end)
+	if not ok or not trees then
+		return 0
+	end
+	local inv
+	pcall(function()
+		inv = vehicle.get_inventory(defines.inventory.car_trunk)
+	end)
+	if inv and inv.valid and inv.is_full and inv.is_full() then
+		return 0
+	end
+	local n = 0
+	for _, tree in pairs(trees) do
+		if n >= AutoDrive.TREE_CLEAR_MAX then
+			break
+		end
+		if tree and tree.valid and tree.position then
+			local tp = tree.position
+			if AutoDrive.tree_is_threat(tp.x - pos.x, tp.y - pos.y, fx, fy) then
+				local mined = false
+				if inv and inv.valid then
+					local mok, res = pcall(function()
+						return tree.mine{inventory = inv, force = false, raise_destroyed = true}
+					end)
+					mined = mok and res
+				end
+				if mined then
+					n = n + 1
+				end
+			end
+		end
+	end
+	return n
 end
 
 function AutoDrive.commandable_of(entity)
@@ -470,17 +597,9 @@ function AutoDrive.spawn_path_blockers(vehicle)
 	if not (surface and surface.valid) then
 		return
 	end
-	local range = AutoDrive.RANGE_TILES
-	local range_sq = range * range
-	local origin = vehicle.position
 	local list = {}
 	AutoDrive.each_peer(vehicle, function(_, other)
 		local pos = other.position
-		local dx = pos.x - origin.x
-		local dy = pos.y - origin.y
-		if dx * dx + dy * dy > range_sq then
-			return
-		end
 		local ok, ent = pcall(function()
 			return surface.create_entity{
 				name = AutoDrive.PATH_BLOCKER,
@@ -668,7 +787,7 @@ function AutoDrive.tick_peer_block(rec, vehicle, tick)
 	return "wait"
 end
 
-function AutoDrive.request(surface, entity, goal, radius)
+function AutoDrive.request(surface, entity, goal, radius, opts)
 	if not (surface and surface.valid and entity and entity.valid and goal) then
 		return nil
 	end
@@ -677,16 +796,21 @@ function AutoDrive.request(surface, entity, goal, radius)
 		return nil
 	end
 	AutoDrive.spawn_path_blockers(entity)
+	local box_kind, res = AutoDrive.path_request_plan(entity.position, goal, opts and opts.precise)
+	local box = AutoDrive.collision_box(entity)
+	if box_kind == "unit" then
+		box = AutoDrive.UNIT_PATH_BOX
+	end
 	local ok, id = pcall(function()
 		return surface.request_path{
-			bounding_box = AutoDrive.collision_box(entity),
+			bounding_box = box,
 			collision_mask = mask,
 			start = entity.position,
 			goal = goal,
 			force = entity.force,
 			radius = radius or AutoDrive.PATH_RADIUS_ORE,
 			can_open_gates = true,
-			path_resolution_modifier = 0,
+			path_resolution_modifier = res,
 			max_gap_size = 0,
 			entity_to_ignore = entity,
 			pathfind_flags = {

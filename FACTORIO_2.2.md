@@ -30,7 +30,7 @@ What it actually does today:
 
 - Each tracked vehicle (`storage.cncharvesters`) runs `FindingOre` → **drive** → `MiningOre` → `FindingRefinery` → drive → dump / refuel.
 - Movement is **`LuaSurface.request_path` + `riding_state`**. Cars on Factorio **2.0.77** are **not** `commandable` (that API is units / spider-vehicles). Spidertron `autopilot_destination` is not present on these `type=car` prototypes. Do not restore `vehicle.teleport`.
-- Ore pick is **ChunkIndex** within a temporary **256 tile** range (8 chunks). Not `FindRandomOreInRadius`.
+- Ore pick is **ChunkIndex**, nearest indexed chunk first, **no 256-tile / 8-chunk cap**. Path failure uses the existing ladder. Not `FindRandomOreInRadius`.
 - Refineries are found as today (`refinery.lua`); the trip is a drive.
 - Refineries are found by a full-surface `find_entities_filtered{name = "refinery"}` (`refinery.lua`).
 - `chunksearcher.lua` (dead stub) is **deleted**. The index lives in `chunkindex.lua`.
@@ -132,13 +132,17 @@ Chunks that have an **active harvester** on them get **periodic depletion rescan
 
 Deployed, fueled miners **physically drive** to ore patches and **physically drive** home.
 
-**2.0.77 compat:** `LuaEntity.commandable` is nil on `type=car`. Autopilot fields are spidertron-only. Implementation is `surface.request_path` (prototype `collision_box` centered at 0,0 + car `collision_mask` **union** `cncharvester-peer`, `entity_to_ignore` = **self only**, `can_open_gates`, `max_gap_size=0`, `allow_destroy_friendly_entities=false`) then `vehicle.riding_state`. The unit pathfinder does **not** reliably treat other cars as obstacles, so each request spawns hidden `cncharvester-path-blocker` simple-entities (4×4 tile box) on sibling trucks until the async path returns. Hitch helper `teleport` in `modulebay.lua` is **not** autonomy — it keeps the slave drill on the truck.
+**2.0.77 compat:** `LuaEntity.commandable` is nil on `type=car`. Autopilot fields are spidertron-only. Implementation is `surface.request_path` — that **is** the unit/biter pathfinder — then `vehicle.riding_state`. Long trips (`LONG_PATH_TILES = 48`) pass a biter-sized `UNIT_PATH_BOX` and `path_resolution_modifier = -2` (4×4 grid) so forests and long indexed hauls succeed; dock/short trips keep the car `collision_box` and resolution 0. `max_gap_size` stays 0 (contiguous like biters, not spider jumps). A dummy unit proxy is not spawned: it would use the same algorithm. Prototype `collision_box` is centered at 0,0; car `collision_mask` **union** `cncharvester-peer`; `entity_to_ignore` = **self only**; `can_open_gates`; `allow_destroy_friendly_entities=false`. The unit pathfinder does **not** reliably treat other cars as obstacles, so each request spawns hidden `cncharvester-path-blocker` simple-entities (4×4 tile box) on sibling trucks until the async path returns. Hitch helper `teleport` in `modulebay.lua` is **not** autonomy — it keeps the slave drill on the truck.
 
 **Peer exclusion:** `AutoDrive.PEER_EXCLUDE_TILES = 16` (half a chunk). `PickIndexTarget` skips a chunk if another tracked harvester is already assigned to it (and not going home) **or** is sitting within 16 tiles of the chunk center. Soft backup so two autos do not park on the same patch. Runtime `PEER_CLEARANCE_TILES = 4`: if a sibling is ahead inside that bubble, **stop** — never keep accelerating `riding_state` into a pinned truck. If the **rear is clear** (`REVERSE_CHECK_TILES = 6`), reverse-wiggle `REVERSE_TICKS = 90` (~1.5 s, slight peel away from the peer) then repath via the stuck ladder. Rear not clear: stay braked until the no-progress window fires. Paths that pass within 4 tiles of a peer or set `needs_destroy_to_reach` are rejected and use the same escalation (repath → other patch → home).
 
 **Turn in place:** cars have `tank_driving = true`. If yaw to the next waypoint exceeds `TURN_DEADZONE = 0.04` (~14°), AutoDrive writes `acceleration = nothing` (or `braking` when still rolling faster than `ALIGN_SPEED` with `TURN_HARD` yaw) plus left/right until aligned, then accelerates. It must not creep forward in a wide arc just to change heading when stopped or nearly stopped.
 
-**Temporary range (until M2 depot):** `AutoDrive.RANGE_TILES = 256` (8 chunks) from the truck. After a successful scoop, `RANGE_NEAR_TILES = 96`. Accept any non-empty indexed chunk the truck can mine: ore truck skips Tib-only (mixed OK via iron/copper/etc.); `cncharvester-type2` may take Tib only if **Tiberium-Harvesting** is researched. No depot GUI.
+**Assignment range:** nearest indexed, filter-ok, peer-free chunk on this surface. `RANGE_TILES = 1e7` is an unlimited-distance sentinel — not an 8-chunk cap. After a successful scoop, `RANGE_NEAR_TILES = 96` is tried first, then the search expands. Accept any non-empty indexed chunk the truck can mine: ore truck skips Tib-only (mixed OK via iron/copper/etc.); `cncharvester-type2` may take Tib only if **Tiberium-Harvesting** is researched. No depot GUI.
+
+**Trees:** while auto-driving, `clear_nearby_trees` mines `type=tree` inside `TREE_CLEAR_RADIUS = 4.5` if it is touching or ahead (`tree_is_threat`). Products go to the car trunk; a full trunk skips (wood is left). Not a forest-clearing wander.
+
+**Refinery dock:** dump/approach offsets are **north** of the building (dump / belt / circuit face: collision to y=-3), not the south chest face. `PATH_RADIUS_HOME = 10`, `ARRIVE_HOME = 8`, `DOCK_ACCEPT_TILES = 8` so a truck ~7 tiles out still dumps/refuels. Home path fails rotate through `DOCK_OFFSETS` (north, west, east, south). `HOME_REPATH_MAX = 5`.
 
 **Fuel-low:** `HybridDrive.potential_joules` below **8 MJ** (10% of the 80 MJ pool) → drive to a fueled refinery (`FindingRefuelRefinery` → `ApproachedForRefuel` → `Refueling`). On arrival the refinery chest transfers **convertible burnables** (coal/wood/chemical; not nuclear / hybrid-charge) into the vehicle fuel inventory until the tank is full (Ore Truck 2 slots, type-2 3 slots) or potential is ≥ 8 MJ. Then `convert_inventory_fuels` fills the hybrid pool to the 4 MJ working floor (leftover solids stay in the tank). Belt drop still withholds one fuel stack so inserters cannot empty the chest of truck fuel. No convertible fuel → toast `no-fuel-refinery` and try another refinery. Cargo full → drive to an unoccupied refinery. **Impact** damage is ignored (rocks). Other damage → drive home.
 
@@ -148,7 +152,7 @@ Deployed, fueled miners **physically drive** to ore patches and **physically dri
 
 1. **Repath** same target — `AutoDrive.REPATH_MAX = 3`. No-progress window: `STUCK_TICKS = 180` (~3 s) without `STUCK_MIN_MOVE = 0.75` tiles.
 2. Abandon assignment, pick another in-range index chunk — `ALT_PATCH_MAX = 3`. Failed chunks excluded for `FAILED_CHUNK_TTL = 18000` (5 min).
-3. **Drive home early** to the current refinery. Home repaths: `HOME_REPATH_MAX = 3`.
+3. **Drive home early** to the current refinery. Home repaths: `HOME_REPATH_MAX = 5` (alternate dock faces).
 4. Still failing: **yellow** custom alert on the home refinery (depot placeholder) + **red** custom alert on the miner or the ore entity if still around. `force.print` + floating text. Cooldown `ALERT_COOLDOWN = 3600`. No teleport past the obstacle.
 
 Pathfinder busy (`try_again_later`) retries after `BUSY_RETRY_TICKS = 30` and does not consume a repath.
@@ -310,7 +314,7 @@ The truck no longer grows a random radius and hopes. `FindingOre` (later) asks t
 
 1. **M1 index** — queue + one-chunk-per-budget-tick classify; fill `orechunk` / `tibchunk` (or replacement); Tib refcount borders; depletion rescans on active-harvester chunks. Hidden behind the existing auto-test flag or a new debug flag until it is trustworthy. **No truck movement required in this step.**
 2. **Surface policy** — enqueue from Tib flags + ore interest; skip unvisited-ineligible; hook surface create / `chunk_generated` / first visit.
-3. **Physical driving + retarget `FindingOre`** — **landed** on `2.2.0`. `request_path` + `riding_state`. Index lookup in 256 tiles. Stuck escalation as locked. No depot yet.
+3. **Physical driving + retarget `FindingOre`** — **landed** on `2.2.0`. `request_path` + `riding_state`. Index lookup is nearest indexed chunk (no 256-tile cap). Stuck escalation as locked. No depot yet.
 4. **M2 depot** — entity/GUI, 5-slot filter + toggle, spawn-one-type + fixed modules/equipment, tie miners to depot, return-home triggers (drive back; same stuck escalation if the home path fails).
 5. **Circuit I/O** — inputs (filter + range), outputs (miner count, in-range valid ores, inventory).
 6. **Dual-track 2.1 sibling** — after the 2.0 line works, same split as 2.1.17 / 2.1.18.
@@ -342,7 +346,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 | --- | --- |
 | `control.lua` | `require "chunkindex"` / `autodrive` / `autopanel`. Seeds / ticks the scanner. When the testing flag is on, tracks trucks/refineries and calls `harvester:Tick()`. Path-finished + non-impact damage hooks. Relative auto-toggle GUI. Remote `harvester_ai`. |
 | `harvester.lua` | State machine. `FindingOre` reads ChunkIndex (`PickIndexTarget`). `MovingToLocation` is physical AutoDrive. Per-truck `auto_enabled` / `pause_on_enter`. Teleport leftovers commented only. |
-| `autodrive.lua` | `request_path` + `riding_state`. Peer reverse-wiggle then repath. In-place turn (`steer_plan`) before accelerating. Never writes `riding_state` while a player occupies the truck (unless auto on + pause off). Stuck tunables. Cars are not commandable. |
+| `autodrive.lua` | `request_path` (unit pathfinder: long trips use a biter-sized box) + `riding_state`. Peer reverse-wiggle, in-place turn, opportunistic tree mine, dock accept. |
 | `autopanel.lua` | Left-of-inventory checkboxes. `on_gui_click` writes toggles while the car GUI is open; checked-state unchecks are ignored. |
 | `harvesterstats.lua` | Dump / approach offsets still used. `MovementSpeed` / `RotationSpeed` are unused by AutoDrive. |
 | `chunkindex.lua` | M1 slow index plus `find_ore_chunks` / `row_allows_vehicle` for FindingOre. Overlay dirty/incremental. |
@@ -370,7 +374,7 @@ M1 (landed):
 Step 3 (landed):
 
 - A deployed, fueled miner sent to a patch or home **drives** there (`request_path` + `riding_state`). No `vehicle.teleport` on that path. **Auto on + pause off:** rider is passenger; AI keeps the empty driver seat. **Pause-on-enter:** driver seat, AI yields. **Auto off:** normal drive. Enter / WASD / inventory must not clear `auto_enabled`. Uncheck Automatic operation in the open inventory to take the wheel.
-- `FindingOre` uses ChunkIndex within 256 tiles (96 after a scoop). Drive to a harvestable **resource entity** when known, not only `chunk.center`. Off-patch `MiningOre` retargets in-chunk / nearby.
+- `FindingOre` uses ChunkIndex, nearest indexed first (96 tiles after a scoop, then the rest of the index). Drive to a harvestable **resource entity** when known, not only `chunk.center`. Off-patch `MiningOre` retargets in-chunk / nearby.
 - Return-home (fuel / full / non-impact damage) is a physical drive to the **refinery**.
 - Stuck / path failure escalates **repath (3) → other in-range patch (3) → drive home early (3 home repaths)**, then yellow/red global alerts. No teleport past the block.
 

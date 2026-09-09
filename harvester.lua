@@ -150,7 +150,7 @@ cncharvester = {
 		if self.home_repath_n == nil then
 			self.home_repath_n = 0
 		end
-		if self.search_range == nil then
+		if self.search_range == nil or self.search_range == 256 then
 			self.search_range = AutoDrive.RANGE_TILES
 		end
 		-- auto_enabled / pause_on_enter: do not write. nil means ON / OFF
@@ -620,6 +620,17 @@ cncharvester = {
 			allow_tib,
 			self.failed_chunks
 		)
+		if #chunks == 0 and range < AutoDrive.RANGE_TILES then
+			chunks = ChunkIndex.find_ore_chunks(
+				storage.orechunk,
+				storage.tibchunk,
+				si,
+				vehicle.position,
+				AutoDrive.RANGE_TILES,
+				allow_tib,
+				self.failed_chunks
+			)
+		end
 		if #chunks == 0 then
 			return nil, nil
 		end
@@ -647,15 +658,17 @@ cncharvester = {
 		self.targetPosition = position
 		self.arrival_state = arrival_state
 		self.drive_radius = radius
-		if radius and radius <= AutoDrive.PATH_RADIUS_ORE_ENTITY + 0.01 then
-			self.arrive_tiles = AutoDrive.ARRIVE_ORE_ENTITY
-		else
-			self.arrive_tiles = nil
-		end
 		self.going_home = arrival_state == States.ApproachedRefinery
 			or arrival_state == States.DroppingOre
 			or arrival_state == States.ApproachedForRefuel
 			or arrival_state == States.Refueling
+		if self.going_home then
+			self.arrive_tiles = AutoDrive.ARRIVE_HOME
+		elseif radius and radius <= AutoDrive.PATH_RADIUS_ORE_ENTITY + 0.01 then
+			self.arrive_tiles = AutoDrive.ARRIVE_ORE_ENTITY
+		else
+			self.arrive_tiles = nil
+		end
 		self.path = nil
 		self.path_index = 1
 		AutoDrive.clear_wiggle(self)
@@ -663,7 +676,13 @@ cncharvester = {
 			AutoDrive.take_request(self.path_id)
 			self.path_id = nil
 		end
-		local id = AutoDrive.request(self.vehicle.surface, self.vehicle, position, radius)
+		local id = AutoDrive.request(
+			self.vehicle.surface,
+			self.vehicle,
+			position,
+			radius,
+			{precise = self.going_home}
+		)
 		self.state = States.MovingToLocation
 		AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
 		if not id then
@@ -702,9 +721,17 @@ cncharvester = {
 		AutoDrive.stop(self.vehicle)
 		if self.going_home or self.home_early or self:is_home_state() then
 			self.home_repath_n = (self.home_repath_n or 0) + 1
-			if self.home_repath_n <= AutoDrive.HOME_REPATH_MAX and self.targetPosition then
-				self:StartDrive(self.targetPosition, self.arrival_state, AutoDrive.PATH_RADIUS_HOME)
-				return
+			if self.home_repath_n <= AutoDrive.HOME_REPATH_MAX then
+				local goal = self.targetPosition
+				local ref = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
+				if ref and ref.entity and ref.entity.valid then
+					self.dock_try = (self.dock_try or 0) + 1
+					goal = AutoDrive.dock_goal(ref.entity.position, self.dock_try)
+				end
+				if goal then
+					self:StartDrive(goal, self.arrival_state, AutoDrive.PATH_RADIUS_HOME)
+					return
+				end
 			end
 			self:raise_stuck_alert()
 			return
@@ -928,6 +955,7 @@ cncharvester = {
 			end
 
 			self.targetRefinery = refinery.entity.unit_number
+			self.dock_try = 0
 			self:StartDrive(
 				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
 				States.ApproachedRefinery,
@@ -979,6 +1007,7 @@ cncharvester = {
 			self.alt_n = 0
 			self.repath_n = 0
 			self.home_repath_n = 0
+			self.dock_try = 0
 
 			if targetRefinery:HasFuel() then
 				self.state = States.Refueling
@@ -1011,6 +1040,20 @@ cncharvester = {
 				end
 				return
 			end
+			if self.going_home and self.targetRefinery then
+				local home = Refinery.GetByUnitNumber(self.targetRefinery)
+				local pad = home and home.entity
+				if pad and pad.valid and AutoDrive.near_dock(self.vehicle.position, pad.position) then
+					AutoDrive.stop(self.vehicle)
+					self.path = nil
+					self.going_home = false
+					if self.arrival_state then
+						self.state = self.arrival_state
+						self.arrival_state = false
+					end
+					return
+				end
+			end
 			local action = AutoDrive.tick_peer_block(self, self.vehicle, game.tick)
 			if action == "repath" then
 				self:OnPathFail()
@@ -1018,6 +1061,9 @@ cncharvester = {
 			end
 			if action == "reverse" then
 				return
+			end
+			if action ~= "wait" then
+				AutoDrive.clear_nearby_trees(self.vehicle, self, game.tick)
 			end
 			if not AutoDrive.progress_ok(self, self.vehicle.position, game.tick) then
 				self:OnPathFail()
@@ -1049,6 +1095,7 @@ cncharvester = {
 			end
 
 			self.targetRefinery = refinery.entity.unit_number
+			self.dock_try = 0
 			self:StartDrive(
 				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
 				States.ApproachedForRefuel,
