@@ -613,7 +613,11 @@ expect(drive_src:find("ai_may_steer", 1, true) ~= nil, "riding writes allow seat
 expect(drive_src:find("PATH_RADIUS_ORE_ENTITY = 1.5", 1, true) ~= nil, "ore entity path radius is tight")
 expect(drive_src:find("ORE_RETARGET_MAX = 3", 1, true) ~= nil, "off-patch retarget budget is 3")
 expect(drive_src:find("PEER_EXCLUDE_TILES = 16", 1, true) ~= nil, "assignment exclusion is 16 tiles")
+expect(drive_src:find("PEER_SIT_TILES = 8", 1, true) ~= nil, "sitting exclusion is 8 tiles")
+expect(drive_src:find("function AutoDrive.has_peer_priority", 1, true) ~= nil, "lowest unit_number peels out of a cluster")
 expect(drive_src:find("PEER_CLEARANCE_TILES = 4", 1, true) ~= nil, "runtime peer clearance is 4 tiles")
+expect(drive_src:find("PEER_RAM_TILES = 3.2", 1, true) ~= nil, "ram bubble is 3.2 tiles")
+expect(drive_src:find("PEER_PATH_IGNORE_START = 6", 1, true) ~= nil, "path_hits_peer ignores start-adjacent siblings")
 expect(drive_src:find("REVERSE_TICKS = 90", 1, true) ~= nil, "peer reverse wiggle is 90 ticks")
 expect(drive_src:find("REVERSE_CHECK_TILES = 6", 1, true) ~= nil, "rear-clear check is 6 tiles")
 expect(drive_src:find("ALIGN_SPEED = 0.08", 1, true) ~= nil, "in-place align speed threshold is 0.08")
@@ -641,7 +645,8 @@ expect(io.open("harvester.lua"):read("*a"):find("tick_peer_block", 1, true) ~= n
 expect(io.open("harvester.lua"):read("*a"):find("clear_nearby_trees", 1, true) ~= nil, "Tick mines trees that threaten collision")
 expect(io.open("harvester.lua"):read("*a"):find("near_dock", 1, true) ~= nil, "home trip accepts a close-enough dock")
 expect(io.open("harvester.lua"):read("*a"):find("dock_goal", 1, true) ~= nil, "stuck home trips try alternate dock faces")
-expect(drive_src:find("blocked_by_peer(vehicle)", 1, true) ~= nil, "follow_path still brakes instead of ramming a sibling")
+expect(drive_src:find("blocked_by_peer(vehicle, true)", 1, true) ~= nil, "follow_path brakes only for the ram bubble")
+expect(io.open("harvester.lua"):read("*a"):find('action == "repath"', 1, true) ~= nil, "peer repath is a soft StartDrive, not OnPathFail")
 expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
 expect(drive_src:find("function AutoDrive.demote_driver_to_passenger", 1, true) ~= nil, "demote helper exists")
 expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "demote clears the driver seat")
@@ -843,14 +848,17 @@ storage = {
 		[12] = {vehicle = truck_b, assign_si = nil, assign_cx = nil, assign_cy = nil, going_home = false},
 	},
 }
-expect(AutoDrive.PEER_EXCLUDE_TILES == 16, "exclude radius is 16 tiles")
+expect(AutoDrive.PEER_EXCLUDE_TILES == 16, "same-chunk claim is 16 tiles")
+expect(AutoDrive.PEER_SIT_TILES == 8, "sitting exclusion is 8 tiles")
 expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 0, {x = 16, y = 16}) == true, "same assigned chunk is blocked for the other truck")
 expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 5, 5, {x = 176, y = 176}) == false, "far chunk is not blocked")
-expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 1, {x = 10, y = 0}) == true, "chunk center within 16 tiles of a sitting truck is blocked")
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 1, {x = 6, y = 0}) == true, "chunk center within 8 tiles of a sitting truck is blocked")
+expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 1, {x = 20, y = 0}) == false, "chunk center 20 tiles from a sitting truck is open")
 storage.cncharvesters[11].going_home = true
 storage.cncharvesters[11].assign_cx = 0
 expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 0, {x = 176, y = 176}) == false, "going-home assignment does not keep the chunk claimed")
 expect(AutoDrive.path_hits_peer({{position = {x = 8, y = 0}}}, truck_a) == true, "path waypoint on a sibling is rejected")
+expect(AutoDrive.path_hits_peer({{position = {x = 3, y = 0}}}, truck_a) == false, "waypoints next to the start are not a peer-path fail")
 expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}}}, truck_a) == false, "path far from siblings is accepted")
 expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}, needs_destroy_to_reach = true}}, truck_a) == true, "destroy-to-reach paths are rejected")
 truck_b.position = {x = 3, y = 0}
@@ -889,13 +897,22 @@ expect(AutoDrive.tick_peer_block(wiggle_rec, truck_a, 190) == "repath", "wiggle 
 expect(wiggle_rec.reverse_until == nil, "repath clears the wiggle timer")
 local wait_rec = {}
 truck_b.position = {x = -3, y = 0}
-local truck_c = {valid = true, unit_number = 13, surface = peer_surf, position = {x = 3, y = 0}, orientation = 0}
+local truck_c = {valid = true, unit_number = 13, surface = peer_surf, position = {x = 3, y = 0}, orientation = 0.75}
 storage.cncharvesters[13] = {vehicle = truck_c, going_home = false}
 expect(AutoDrive.blocked_by_peer(truck_a) == true, "ahead sibling still blocks")
 expect(AutoDrive.rear_clear(truck_a) == false, "behind sibling blocks reverse")
 expect(AutoDrive.tick_peer_block(wait_rec, truck_a, 200) == "wait", "boxed-in truck waits instead of reversing into a peer")
 expect(wait_rec.reverse_until == nil, "wait does not start a wiggle")
+expect(AutoDrive.has_peer_priority(truck_a) == true, "lowest unit_number in the cluster has peel priority")
+expect(AutoDrive.has_peer_priority(truck_c) == false, "higher unit_number yields")
+local yield_rec = {}
+expect(AutoDrive.tick_peer_block(yield_rec, truck_c, 300) == "wait", "yielding truck does not reverse-fight the leader")
+expect(yield_rec.reverse_until == nil, "yielder does not start a wiggle")
 storage.cncharvesters[13] = nil
+truck_b.position = {x = 3.5, y = 0}
+expect(AutoDrive.blocked_by_peer(truck_a) == true, "3.5-tile gap is still a yield hint")
+expect(AutoDrive.blocked_by_peer(truck_a, true) == false, "3.5-tile gap is not a ram")
+expect(AutoDrive.tick_peer_block({}, truck_a, 400) == "clear", "priority truck drives forward when the gap is open")
 truck_b.position = {x = 0, y = 20}
 expect(AutoDrive.tick_peer_block({}, truck_a, 0) == "clear", "no peer ahead is clear")
 local merged = AutoDrive.path_collision_mask({

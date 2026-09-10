@@ -57,10 +57,19 @@ AutoDrive.ORE_NEAR_TILES = 16
 -- Stuck: no 0.75-tile progress for 3 seconds @ 60 UPS.
 AutoDrive.STUCK_TICKS = 180
 AutoDrive.STUCK_MIN_MOVE = 0.75
--- Do not assign two trucks onto the same patch. 16 tiles = half a chunk.
+-- Same-chunk assignment claim. Sitting exclusion is tighter so adjacent
+-- chunks of one field do not all funnel onto the same edge.
 AutoDrive.PEER_EXCLUDE_TILES = 16
--- Runtime / path check: keep centers ~4 tiles apart (truck is 2.8 wide).
+AutoDrive.PEER_SIT_TILES = 8
+-- Runtime: brake only when about to overlap (car is 2.8 wide).
 AutoDrive.PEER_CLEARANCE_TILES = 4
+AutoDrive.PEER_RAM_TILES = 3.2
+AutoDrive.PEER_AHEAD_DOT = 0.45
+-- Lowest unit_number in this radius may peel; others yield without failing.
+AutoDrive.PEER_CLUSTER_TILES = 8
+-- Path / blocker: ignore siblings we are already sitting next to.
+AutoDrive.PEER_PATH_IGNORE_START = 6
+AutoDrive.PEER_BLOCKER_MIN = 6
 AutoDrive.PATH_BLOCKER = "cncharvester-path-blocker"
 AutoDrive.PEER_LAYER = "cncharvester-peer"
 -- Escalation (implementer-tunable; documented in FACTORIO_2.2.md).
@@ -542,8 +551,8 @@ function AutoDrive.peer_blocks_assignment(vehicle, si, cx, cy, center)
 	if not (vehicle and vehicle.valid) then
 		return false
 	end
-	local exclude = AutoDrive.PEER_EXCLUDE_TILES
-	local exclude_sq = exclude * exclude
+	local sit = AutoDrive.PEER_SIT_TILES
+	local sit_sq = sit * sit
 	local blocked = false
 	AutoDrive.each_peer(vehicle, function(h, other)
 		if blocked then
@@ -553,7 +562,7 @@ function AutoDrive.peer_blocks_assignment(vehicle, si, cx, cy, center)
 		if center and pos then
 			local dx = (pos.x or 0) - (center.x or 0)
 			local dy = (pos.y or 0) - (center.y or 0)
-			if dx * dx + dy * dy <= exclude_sq then
+			if dx * dx + dy * dy <= sit_sq then
 				blocked = true
 				return
 			end
@@ -612,9 +621,16 @@ function AutoDrive.spawn_path_blockers(vehicle)
 	if not (surface and surface.valid) then
 		return
 	end
+	local origin = vehicle.position
+	local min_sq = AutoDrive.PEER_BLOCKER_MIN * AutoDrive.PEER_BLOCKER_MIN
 	local list = {}
 	AutoDrive.each_peer(vehicle, function(_, other)
 		local pos = other.position
+		local dx = (pos.x or 0) - (origin.x or 0)
+		local dy = (pos.y or 0) - (origin.y or 0)
+		if dx * dx + dy * dy <= min_sq then
+			return
+		end
 		local ok, ent = pcall(function()
 			return surface.create_entity{
 				name = AutoDrive.PATH_BLOCKER,
@@ -637,6 +653,9 @@ function AutoDrive.path_hits_peer(path, vehicle)
 		return false
 	end
 	local clear_sq = AutoDrive.PEER_CLEARANCE_TILES * AutoDrive.PEER_CLEARANCE_TILES
+	local start = vehicle.position
+	local ignore = AutoDrive.PEER_PATH_IGNORE_START
+	local ignore_sq = ignore * ignore
 	local hit = false
 	AutoDrive.each_peer(vehicle, function(_, other)
 		if hit then
@@ -651,11 +670,17 @@ function AutoDrive.path_hits_peer(path, vehicle)
 			end
 			local p = wp and (wp.position or wp)
 			if p and p.x ~= nil then
-				local dx = p.x - pos.x
-				local dy = p.y - pos.y
-				if dx * dx + dy * dy <= clear_sq then
-					hit = true
-					return
+				local from_start_x = p.x - (start.x or 0)
+				local from_start_y = p.y - (start.y or 0)
+				if from_start_x * from_start_x + from_start_y * from_start_y <= ignore_sq then
+					-- Already sitting next to this sibling; do not fail the whole path.
+				else
+					local dx = p.x - pos.x
+					local dy = p.y - pos.y
+					if dx * dx + dy * dy <= clear_sq then
+						hit = true
+						return
+					end
 				end
 			end
 		end
@@ -671,16 +696,17 @@ function AutoDrive.path_hits_peer(path, vehicle)
 	return false
 end
 
--- True when another harvester is in front inside the clearance bubble.
--- Brake; do not keep writing accelerating riding_state into them.
-function AutoDrive.blocked_by_peer(vehicle)
+-- True when another harvester is in the forward cone. ram_only uses the
+-- tighter overlap bubble so a 3-tile gap is not treated as a brick wall.
+function AutoDrive.blocked_by_peer(vehicle, ram_only)
 	if not (vehicle and vehicle.valid) then
 		return false
 	end
 	local pos = vehicle.position
 	local fx, fy = AutoDrive.facing_xy(vehicle.orientation)
-	local clear = AutoDrive.PEER_CLEARANCE_TILES
+	local clear = ram_only and AutoDrive.PEER_RAM_TILES or AutoDrive.PEER_CLEARANCE_TILES
 	local clear_sq = clear * clear
+	local need = AutoDrive.PEER_AHEAD_DOT
 	local blocked = false
 	AutoDrive.each_peer(vehicle, function(_, other)
 		if blocked then
@@ -694,11 +720,35 @@ function AutoDrive.blocked_by_peer(vehicle)
 		end
 		local dist = math.sqrt(dsq)
 		local ahead = (dx * fx + dy * fy) / dist
-		if ahead > 0.25 then
+		if ahead > need then
 			blocked = true
 		end
 	end)
 	return blocked
+end
+
+-- Lowest unit_number in the cluster may peel; others yield.
+function AutoDrive.has_peer_priority(vehicle)
+	if not (vehicle and vehicle.valid) then
+		return false
+	end
+	local self_id = vehicle.unit_number or 0
+	local min_id = self_id
+	local pos = vehicle.position
+	local r = AutoDrive.PEER_CLUSTER_TILES
+	local r_sq = r * r
+	AutoDrive.each_peer(vehicle, function(_, other)
+		local op = other.position
+		local dx = (op.x or 0) - (pos.x or 0)
+		local dy = (op.y or 0) - (pos.y or 0)
+		if dx * dx + dy * dy <= r_sq then
+			local id = other.unit_number or min_id
+			if id < min_id then
+				min_id = id
+			end
+		end
+	end)
+	return self_id == min_id
 end
 
 -- True when no sibling sits behind inside REVERSE_CHECK_TILES.
@@ -770,6 +820,8 @@ function AutoDrive.steer_reverse_wiggle(vehicle, rec)
 end
 
 -- Peer pin during MovingToLocation. "reverse" / "wait" / "clear" / "repath".
+-- Yielders wait (no stuck fail). The lowest-id truck peels: reverse if the
+-- rear is clear, tank-turn if boxed, or drive if not about to ram.
 function AutoDrive.tick_peer_block(rec, vehicle, tick)
 	if not rec then
 		return "clear"
@@ -789,7 +841,16 @@ function AutoDrive.tick_peer_block(rec, vehicle, tick)
 	if not AutoDrive.blocked_by_peer(vehicle) then
 		return "clear"
 	end
-	AutoDrive.stop(vehicle)
+	if not AutoDrive.has_peer_priority(vehicle) then
+		AutoDrive.stop(vehicle)
+		if vehicle.position then
+			AutoDrive.progress_reset(rec, vehicle.position, tick)
+		end
+		return "wait"
+	end
+	if not AutoDrive.blocked_by_peer(vehicle, true) then
+		return "clear"
+	end
 	if AutoDrive.rear_clear(vehicle) then
 		rec.reverse_until = tick + AutoDrive.REVERSE_TICKS
 		rec.reverse_steer = AutoDrive.peer_peel_direction(vehicle)
@@ -798,6 +859,11 @@ function AutoDrive.tick_peer_block(rec, vehicle, tick)
 			AutoDrive.progress_reset(rec, vehicle.position, tick)
 		end
 		return "reverse"
+	end
+	rec.reverse_steer = rec.reverse_steer or AutoDrive.peer_peel_direction(vehicle)
+	write_riding_keys(vehicle, "nothing", rec.reverse_steer)
+	if vehicle.position then
+		AutoDrive.progress_reset(rec, vehicle.position, tick)
 	end
 	return "wait"
 end
@@ -899,7 +965,7 @@ function AutoDrive.follow_path(vehicle, path, path_index, arrive_tiles)
 		AutoDrive.stop(vehicle)
 		return path_index, true, false
 	end
-	if AutoDrive.blocked_by_peer(vehicle) then
+	if AutoDrive.blocked_by_peer(vehicle, true) then
 		AutoDrive.stop(vehicle)
 		return path_index, false, false
 	end

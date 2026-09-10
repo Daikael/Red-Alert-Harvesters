@@ -1058,11 +1058,22 @@ cncharvester = {
 			end
 			local action = AutoDrive.tick_peer_block(self, self.vehicle, game.tick)
 			if action == "repath" then
-				self:OnPathFail()
+				-- Soft repath from the new pose. Peer-only blocks must not
+				-- consume the stuck ladder / raise alerts.
+				local radius = self.drive_radius
+				if not radius then
+					radius = self.going_home and AutoDrive.PATH_RADIUS_HOME or AutoDrive.PATH_RADIUS_ORE
+				end
+				if self.targetPosition then
+					self:StartDrive(self.targetPosition, self.arrival_state, radius)
+				end
 				return
 			end
 			if action == "reverse" then
 				return
+			end
+			if action == "wait" then
+				AutoDrive.progress_reset(self, self.vehicle.position, game.tick)
 			end
 			AutoDrive.clear_nearby_trees(self.vehicle, self, game.tick)
 			local wp = self.path[self.path_index]
