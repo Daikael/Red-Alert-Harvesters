@@ -719,11 +719,22 @@ local after_load_fn = hv_src:match("AfterLoad = function%(self%)\n(.-)\n\tauto_o
 expect(after_load_fn ~= nil, "AfterLoad body is extractable")
 expect(after_load_fn:find("self:KickAuto", 1, true) == nil, "AfterLoad does not KickAuto/StartDrive on the load tick")
 expect(after_load_fn:find("LOAD_GRACE_TICKS", 1, true) ~= nil, "AfterLoad staggers resume after load grace")
+expect(after_load_fn:find("rec:Reserve", 1, true) == nil, "AfterLoad does not re-claim pads from the save")
 expect(ctl_src:find("destroy_orphan_blockers", 1, true) == nil, "load migrate does not mass-destroy path blockers")
-expect(ctl_src:find("forget_blocker_lists", 1, true) ~= nil, "load migrate only forgets blocker Lua refs")
+expect(ctl_src:find("begin_load_recovery", 1, true) ~= nil, "load migrate starts batched blocker recovery")
+expect(ctl_src:find("tick_purge_blockers", 1, true) ~= nil, "nth-tick runs the batched blocker purge")
+expect(ctl_src:find("path_blockers", 1, true) ~= nil, "remote exposes path_blockers purge status")
 expect(drive_src:find("LOAD_GRACE_TICKS = 60", 1, true) ~= nil, "load grace is 60 ticks")
+expect(drive_src:find("PURGE_PER_TICK = 8", 1, true) ~= nil, "orphan purge destroys 8 dummies per tick")
 expect(drive_src:find("function AutoDrive.in_load_grace", 1, true) ~= nil, "in_load_grace gates blocker spawn")
 expect(drive_src:find("function AutoDrive.forget_blocker_lists", 1, true) ~= nil, "forget_blocker_lists exists")
+expect(drive_src:find("function AutoDrive.tick_purge_blockers", 1, true) ~= nil, "tick_purge_blockers exists")
+expect(drive_src:find("function AutoDrive.peer_layer_enabled", 1, true) ~= nil, "peer_layer_enabled exists")
+expect(drive_src:find("function AutoDrive.begin_load_recovery", 1, true) ~= nil, "begin_load_recovery exists")
+expect(hv_src:find("self:holds_pad(held)", 1, true) ~= nil, "FindingRefinery held-pad drive requires holds_pad")
+expect(hv_src:find("Stale save flag", 1, true) ~= nil, "FindingRefinery clears a stale reserve without UnReserve")
+expect(hv_src:find("return refinery and self.targetRefinery ==", 1, true) == nil, "holds_pad does not treat every home-bound truck as the holder")
+expect(hv_src:find("refinery.reserved_by == id", 1, true) ~= nil, "holds_pad requires reserved_by")
 expect(hv_src:find("(self.busy_until or 0) > game.tick", 1, true) ~= nil, "Tick honors busy_until before the state machine")
 expect(hv_src:find("SetAutoEnabled", 1, true) ~= nil, "per-truck auto setter exists")
 expect(hv_src:find("SetPauseOnEnter", 1, true) ~= nil, "per-truck pause-on-enter setter exists")
@@ -956,6 +967,77 @@ local merged = AutoDrive.path_collision_mask({
 })
 expect(merged.layers.player == true, "path mask keeps the car layers")
 expect(merged.layers["cncharvester-peer"] == true, "path mask unions the peer blocker layer")
+storage.autodrive_purge = true
+local purged_mask = AutoDrive.path_collision_mask({
+	valid = true,
+	prototype = {collision_mask = {layers = {player = true}}},
+})
+expect(purged_mask.layers.player == true, "purge path mask keeps the car layers")
+expect(purged_mask.layers["cncharvester-peer"] == nil, "purge path mask omits leftover peer blockers")
+expect(AutoDrive.peer_layer_enabled() == false, "peer layer is off while purging leftovers")
+expect(AutoDrive.PURGE_PER_TICK == 8, "purge budget is 8 per tick")
+game = { tick = 1000 }
+storage.autodrive_load_tick = 1000
+storage.autodrive_purge_destroyed = 0
+storage.autodrive_purge_cursor = 0
+storage.autodrive_purge_quiet = 0
+storage.refineries = {}
+local leftovers = {}
+for i = 1, 10 do
+	local dummy = { valid = true }
+	dummy.destroy = function()
+		dummy.valid = false
+	end
+	leftovers[i] = dummy
+end
+local last_purge_filter
+local purge_veh = {
+	valid = true,
+	unit_number = 1,
+	position = {x = 0, y = 0},
+	surface = {
+		valid = true,
+		find_entities_filtered = function(filter)
+			last_purge_filter = filter
+			local out = {}
+			for i = 1, #leftovers do
+				if leftovers[i].valid then
+					out[#out + 1] = leftovers[i]
+					if #out >= (filter.limit or 99) then
+						break
+					end
+				end
+			end
+			return out
+		end,
+	},
+}
+storage.cncharvesters = { [1] = { vehicle = purge_veh, reservedRefinery = true } }
+expect(AutoDrive.tick_purge_blockers() == 0, "purge waits out load grace")
+expect(leftovers[1].valid == true, "grace does not destroy leftovers")
+storage.autodrive_load_tick = 0
+expect(AutoDrive.tick_purge_blockers() == 8, "first purge tick destroys the budget")
+expect(last_purge_filter.limit == AutoDrive.PURGE_PER_TICK, "purge find is limited per tick")
+expect(last_purge_filter.radius == AutoDrive.PURGE_RADIUS, "purge find is local to the truck/pad")
+expect(leftovers[8].valid == false, "budget leftovers are gone")
+expect(leftovers[9].valid == true, "overflow leftovers wait for the next tick")
+expect(storage.autodrive_purge_cursor == 0, "dense pad keeps the purge cursor")
+expect(AutoDrive.tick_purge_blockers() == 2, "second purge tick finishes the pile")
+expect(leftovers[10].valid == false, "remaining leftovers are destroyed")
+expect(storage.autodrive_purge == true, "purge stays on until a quiet round")
+expect(AutoDrive.tick_purge_blockers() == 0, "empty radius is a quiet visit")
+expect(storage.autodrive_purge == false, "quiet round over all anchors ends the purge")
+expect(storage.autodrive_purge_destroyed == 10, "purge reports how many leftovers died")
+local dbg = AutoDrive.debug_purge()
+expect(dbg.purge == false and dbg.destroyed == 10, "debug_purge reports finished cleanup")
+expect(dbg.peer_layer == true, "peer layer returns after cleanup")
+storage.refineries = { [9] = { reserved = true, reserved_by = 1, entity = { valid = true } } }
+AutoDrive.begin_load_recovery()
+expect(storage.autodrive_purge == true, "begin_load_recovery starts a purge")
+expect(storage.cncharvesters[1].reservedRefinery == false, "load recovery drops stale pad claims")
+expect(storage.refineries[9].reserved == false, "load recovery clears pad reserved")
+expect(storage.refineries[9].reserved_by == nil, "load recovery clears reserved_by")
+game = nil
 storage = nil
 expect(io.open("locale/en/all.cfg"):read("*a"):find("auto-stuck-miner=", 1, true) ~= nil, "stuck miner locale exists")
 expect(io.open("control.lua"):read("*a"):find("on_chunk_generated", 1, true) ~= nil, "control hooks on_chunk_generated")

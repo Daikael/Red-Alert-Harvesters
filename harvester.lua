@@ -126,10 +126,7 @@ cncharvester = {
 			refinery = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
 		end
 		local id = self.vehicle and self.vehicle.unit_number
-		if refinery and id and refinery.reserved_by == id then
-			return true
-		end
-		return refinery and self.targetRefinery == (refinery.entity and refinery.entity.unit_number)
+		return refinery ~= nil and id ~= nil and refinery.reserved_by == id
 	end,
 
 	claim_pad = function(self, refinery)
@@ -190,12 +187,8 @@ cncharvester = {
 		end
 		-- auto_enabled / pause_on_enter: do not write. nil means ON / OFF
 		-- via auto_on() and `pause_on_enter == true`.
-		if self.reservedRefinery and self.targetRefinery then
-			local rec = Refinery.GetByUnitNumber(self.targetRefinery)
-			if rec and rec.entity and rec.entity.valid then
-				rec:Reserve(self)
-			end
-		end
+		-- Pad locks are reset in begin_load_recovery. Do not re-claim from
+		-- the save (every truck with reservedRefinery=true would fight one pad).
 		-- Do not KickAuto/StartDrive on the load tick. 7 trucks × request_path
 		-- + blocker spawn is a hard engine kill (log ends at control checksum).
 		local id = self.vehicle and self.vehicle.unit_number or 0
@@ -1028,19 +1021,26 @@ cncharvester = {
 			if self.reservedRefinery and self.targetRefinery then
 				local held = Refinery.GetByUnitNumber(self.targetRefinery)
 				if held and held.entity and held.entity.valid and not held:IsFull() then
-					if AutoDrive.can_dump(self.vehicle.position, held.entity.position) then
-						self.state = States.ApproachedRefinery
+					if self:holds_pad(held) then
+						if AutoDrive.can_dump(self.vehicle.position, held.entity.position) then
+							self.state = States.ApproachedRefinery
+							return
+						end
+						self.dock_try = self.dock_try or 0
+						self:StartDrive(
+							Vector.add(held.entity.position, Stats.RefineryApproachOffset),
+							States.ApproachedRefinery,
+							AutoDrive.PATH_RADIUS_HOME
+						)
 						return
 					end
-					self.dock_try = self.dock_try or 0
-					self:StartDrive(
-						Vector.add(held.entity.position, Stats.RefineryApproachOffset),
-						States.ApproachedRefinery,
-						AutoDrive.PATH_RADIUS_HOME
-					)
-					return
+					-- Stale save flag. Do not UnReserve someone else's lock.
+					self.reservedRefinery = false
+				elseif self:holds_pad(held) then
+					self:release_pad()
+				else
+					self.reservedRefinery = false
 				end
-				self:release_pad()
 			end
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then

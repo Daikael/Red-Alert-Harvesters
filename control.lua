@@ -15,6 +15,7 @@ require "specialOres"
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed')))
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed_full')))
+-- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','path_blockers')))
 remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_stats = function()
 		return ChunkIndex.debug_stats()
@@ -66,6 +67,11 @@ remote.add_interface("Red-Alert-Harvester", {
 		end
 		return out
 	end,
+	-- Batched leftover-dummy cleanup after load. Do not count_entities
+	-- map-wide here (that find CTDs a pad-storm save).
+	path_blockers = function()
+		return AutoDrive.debug_purge()
+	end,
 })
 
 -- Same startup flag ChunkIndex.enabled() reads. Teleport autonomy stays disabled;
@@ -116,6 +122,7 @@ script.on_configuration_changed(function()
 	ChunkIndex.seed_existing()
 	-- legacy teleport AI disabled; physical AutoDrive runs below when the flag is on.
 	if storage.cncharvesters then
+		AutoDrive.begin_load_recovery()
 		for _, harvester in pairs(storage.cncharvesters) do
 			harvester:AfterLoad()
 		end
@@ -161,11 +168,7 @@ local function migrate_after_load()
 		return
 	end
 	after_load_migrate = false
-	storage.autodrive_load_tick = game and game.tick or 0
-	-- Never find+destroy every path-blocker on load. A pad-queue storm
-	-- save can carry thousands; that scan hard-CTDs 2.0.77 before more
-	-- log lines flush. Forget Lua refs only.
-	AutoDrive.forget_blocker_lists()
+	AutoDrive.begin_load_recovery()
 	if not storage.cncharvesters then
 		return
 	end
@@ -419,6 +422,7 @@ end
 script.on_nth_tick(1, function()
 	ensure_storage()
 	migrate_after_load()
+	AutoDrive.tick_purge_blockers()
 
 	for _, player in pairs(game.connected_players) do
 		local vehicle = player.vehicle

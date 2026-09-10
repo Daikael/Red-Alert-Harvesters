@@ -87,6 +87,9 @@ AutoDrive.BUSY_RETRY_TICKS = 30
 AutoDrive.PAD_RECHECK_TICKS = 30
 -- After save load, do not request_path / spawn blockers until this many ticks.
 AutoDrive.LOAD_GRACE_TICKS = 60
+-- Batched orphan dummy cleanup after grace (never a tick-0 map-wide find).
+AutoDrive.PURGE_PER_TICK = 8
+AutoDrive.PURGE_RADIUS = 32
 -- Treat two goals as the same so StartDrive will not re-request_path.
 AutoDrive.GOAL_SAME_TILES = 0.5
 -- Peer pin: reverse ~1.5 s (~4–8 tiles) if the rear is clear, then repath.
@@ -563,7 +566,9 @@ function AutoDrive.path_collision_mask(entity)
 			layers[name] = on
 		end
 	end
-	layers[AutoDrive.PEER_LAYER] = true
+	if AutoDrive.peer_layer_enabled() then
+		layers[AutoDrive.PEER_LAYER] = true
+	end
 	return {layers = layers}
 end
 
@@ -630,6 +635,37 @@ function AutoDrive.in_load_grace()
 	return (game and game.tick or 0) < (origin + AutoDrive.LOAD_GRACE_TICKS)
 end
 
+function AutoDrive.peer_layer_enabled()
+	return not (storage and storage.autodrive_purge)
+end
+
+function AutoDrive.begin_load_recovery()
+	storage.autodrive_load_tick = game and game.tick or 0
+	storage.autodrive_purge = true
+	storage.autodrive_purge_destroyed = 0
+	storage.autodrive_purge_cursor = 0
+	storage.autodrive_purge_quiet = 0
+	AutoDrive.forget_blocker_lists()
+	for _, rec in pairs(storage.refineries or {}) do
+		rec.reserved = false
+		rec.reserved_by = nil
+	end
+	for _, h in pairs(storage.cncharvesters or {}) do
+		h.reservedRefinery = false
+	end
+end
+
+function AutoDrive.debug_purge()
+	return {
+		purge = storage and storage.autodrive_purge and true or false,
+		destroyed = storage and storage.autodrive_purge_destroyed or 0,
+		load_tick = storage and storage.autodrive_load_tick,
+		grace = AutoDrive.in_load_grace(),
+		peer_layer = AutoDrive.peer_layer_enabled(),
+		quiet = storage and storage.autodrive_purge_quiet or 0,
+	}
+end
+
 -- Drop Lua refs only. Do not find+destroy (a toxic save can have thousands
 -- of leftover dummies; that find/destroy on tick 0 hard-kills 2.0.77).
 function AutoDrive.forget_blocker_lists()
@@ -639,6 +675,81 @@ function AutoDrive.forget_blocker_lists()
 	for _, rec in pairs(storage.cncharvesters) do
 		rec.path_blockers = nil
 	end
+end
+
+local function purge_anchors()
+	local list = {}
+	for _, h in pairs(storage.cncharvesters or {}) do
+		local v = h.vehicle
+		if v and v.valid then
+			list[#list + 1] = v
+		end
+	end
+	for _, r in pairs(storage.refineries or {}) do
+		local e = r.entity
+		if e and e.valid then
+			list[#list + 1] = e
+		end
+	end
+	return list
+end
+
+-- After grace: destroy a few leftover dummies near one truck/pad per tick.
+-- Area find + limit only — never a whole-surface scan. Peer collision is
+-- off while this runs so leftovers cannot brick StartDrive.
+function AutoDrive.tick_purge_blockers()
+	if not (storage and storage.autodrive_purge) then
+		return 0
+	end
+	if AutoDrive.in_load_grace() then
+		return 0
+	end
+	local anchors = purge_anchors()
+	if #anchors < 1 then
+		storage.autodrive_purge = false
+		return 0
+	end
+	local cursor = (storage.autodrive_purge_cursor or 0) % #anchors
+	local ent = anchors[cursor + 1]
+	local surface = ent and ent.surface
+	if not (ent and ent.valid and surface and surface.valid) then
+		storage.autodrive_purge_cursor = cursor + 1
+		return 0
+	end
+	local found = surface.find_entities_filtered{
+		name = AutoDrive.PATH_BLOCKER,
+		position = ent.position,
+		radius = AutoDrive.PURGE_RADIUS,
+		limit = AutoDrive.PURGE_PER_TICK,
+	} or {}
+	local destroyed = 0
+	for i = 1, #found do
+		local dummy = found[i]
+		if dummy and dummy.valid then
+			local ok = pcall(function()
+				dummy.destroy()
+			end)
+			if ok then
+				destroyed = destroyed + 1
+			end
+		end
+	end
+	storage.autodrive_purge_destroyed = (storage.autodrive_purge_destroyed or 0) + destroyed
+	if #found >= AutoDrive.PURGE_PER_TICK then
+		-- Stay on this pad/truck; more leftovers are likely still here.
+		storage.autodrive_purge_quiet = 0
+		return destroyed
+	end
+	storage.autodrive_purge_cursor = cursor + 1
+	if destroyed == 0 then
+		storage.autodrive_purge_quiet = (storage.autodrive_purge_quiet or 0) + 1
+		if storage.autodrive_purge_quiet >= #anchors then
+			storage.autodrive_purge = false
+		end
+	else
+		storage.autodrive_purge_quiet = 0
+	end
+	return destroyed
 end
 
 function AutoDrive.clear_path_blockers(vehicle)
@@ -703,7 +814,7 @@ function AutoDrive.peer_needs_blocker(vehicle, other, goal)
 end
 
 function AutoDrive.spawn_path_blockers(vehicle, goal)
-	if AutoDrive.in_load_grace() then
+	if AutoDrive.in_load_grace() or not AutoDrive.peer_layer_enabled() then
 		return
 	end
 	AutoDrive.clear_path_blockers(vehicle)
