@@ -134,7 +134,7 @@ function Scoop.apply_parasitic_fuel(vehicle, joules)
 	if left <= 0 then
 		return joules
 	end
-	local fuel = vehicle.get_inventory(defines.inventory.fuel)
+	local fuel = HybridDrive.fuel_inventory(vehicle)
 	if not (fuel and fuel.valid) then
 		return joules - left
 	end

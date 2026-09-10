@@ -35,10 +35,7 @@ local StateUsesEnergy = {
 }
 
 local function vehicle_fuel_inventory(vehicle)
-	if not (vehicle and vehicle.valid) then
-		return nil
-	end
-	return vehicle.get_inventory(defines.inventory.fuel)
+	return HybridDrive.fuel_inventory(vehicle)
 end
 
 local function vehicle_trunk(vehicle)
@@ -401,6 +398,11 @@ cncharvester = {
 		local fuel_ok = self:CheckFuel()
 		if not fuel_ok then
 			AutoDrive.stop(self.vehicle)
+		end
+		-- Must run even when the tank is empty: otherwise an Ore Truck that
+		-- burned the 2 kJ spark never enters FindingRefuelRefinery.
+		self:MaybeReturnHome()
+		if not fuel_ok then
 			-- Empty burner must not skip dock/refuel: arrival would never
 			-- pull chest fuel into the tank.
 			local docking = self:is_home_state()
@@ -409,7 +411,6 @@ cncharvester = {
 				return
 			end
 		end
-		self:MaybeReturnHome()
 
 		if StateUsesEnergy[self.state] then
 			local consume = Stats.EnergyUsedPerTick
@@ -497,11 +498,8 @@ cncharvester = {
 			return false
 		end
 		HybridDrive.strip_banned_fuel(self.vehicle)
-		if dest.is_full() then
-			return true
-		end
 		local moved = HybridDrive.transfer_convertible_fuel(inventory, dest)
-		return moved > 0 or dest.is_full()
+		return moved > 0 or HybridDrive.tank_convertible_joules(self.vehicle) > 0
 	end,
 
 	RefuelFromHold = function(self)
@@ -1327,9 +1325,13 @@ cncharvester = {
 			self:RefuelFromInventory(chest)
 			HybridDrive.convert_inventory_fuels(self.vehicle)
 			local dest = vehicle_fuel_inventory(self.vehicle)
-			local tank_full = dest and dest.valid and dest.is_full()
 			local potential = HybridDrive.potential_joules(self.vehicle)
-			-- Done when the tank is full or we are at/above the 8 MJ low-fuel trip.
+			-- Do not treat dest.is_full() as success: a 2-slot Ore Truck bar
+			-- or the wrong inventory looks "full" while the tank is still empty.
+			-- Done when potential is at/above the 8 MJ low-fuel trip, or the
+			-- tank cannot take more convertible fuel and we actually have some.
+			local tank_full = dest and dest.valid and dest.is_full()
+				and HybridDrive.tank_convertible_joules(self.vehicle) > 0
 			if tank_full or potential >= AutoDrive.FUEL_LOW_J then
 				self.refueling = false
 				local trunk = vehicle_trunk(self.vehicle)

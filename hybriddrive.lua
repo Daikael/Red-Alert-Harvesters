@@ -160,11 +160,96 @@ function HybridDrive.convertible_joules(name)
 	return fuel_value_of(name)
 end
 
-local function fuel_inventory(vehicle)
+-- Cars expose the tank on LuaBurner.inventory / get_fuel_inventory, not
+-- reliably via defines.inventory.fuel (that index can be trunk or nil).
+-- Ore Truck is 2 slots; hitting the wrong inv looks like "won't refuel".
+function HybridDrive.fuel_inventory(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return nil
 	end
-	return vehicle.get_inventory(defines.inventory.fuel)
+	local burner = vehicle.burner
+	if burner then
+		local inv = burner.inventory
+		if inv and inv.valid then
+			return inv
+		end
+	end
+	if vehicle.get_fuel_inventory then
+		local ok, inv = pcall(function()
+			return vehicle.get_fuel_inventory()
+		end)
+		if ok and inv and inv.valid then
+			return inv
+		end
+	end
+	if vehicle.get_inventory and defines and defines.inventory then
+		local ok, inv = pcall(function()
+			return vehicle.get_inventory(defines.inventory.fuel)
+		end)
+		if ok and inv and inv.valid then
+			return inv
+		end
+	end
+	return nil
+end
+
+local function fuel_inventory(vehicle)
+	return HybridDrive.fuel_inventory(vehicle)
+end
+
+local function unlock_inventory_bar(inv)
+	if not (inv and inv.supports_bar and inv.get_bar and inv.set_bar) then
+		return nil
+	end
+	local ok_sup, supported = pcall(function()
+		return inv.supports_bar()
+	end)
+	if not ok_sup or not supported then
+		return nil
+	end
+	local ok_bar, bar = pcall(function()
+		return inv.get_bar()
+	end)
+	if not ok_bar then
+		return nil
+	end
+	pcall(function()
+		inv.set_bar()
+	end)
+	return bar
+end
+
+local function restore_inventory_bar(inv, bar)
+	if bar == nil or not (inv and inv.set_bar) then
+		return
+	end
+	pcall(function()
+		inv.set_bar(bar)
+	end)
+end
+
+local function insert_stack(dest, stack)
+	local ok, inserted = pcall(function()
+		return dest.insert(stack)
+	end)
+	if not ok then
+		return 0
+	end
+	if type(inserted) ~= "number" then
+		inserted = inserted and stack.count or 0
+	end
+	if inserted > 0 then
+		return inserted
+	end
+	if stack.quality then
+		ok, inserted = pcall(function()
+			return dest.insert({name = stack.name, count = stack.count})
+		end)
+		if ok and type(inserted) == "number" and inserted > 0 then
+			return inserted
+		end
+	end
+	return 0
 end
 
 -- The only legal currently_burning. Always write remaining after assigning
@@ -249,7 +334,9 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 	if not (source and source.valid and dest and dest.valid) then
 		return 0
 	end
+	local saved_bar = unlock_inventory_bar(dest)
 	if dest.is_full and dest.is_full() then
+		restore_inventory_bar(dest, saved_bar)
 		return 0
 	end
 	local moved = 0
@@ -273,14 +360,7 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 				and (not filter_prefer or prefer[item.name])
 			if can then
 				local stack = InventoryItemStack(item.name, item.count, item.quality)
-				local ok, inserted = pcall(function()
-					return dest.insert(stack)
-				end)
-				if not ok then
-					inserted = 0
-				elseif type(inserted) ~= "number" then
-					inserted = inserted and item.count or 0
-				end
+				local inserted = insert_stack(dest, stack)
 				if inserted > 0 then
 					pcall(function()
 						source.remove(InventoryItemStack(item.name, inserted, item.quality))
@@ -295,6 +375,7 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 		take(true)
 	end
 	take(false)
+	restore_inventory_bar(dest, saved_bar)
 	return moved
 end
 
