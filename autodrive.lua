@@ -83,6 +83,10 @@ AutoDrive.HOME_REPATH_MAX = 5
 AutoDrive.FAILED_CHUNK_TTL = 18000
 AutoDrive.ALERT_COOLDOWN = 3600
 AutoDrive.BUSY_RETRY_TICKS = 30
+-- Waiters recheck the pad this often. Must not pathfind / scan every tick.
+AutoDrive.PAD_RECHECK_TICKS = 30
+-- Treat two goals as the same so StartDrive will not re-request_path.
+AutoDrive.GOAL_SAME_TILES = 0.5
 -- Peer pin: reverse ~1.5 s (~4–8 tiles) if the rear is clear, then repath.
 AutoDrive.REVERSE_TICKS = 90
 AutoDrive.REVERSE_CHECK_TILES = 6
@@ -168,6 +172,23 @@ function AutoDrive.near_dock(pos, refinery_pos)
 	local dx = (pos.x or 0) - (refinery_pos.x or 0)
 	local dy = (pos.y or 0) - (refinery_pos.y or 0)
 	local r = AutoDrive.DOCK_ACCEPT_TILES
+	return (dx * dx + dy * dy) <= (r * r)
+end
+
+function AutoDrive.same_goal(a, b)
+	if not (a and b) then
+		return false
+	end
+	local ax = a.x or a[1]
+	local ay = a.y or a[2]
+	local bx = b.x or b[1]
+	local by = b.y or b[2]
+	if ax == nil or ay == nil or bx == nil or by == nil then
+		return false
+	end
+	local dx = ax - bx
+	local dy = ay - by
+	local r = AutoDrive.GOAL_SAME_TILES
 	return (dx * dx + dy * dy) <= (r * r)
 end
 

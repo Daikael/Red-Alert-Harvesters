@@ -68,17 +68,17 @@ Refinery = {
 		if not (entity and entity.valid) then
 			return false
 		end
-		local refineryEntities = entity.surface.find_entities_filtered {
-			name = "refinery"
-		}
+		local surface = entity.surface
 		local closestRefinery = false
 		local minDistSq = math.huge
-		for _, refineryEntity in pairs(refineryEntities) do
-			local refinery = storage.refineries[refineryEntity.unit_number]
-			if conditionFunc(refinery) then
+		-- Tracked list only — never find_entities_filtered on the hot path.
+		for _, refinery in pairs(storage.refineries or {}) do
+			local refineryEntity = refinery and refinery.entity
+			if refineryEntity and refineryEntity.valid
+			and refineryEntity.surface == surface
+			and conditionFunc(refinery) then
 				local dPos = Vector.subtract(entity.position, refineryEntity.position)
 				local distSq = Vector.lengthsq(dPos)
-
 				if distSq < minDistSq then
 					closestRefinery = refinery
 					minDistSq = distSq
