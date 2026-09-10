@@ -85,6 +85,8 @@ AutoDrive.ALERT_COOLDOWN = 3600
 AutoDrive.BUSY_RETRY_TICKS = 30
 -- Waiters recheck the pad this often. Must not pathfind / scan every tick.
 AutoDrive.PAD_RECHECK_TICKS = 30
+-- After save load, do not request_path / spawn blockers until this many ticks.
+AutoDrive.LOAD_GRACE_TICKS = 60
 -- Treat two goals as the same so StartDrive will not re-request_path.
 AutoDrive.GOAL_SAME_TILES = 0.5
 -- Peer pin: reverse ~1.5 s (~4–8 tiles) if the rear is clear, then repath.
@@ -620,6 +622,25 @@ function AutoDrive.peer_blocks_assignment(vehicle, si, cx, cy, center)
 	return blocked
 end
 
+function AutoDrive.in_load_grace()
+	local origin = storage and storage.autodrive_load_tick
+	if origin == nil then
+		return false
+	end
+	return (game and game.tick or 0) < (origin + AutoDrive.LOAD_GRACE_TICKS)
+end
+
+-- Drop Lua refs only. Do not find+destroy (a toxic save can have thousands
+-- of leftover dummies; that find/destroy on tick 0 hard-kills 2.0.77).
+function AutoDrive.forget_blocker_lists()
+	if not (storage and storage.cncharvesters) then
+		return
+	end
+	for _, rec in pairs(storage.cncharvesters) do
+		rec.path_blockers = nil
+	end
+end
+
 function AutoDrive.clear_path_blockers(vehicle)
 	local rec = storage and storage.cncharvesters and vehicle and vehicle.unit_number and storage.cncharvesters[vehicle.unit_number]
 	local list = rec and rec.path_blockers
@@ -682,6 +703,9 @@ function AutoDrive.peer_needs_blocker(vehicle, other, goal)
 end
 
 function AutoDrive.spawn_path_blockers(vehicle, goal)
+	if AutoDrive.in_load_grace() then
+		return
+	end
 	AutoDrive.clear_path_blockers(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return

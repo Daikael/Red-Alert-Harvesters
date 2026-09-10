@@ -169,7 +169,10 @@ cncharvester = {
 			AutoDrive.take_request(self.path_id)
 			self.path_id = nil
 		end
-		AutoDrive.clear_path_blockers(self.vehicle)
+		self.path = nil
+		self.path_index = 1
+		-- Do not destroy blocker entities here (toxic-save CTD). Refs dropped.
+		self.path_blockers = nil
 		if self.failed_chunks == nil then
 			self.failed_chunks = {}
 		end
@@ -193,7 +196,11 @@ cncharvester = {
 				rec:Reserve(self)
 			end
 		end
-		self:KickAuto()
+		-- Do not KickAuto/StartDrive on the load tick. 7 trucks × request_path
+		-- + blocker spawn is a hard engine kill (log ends at control checksum).
+		local id = self.vehicle and self.vehicle.unit_number or 0
+		local now = game and game.tick or 0
+		self.busy_until = now + AutoDrive.LOAD_GRACE_TICKS + (id % 45)
 	end,
 
 	auto_on = function(self)
@@ -385,6 +392,10 @@ cncharvester = {
 
 		if not self:auto_on() then
 			ModuleBay.starve(self.vehicle)
+			return
+		end
+
+		if (self.busy_until or 0) > game.tick then
 			return
 		end
 
@@ -705,6 +716,13 @@ cncharvester = {
 		end
 		-- Same dest already in flight: do not cancel + request_path + spawn blockers.
 		if self:already_driving(position, arrival_state) then
+			self.state = States.MovingToLocation
+			return
+		end
+		if AutoDrive.in_load_grace() then
+			self.targetPosition = position
+			self.arrival_state = arrival_state
+			self.drive_radius = radius
 			self.state = States.MovingToLocation
 			return
 		end

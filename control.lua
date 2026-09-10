@@ -161,11 +161,11 @@ local function migrate_after_load()
 		return
 	end
 	after_load_migrate = false
-	if game and game.surfaces then
-		for _, surface in pairs(game.surfaces) do
-			AutoDrive.destroy_orphan_blockers(surface)
-		end
-	end
+	storage.autodrive_load_tick = game and game.tick or 0
+	-- Never find+destroy every path-blocker on load. A pad-queue storm
+	-- save can carry thousands; that scan hard-CTDs 2.0.77 before more
+	-- log lines flush. Forget Lua refs only.
+	AutoDrive.forget_blocker_lists()
 	if not storage.cncharvesters then
 		return
 	end

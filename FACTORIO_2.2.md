@@ -182,7 +182,7 @@ Behavior:
 - **Auto on + pause on:** player may sit as **driver**. Never write `riding_state` while they drive. Freeze assignment (cancel pending path). Resume / repath on exit if auto is still on.
 - Checkbox writes: **`on_gui_click` only**, and only while the car inventory is genuinely open. Toggle feedback uses ~5 s floating text plus `player.print`.
 - Ore assignment drives to a **resource entity** when `resource_in_chunk` finds one (tight path/arrive). If `MiningOre` is off-patch, short-range retarget (up to 3) then mark the chunk failed / `FindingOre`.
-- **Do not write these fields in `on_load`.** Factorio CRC-checks `storage` and will refuse the save (`Detected modifications to the 'storage' table`). Missing keys mean auto ON / pause OFF until a later mutable event (tick / GUI) writes them. Empty + auto ON calls `KickAuto` (repath or `FindingOre` → `StartDrive`).
+- **Do not write these fields in `on_load`.** Factorio CRC-checks `storage` and will refuse the save (`Detected modifications to the 'storage' table`). Missing keys mean auto ON / pause OFF until a later mutable event (tick / GUI) writes them. Empty + auto ON calls `KickAuto` from occupancy/toggle (repath or `FindingOre` → `StartDrive`), never from `AfterLoad`. Load forgets blocker Lua refs and idles `LOAD_GRACE_TICKS` (staggered) before any `request_path`; it must not mass-destroy path-blockers (hard CTD on 2.0.77).
 
 ### Suggested storage shape (implementer hint, not frozen)
 
