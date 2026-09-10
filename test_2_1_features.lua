@@ -628,6 +628,9 @@ expect(drive_src:find("function AutoDrive.path_request_plan", 1, true) ~= nil, "
 expect(drive_src:find("function AutoDrive.clear_nearby_trees", 1, true) ~= nil, "auto-drive harvests nearby trees")
 expect(drive_src:find("function AutoDrive.remove_tree", 1, true) ~= nil, "trees destroy when the trunk cannot take wood")
 expect(drive_src:find("DOCK_ACCEPT_TILES = 8", 1, true) ~= nil, "dock accept radius is 8 tiles")
+expect(drive_src:find("DOCK_DUMP_TILES = 12", 1, true) ~= nil, "holder may dump from 12 tiles")
+expect(drive_src:find("function AutoDrive.can_dump", 1, true) ~= nil, "can_dump finishes the last approach")
+expect(drive_src:find("function AutoDrive.is_pad_holder", 1, true) ~= nil, "pad holder wins peel at the dock")
 expect(drive_src:find("PATH_RADIUS_HOME = 10", 1, true) ~= nil, "home path radius is 10 tiles")
 expect(drive_src:find("PATH_RES_LONG = 0", 1, true) ~= nil, "pathfinder stays at 1-tile resolution")
 expect(drive_src:find("STUCK_RETRY_TICKS = 300", 1, true) ~= nil, "stuck alerts back off before retry")
@@ -646,6 +649,11 @@ expect(io.open("harvester.lua"):read("*a"):find("tick_peer_block", 1, true) ~= n
 expect(io.open("harvester.lua"):read("*a"):find("clear_nearby_trees", 1, true) ~= nil, "Tick mines trees that threaten collision")
 expect(io.open("harvester.lua"):read("*a"):find("near_dock", 1, true) ~= nil, "home trip accepts a close-enough dock")
 expect(io.open("harvester.lua"):read("*a"):find("dock_goal", 1, true) ~= nil, "stuck home trips try alternate dock faces")
+expect(io.open("harvester.lua"):read("*a"):find("self:claim_pad", 1, true) ~= nil, "FindingRefinery reserves before the drive")
+expect(io.open("harvester.lua"):read("*a"):find("self:release_pad", 1, true) ~= nil, "pad lock is released on dump/fail/leave")
+expect(io.open("harvester.lua"):read("*a"):find("GetAvailableSlots() > Stats.cncharvesterCargoSlots", 1, true) == nil, "dump no longer requires 21 empty chest stacks")
+expect(io.open("refinery.lua"):read("*a"):find("reserved_by", 1, true) ~= nil, "reserve records the holding truck")
+expect(io.open("refinery.lua"):read("*a"):find("leaked `reserved`", 1, true) ~= nil, "IsOccupied reclaims a leaked pad lock")
 expect(drive_src:find("blocked_by_peer(vehicle, true)", 1, true) ~= nil, "follow_path brakes only for the ram bubble")
 expect(io.open("harvester.lua"):read("*a"):find('action == "repath"', 1, true) ~= nil, "peer repath is a soft StartDrive, not OnPathFail")
 expect(drive_src:find("function AutoDrive.eject_players", 1, true) == nil, "eject_players is removed")
@@ -916,6 +924,11 @@ expect(AutoDrive.has_peer_priority(truck_c) == false, "higher unit_number yields
 local yield_rec = {}
 expect(AutoDrive.tick_peer_block(yield_rec, truck_c, 300) == "wait", "yielding truck does not reverse-fight the leader")
 expect(yield_rec.reverse_until == nil, "yielder does not start a wiggle")
+storage.cncharvesters[13].reservedRefinery = true
+expect(AutoDrive.is_pad_holder(truck_c) == true, "reserved truck is the pad holder")
+expect(AutoDrive.has_peer_priority(truck_c) == true, "pad holder peels even with a higher unit_number")
+expect(AutoDrive.has_peer_priority(truck_a) == false, "non-holder yields to the pad holder")
+storage.cncharvesters[13].reservedRefinery = nil
 storage.cncharvesters[13] = nil
 truck_b.position = {x = 3.5, y = 0}
 expect(AutoDrive.blocked_by_peer(truck_a) == true, "3.5-tile gap is still a yield hint")
@@ -1070,6 +1083,8 @@ expect(AutoDrive.aligning_in_place(0.5, 0.2) == false, "rolling is not an in-pla
 expect(AutoDrive.aligning_in_place(0, 0) == false, "aligned is not holding stuck")
 expect(AutoDrive.near_dock({x = 7, y = 0}, {x = 0, y = 0}) == true, "7 tiles from the refinery is close enough to dump")
 expect(AutoDrive.near_dock({x = 20, y = 0}, {x = 0, y = 0}) == false, "far from the refinery is not docked")
+expect(AutoDrive.can_dump({x = 11, y = 0}, {x = 0, y = 0}) == true, "11 tiles is still in dump finish range")
+expect(AutoDrive.can_dump({x = 20, y = 0}, {x = 0, y = 0}) == false, "20 tiles is not dump range")
 local dock0 = AutoDrive.dock_goal({x = 0, y = 0}, 0)
 expect(dock0.y < -3, "first dock goal is north of the building")
 expect(AutoDrive.tree_is_threat(3, 0, 1, 0) == true, "tree ahead is a collision threat")

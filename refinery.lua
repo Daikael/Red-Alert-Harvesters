@@ -98,6 +98,7 @@ Refinery = {
 			hasBelts = false,
 			belts = {N = {}, E = {}, S = {}, W = {}},
 			reserved = false,
+			reserved_by = nil,
 		}
 		setmetatable(self, {__index = Refinery})
 		return self
@@ -107,6 +108,7 @@ Refinery = {
 		-- The entity is already being removed by the game; only drop bookkeeping.
 		self.entity = nil
 		self.reserved = false
+		self.reserved_by = nil
 	end,
 
 	Onload = function(self)
@@ -138,22 +140,43 @@ Refinery = {
 		DrawFloatingText(self.entity.surface, self.entity, text, color or {r = 1, g = 1, b = 1}, 60)
 	end,
 
-	Reserve = function(self)
-		if self.reserved then
-			Error("Reserved an already reserved refinery.")
-		end
+	Reserve = function(self, holder)
 		self.reserved = true
+		local id = holder and holder.vehicle and holder.vehicle.unit_number
+		self.reserved_by = id
 	end,
 
 	UnReserve = function(self)
-		if not self.reserved then
-			Error("Unreserved a non-reserved refinery.")
-		end
 		self.reserved = false
+		self.reserved_by = nil
 	end,
 
+	-- True while a living truck still holds this pad. A leaked `reserved`
+	-- with no holder (stuck approach / old save) is reclaimed so the queue
+	-- can move.
 	IsOccupied = function(self)
-		return self.reserved
+		if not self.reserved then
+			return false
+		end
+		local ent_id = self.entity and self.entity.unit_number
+		local id = self.reserved_by
+		local holder = id and storage and storage.cncharvesters and storage.cncharvesters[id]
+		if holder and holder.reservedRefinery and holder.targetRefinery == ent_id then
+			if holder.vehicle and holder.vehicle.valid then
+				return true
+			end
+		end
+		if storage and storage.cncharvesters and ent_id then
+			for hid, h in pairs(storage.cncharvesters) do
+				if h and h.reservedRefinery and h.targetRefinery == ent_id and h.vehicle and h.vehicle.valid then
+					self.reserved_by = h.vehicle.unit_number or hid
+					return true
+				end
+			end
+		end
+		self.reserved = false
+		self.reserved_by = nil
+		return false
 	end,
 
 	GetAvailableSlots = function(self)

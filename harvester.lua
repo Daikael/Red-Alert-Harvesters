@@ -108,13 +108,45 @@ cncharvester = {
 		return self
 	end,
 
-	Delete = function(self)
-		if self.targetRefinery and self.reservedRefinery then
+	release_pad = function(self)
+		if self.reservedRefinery and self.targetRefinery then
 			local refinery = Refinery.GetByUnitNumber(self.targetRefinery)
 			if refinery then
 				refinery:UnReserve()
 			end
 		end
+		self.reservedRefinery = false
+	end,
+
+	holds_pad = function(self, refinery)
+		if not self.reservedRefinery then
+			return false
+		end
+		if not refinery then
+			refinery = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
+		end
+		local id = self.vehicle and self.vehicle.unit_number
+		if refinery and id and refinery.reserved_by == id then
+			return true
+		end
+		return refinery and self.targetRefinery == (refinery.entity and refinery.entity.unit_number)
+	end,
+
+	claim_pad = function(self, refinery)
+		if not (refinery and refinery.entity and refinery.entity.valid) then
+			return false
+		end
+		if refinery:IsOccupied() and not self:holds_pad(refinery) then
+			return false
+		end
+		refinery:Reserve(self)
+		self.reservedRefinery = true
+		self.targetRefinery = refinery.entity.unit_number
+		return true
+	end,
+
+	Delete = function(self)
+		self:release_pad()
 		if self.vehicle and self.vehicle.valid then
 			AutoDrive.clear_path_blockers(self.vehicle)
 			ModuleBay.destroy_for_vehicle(self.vehicle)
@@ -155,6 +187,12 @@ cncharvester = {
 		end
 		-- auto_enabled / pause_on_enter: do not write. nil means ON / OFF
 		-- via auto_on() and `pause_on_enter == true`.
+		if self.reservedRefinery and self.targetRefinery then
+			local rec = Refinery.GetByUnitNumber(self.targetRefinery)
+			if rec and rec.entity and rec.entity.valid then
+				rec:Reserve(self)
+			end
+		end
 		self:KickAuto()
 	end,
 
@@ -735,7 +773,9 @@ cncharvester = {
 				end
 			end
 			self:raise_stuck_alert()
+			self:release_pad()
 			self.busy_until = (game and game.tick or 0) + AutoDrive.STUCK_RETRY_TICKS
+			self.state = States.FindingRefinery
 			return
 		end
 		self.repath_n = (self.repath_n or 0) + 1
@@ -753,6 +793,7 @@ cncharvester = {
 		self.home_early = true
 		self.alt_n = 0
 		self.home_repath_n = 0
+		self:release_pad()
 		self.state = States.FindingRefinery
 	end,
 
@@ -948,16 +989,46 @@ cncharvester = {
 		end,
 
 		[States.FindingRefinery] = function(self)
+			if self.reservedRefinery and self.targetRefinery then
+				local held = Refinery.GetByUnitNumber(self.targetRefinery)
+				if held and held.entity and held.entity.valid and not held:IsFull() then
+					if AutoDrive.can_dump(self.vehicle.position, held.entity.position) then
+						self.state = States.ApproachedRefinery
+						return
+					end
+					self.dock_try = self.dock_try or 0
+					self:StartDrive(
+						Vector.add(held.entity.position, Stats.RefineryApproachOffset),
+						States.ApproachedRefinery,
+						AutoDrive.PATH_RADIUS_HOME
+					)
+					return
+				end
+				self:release_pad()
+			end
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
+				AutoDrive.stop(self.vehicle)
+				local any = Refinery.Nearest(self.vehicle)
+				-- Reserved-but-not-full: wait in the queue. Toast only when
+				-- there is no pad or every pad is actually full.
+				if any and any.entity and any.entity.valid and not any:IsFull() then
+					return
+				end
 				if (game.tick % 120) == 0 then
 					self:FloatingText({"cncharvester.no-empty-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end
-
-			self.targetRefinery = refinery.entity.unit_number
+			if not self:claim_pad(refinery) then
+				AutoDrive.stop(self.vehicle)
+				return
+			end
 			self.dock_try = 0
+			if AutoDrive.can_dump(self.vehicle.position, refinery.entity.position) then
+				self.state = States.ApproachedRefinery
+				return
+			end
 			self:StartDrive(
 				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
 				States.ApproachedRefinery,
@@ -967,38 +1038,56 @@ cncharvester = {
 
 		[States.ApproachedRefinery] = function(self)
 			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
-			if targetRefinery and targetRefinery.entity and targetRefinery.entity.valid and not targetRefinery:IsFull() then
-				if not targetRefinery:IsOccupied() then
-					targetRefinery:Reserve()
-					self.reservedRefinery = true
-					self:StartDrive(
-						Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
-						States.DroppingOre,
-						AutoDrive.PATH_RADIUS_HOME
-					)
-				end
-			else
+			if not (targetRefinery and targetRefinery.entity and targetRefinery.entity.valid) or targetRefinery:IsFull() then
+				self:release_pad()
 				self.state = States.FindingRefinery
+				return
 			end
+			if not self:holds_pad(targetRefinery) then
+				if not self:claim_pad(targetRefinery) then
+					self.state = States.FindingRefinery
+					return
+				end
+			end
+			if AutoDrive.can_dump(self.vehicle.position, targetRefinery.entity.position) then
+				AutoDrive.stop(self.vehicle)
+				self.state = States.DroppingOre
+				return
+			end
+			self:StartDrive(
+				Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
+				States.DroppingOre,
+				AutoDrive.PATH_RADIUS_HOME
+			)
 		end,
 
 		[States.DroppingOre] = function(self)
 			local inv = vehicle_trunk(self.vehicle)
 			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
 			if not (inv and targetRefinery and targetRefinery.entity and targetRefinery.entity.valid) then
+				self:release_pad()
+				self.state = States.FindingRefinery
+				return
+			end
+			if targetRefinery:IsFull() then
+				self:release_pad()
 				self.state = States.FindingRefinery
 				return
 			end
 
-			if targetRefinery:GetAvailableSlots() > Stats.cncharvesterCargoSlots then
-				EachInventoryItem(inv, function(itemname, count, quality)
-					local stack = InventoryItemStack(itemname, count, quality)
-					local inserted = targetRefinery.entity.insert(stack)
-					if inserted > 0 then
-						inv.remove(InventoryItemStack(itemname, inserted, quality))
-					end
-				end)
-			else
+			EachInventoryItem(inv, function(itemname, count, quality)
+				local stack = InventoryItemStack(itemname, count, quality)
+				local inserted = targetRefinery.entity.insert(stack)
+				if inserted > 0 then
+					inv.remove(InventoryItemStack(itemname, inserted, quality))
+				end
+			end)
+
+			if inv.get_item_count() > 0 then
+				if targetRefinery:IsFull() then
+					self:release_pad()
+					self.state = States.FindingRefinery
+				end
 				return
 			end
 
@@ -1015,8 +1104,7 @@ cncharvester = {
 				self.state = States.Refueling
 			else
 				self.state = States.FindingOre
-				targetRefinery:UnReserve()
-				self.reservedRefinery = false
+				self:release_pad()
 			end
 		end,
 
@@ -1045,15 +1133,29 @@ cncharvester = {
 			if self.going_home and self.targetRefinery then
 				local home = Refinery.GetByUnitNumber(self.targetRefinery)
 				local pad = home and home.entity
-				if pad and pad.valid and AutoDrive.near_dock(self.vehicle.position, pad.position) then
-					AutoDrive.stop(self.vehicle)
-					self.path = nil
-					self.going_home = false
-					if self.arrival_state then
-						self.state = self.arrival_state
-						self.arrival_state = false
+				if pad and pad.valid then
+					local holder = self:holds_pad(home)
+					if not holder and home:IsOccupied() then
+						-- Queue: do not drive onto a pad someone else holds.
+						AutoDrive.stop(self.vehicle)
+						self.path = nil
+						self.going_home = false
+						self.state = States.FindingRefinery
+						return
 					end
-					return
+					if AutoDrive.near_dock(self.vehicle.position, pad.position) then
+						if not holder then
+							self:claim_pad(home)
+						end
+						AutoDrive.stop(self.vehicle)
+						self.path = nil
+						self.going_home = false
+						if self.arrival_state then
+							self.state = self.arrival_state
+							self.arrival_state = false
+						end
+						return
+					end
 				end
 			end
 			local action = AutoDrive.tick_peer_block(self, self.vehicle, game.tick)
@@ -1117,9 +1219,19 @@ cncharvester = {
 				end
 				return
 			end
-
-			self.targetRefinery = refinery.entity.unit_number
+			if refinery:IsOccupied() and not self:holds_pad(refinery) then
+				AutoDrive.stop(self.vehicle)
+				return
+			end
+			if not self:claim_pad(refinery) then
+				AutoDrive.stop(self.vehicle)
+				return
+			end
 			self.dock_try = 0
+			if AutoDrive.can_dump(self.vehicle.position, refinery.entity.position) then
+				self.state = States.ApproachedForRefuel
+				return
+			end
 			self:StartDrive(
 				Vector.add(refinery.entity.position, Stats.RefineryApproachOffset),
 				States.ApproachedForRefuel,
@@ -1129,25 +1241,31 @@ cncharvester = {
 
 		[States.ApproachedForRefuel] = function(self)
 			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
-			if targetRefinery and targetRefinery.entity and targetRefinery.entity.valid and targetRefinery:HasFuel() then
-				if not targetRefinery:IsOccupied() then
-					targetRefinery:Reserve()
-					self.reservedRefinery = true
-					self:StartDrive(
-						Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
-						States.Refueling,
-						AutoDrive.PATH_RADIUS_HOME
-					)
-				end
-			else
+			if not (targetRefinery and targetRefinery.entity and targetRefinery.entity.valid and targetRefinery:HasFuel()) then
+				self:release_pad()
 				self.state = States.FindingRefuelRefinery
+				return
 			end
+			if not self:holds_pad(targetRefinery) and not self:claim_pad(targetRefinery) then
+				self.state = States.FindingRefuelRefinery
+				return
+			end
+			if AutoDrive.can_dump(self.vehicle.position, targetRefinery.entity.position) then
+				AutoDrive.stop(self.vehicle)
+				self.state = States.Refueling
+				return
+			end
+			self:StartDrive(
+				Vector.add(targetRefinery.entity.position, Stats.RefineryDumpOffset),
+				States.Refueling,
+				AutoDrive.PATH_RADIUS_HOME
+			)
 		end,
 
 		[States.Refueling] = function(self)
 			local targetRefinery = Refinery.GetByUnitNumber(self.targetRefinery)
 			if not (targetRefinery and targetRefinery.entity and targetRefinery.entity.valid) then
-				self.reservedRefinery = false
+				self:release_pad()
 				self.state = States.FindingRefuelRefinery
 				return
 			end
@@ -1171,10 +1289,7 @@ cncharvester = {
 					self.state = States.DroppingOre
 				else
 					self.state = States.FindingOre
-					if self.reservedRefinery then
-						targetRefinery:UnReserve()
-						self.reservedRefinery = false
-					end
+					self:release_pad()
 				end
 				return
 			end
@@ -1182,10 +1297,7 @@ cncharvester = {
 				if (game.tick % 120) == 0 then
 					self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
-				if self.reservedRefinery then
-					targetRefinery:UnReserve()
-					self.reservedRefinery = false
-				end
+				self:release_pad()
 				self.state = States.FindingRefuelRefinery
 			end
 		end,

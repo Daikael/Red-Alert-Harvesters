@@ -29,6 +29,8 @@ AutoDrive.ARRIVE_ORE_ENTITY = 1.25
 AutoDrive.ARRIVE_HOME = 8
 -- Close enough to the refinery entity to dump/refuel (chest-side 7-tile stall).
 AutoDrive.DOCK_ACCEPT_TILES = 8
+-- Holder may dump from here without another path (insert is not range-gated).
+AutoDrive.DOCK_DUMP_TILES = 12
 -- Always path with the car collision_box at resolution 0. A biter-sized box
 -- plus a coarse grid (tried in 2.2.0) returned paths the 2.8-wide car cannot
 -- follow, which exhausted OnPathFail and spammed stuck alerts.
@@ -167,6 +169,24 @@ function AutoDrive.near_dock(pos, refinery_pos)
 	local dy = (pos.y or 0) - (refinery_pos.y or 0)
 	local r = AutoDrive.DOCK_ACCEPT_TILES
 	return (dx * dx + dy * dy) <= (r * r)
+end
+
+function AutoDrive.can_dump(pos, refinery_pos)
+	if not (pos and refinery_pos) then
+		return false
+	end
+	local dx = (pos.x or 0) - (refinery_pos.x or 0)
+	local dy = (pos.y or 0) - (refinery_pos.y or 0)
+	local r = AutoDrive.DOCK_DUMP_TILES
+	return (dx * dx + dy * dy) <= (r * r)
+end
+
+function AutoDrive.is_pad_holder(vehicle)
+	if not (vehicle and vehicle.valid and storage and storage.cncharvesters) then
+		return false
+	end
+	local rec = storage.cncharvesters[vehicle.unit_number]
+	return rec and rec.reservedRefinery == true
 end
 
 -- Collision-threat flora: touching / beside, or anywhere ahead in the bubble.
@@ -724,11 +744,15 @@ function AutoDrive.blocked_by_peer(vehicle, ram_only)
 	return blocked
 end
 
--- Lowest unit_number in the cluster may peel; others yield.
+-- Pad holder peels first at the dock. Otherwise lowest unit_number.
 function AutoDrive.has_peer_priority(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
 	end
+	if AutoDrive.is_pad_holder(vehicle) then
+		return true
+	end
+	local holder_near = false
 	local self_id = vehicle.unit_number or 0
 	local min_id = self_id
 	local pos = vehicle.position
@@ -739,12 +763,19 @@ function AutoDrive.has_peer_priority(vehicle)
 		local dx = (op.x or 0) - (pos.x or 0)
 		local dy = (op.y or 0) - (pos.y or 0)
 		if dx * dx + dy * dy <= r_sq then
+			if AutoDrive.is_pad_holder(other) then
+				holder_near = true
+				return
+			end
 			local id = other.unit_number or min_id
 			if id < min_id then
 				min_id = id
 			end
 		end
 	end)
+	if holder_near then
+		return false
+	end
 	return self_id == min_id
 end
 
