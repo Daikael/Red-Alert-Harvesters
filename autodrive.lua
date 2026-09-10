@@ -67,9 +67,11 @@ AutoDrive.PEER_RAM_TILES = 3.2
 AutoDrive.PEER_AHEAD_DOT = 0.45
 -- Lowest unit_number in this radius may peel; others yield without failing.
 AutoDrive.PEER_CLUSTER_TILES = 8
--- Path / blocker: ignore siblings we are already sitting next to.
-AutoDrive.PEER_PATH_IGNORE_START = 6
+-- Path blockers are local traffic only. A 4×4 dummy on every truck on the
+-- surface made long home trips fail or detour into path_hits_peer rejects.
+-- Skip siblings already next to the start (do not seal the cell we stand in).
 AutoDrive.PEER_BLOCKER_MIN = 6
+AutoDrive.PEER_BLOCKER_NEAR = 32
 AutoDrive.PATH_BLOCKER = "cncharvester-path-blocker"
 AutoDrive.PEER_LAYER = "cncharvester-peer"
 -- Escalation (implementer-tunable; documented in FACTORIO_2.2.md).
@@ -608,7 +610,37 @@ function AutoDrive.destroy_orphan_blockers(surface)
 	end
 end
 
-function AutoDrive.spawn_path_blockers(vehicle)
+-- True when a sibling should get a pathfinder dummy for this request.
+-- Local to start or goal only — never the whole surface.
+function AutoDrive.peer_needs_blocker(vehicle, other, goal)
+	if not (vehicle and other and vehicle.position and other.position) then
+		return false
+	end
+	local origin = vehicle.position
+	local pos = other.position
+	local dx = (pos.x or 0) - (origin.x or 0)
+	local dy = (pos.y or 0) - (origin.y or 0)
+	local dsq = dx * dx + dy * dy
+	local min = AutoDrive.PEER_BLOCKER_MIN
+	if dsq <= min * min then
+		return false
+	end
+	local near = AutoDrive.PEER_BLOCKER_NEAR
+	local near_sq = near * near
+	if dsq <= near_sq then
+		return true
+	end
+	if goal and goal.x ~= nil then
+		local gx = (pos.x or 0) - (goal.x or 0)
+		local gy = (pos.y or 0) - (goal.y or 0)
+		if gx * gx + gy * gy <= near_sq then
+			return true
+		end
+	end
+	return false
+end
+
+function AutoDrive.spawn_path_blockers(vehicle, goal)
 	AutoDrive.clear_path_blockers(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return
@@ -621,16 +653,12 @@ function AutoDrive.spawn_path_blockers(vehicle)
 	if not (surface and surface.valid) then
 		return
 	end
-	local origin = vehicle.position
-	local min_sq = AutoDrive.PEER_BLOCKER_MIN * AutoDrive.PEER_BLOCKER_MIN
 	local list = {}
 	AutoDrive.each_peer(vehicle, function(_, other)
-		local pos = other.position
-		local dx = (pos.x or 0) - (origin.x or 0)
-		local dy = (pos.y or 0) - (origin.y or 0)
-		if dx * dx + dy * dy <= min_sq then
+		if not AutoDrive.peer_needs_blocker(vehicle, other, goal) then
 			return
 		end
+		local pos = other.position
 		local ok, ent = pcall(function()
 			return surface.create_entity{
 				name = AutoDrive.PATH_BLOCKER,
@@ -648,48 +676,17 @@ function AutoDrive.spawn_path_blockers(vehicle)
 	end
 end
 
+-- Only reject paths the car cannot follow (destroy-to-reach). A waypoint
+-- that merely passes near another truck is still a valid drive — runtime
+-- brake/peel handles the meeting. Rejecting 4-tile proximity of ANY sibling
+-- on the surface burned home trips that grazed a distant miner.
 function AutoDrive.path_hits_peer(path, vehicle)
-	if not (path and vehicle and vehicle.valid) then
+	if not path then
 		return false
 	end
-	local clear_sq = AutoDrive.PEER_CLEARANCE_TILES * AutoDrive.PEER_CLEARANCE_TILES
-	local start = vehicle.position
-	local ignore = AutoDrive.PEER_PATH_IGNORE_START
-	local ignore_sq = ignore * ignore
-	local hit = false
-	AutoDrive.each_peer(vehicle, function(_, other)
-		if hit then
-			return
-		end
-		local pos = other.position
-		for i = 1, #path do
-			local wp = path[i]
-			if wp and wp.needs_destroy_to_reach then
-				hit = true
-				return
-			end
-			local p = wp and (wp.position or wp)
-			if p and p.x ~= nil then
-				local from_start_x = p.x - (start.x or 0)
-				local from_start_y = p.y - (start.y or 0)
-				if from_start_x * from_start_x + from_start_y * from_start_y <= ignore_sq then
-					-- Already sitting next to this sibling; do not fail the whole path.
-				else
-					local dx = p.x - pos.x
-					local dy = p.y - pos.y
-					if dx * dx + dy * dy <= clear_sq then
-						hit = true
-						return
-					end
-				end
-			end
-		end
-	end)
-	if hit then
-		return true
-	end
 	for i = 1, #path do
-		if path[i] and path[i].needs_destroy_to_reach then
+		local wp = path[i]
+		if wp and wp.needs_destroy_to_reach then
 			return true
 		end
 	end
@@ -876,7 +873,7 @@ function AutoDrive.request(surface, entity, goal, radius, opts)
 	if not mask then
 		return nil
 	end
-	AutoDrive.spawn_path_blockers(entity)
+	AutoDrive.spawn_path_blockers(entity, goal)
 	local _, res = AutoDrive.path_request_plan(entity.position, goal, opts and opts.precise)
 	local box = AutoDrive.collision_box(entity)
 	local ok, id = pcall(function()

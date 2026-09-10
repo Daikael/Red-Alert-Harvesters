@@ -617,7 +617,8 @@ expect(drive_src:find("PEER_SIT_TILES = 8", 1, true) ~= nil, "sitting exclusion 
 expect(drive_src:find("function AutoDrive.has_peer_priority", 1, true) ~= nil, "lowest unit_number peels out of a cluster")
 expect(drive_src:find("PEER_CLEARANCE_TILES = 4", 1, true) ~= nil, "runtime peer clearance is 4 tiles")
 expect(drive_src:find("PEER_RAM_TILES = 3.2", 1, true) ~= nil, "ram bubble is 3.2 tiles")
-expect(drive_src:find("PEER_PATH_IGNORE_START = 6", 1, true) ~= nil, "path_hits_peer ignores start-adjacent siblings")
+expect(drive_src:find("PEER_BLOCKER_NEAR = 32", 1, true) ~= nil, "path blockers are local (32 tiles), not map-wide")
+expect(drive_src:find("function AutoDrive.peer_needs_blocker", 1, true) ~= nil, "peer_needs_blocker decides local traffic only")
 expect(drive_src:find("REVERSE_TICKS = 90", 1, true) ~= nil, "peer reverse wiggle is 90 ticks")
 expect(drive_src:find("REVERSE_CHECK_TILES = 6", 1, true) ~= nil, "rear-clear check is 6 tiles")
 expect(drive_src:find("ALIGN_SPEED = 0.08", 1, true) ~= nil, "in-place align speed threshold is 0.08")
@@ -640,7 +641,7 @@ expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('name = "c
 expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find("extra-low", 1, true) == nil, "path-blocker does not use invalid extra-low sprite priority")
 expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('priority = "very-low"', 1, true) ~= nil, "path-blocker sprite priority is very-low")
 expect(io.open("harvester.lua"):read("*a"):find("peer_blocks_assignment", 1, true) ~= nil, "PickIndexTarget skips peer-occupied chunks")
-expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "paths through a sibling are rejected")
+expect(io.open("harvester.lua"):read("*a"):find("path_hits_peer", 1, true) ~= nil, "OnPathFinished still checks path_hits_peer")
 expect(io.open("harvester.lua"):read("*a"):find("tick_peer_block", 1, true) ~= nil, "Tick reverse-wiggles then repaths instead of freezing on a sibling")
 expect(io.open("harvester.lua"):read("*a"):find("clear_nearby_trees", 1, true) ~= nil, "Tick mines trees that threaten collision")
 expect(io.open("harvester.lua"):read("*a"):find("near_dock", 1, true) ~= nil, "home trip accepts a close-enough dock")
@@ -857,10 +858,17 @@ expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 1, {x = 20, y = 0}) == fa
 storage.cncharvesters[11].going_home = true
 storage.cncharvesters[11].assign_cx = 0
 expect(AutoDrive.peer_blocks_assignment(truck_b, 1, 0, 0, {x = 176, y = 176}) == false, "going-home assignment does not keep the chunk claimed")
-expect(AutoDrive.path_hits_peer({{position = {x = 8, y = 0}}}, truck_a) == true, "path waypoint on a sibling is rejected")
+expect(AutoDrive.path_hits_peer({{position = {x = 8, y = 0}}}, truck_a) == false, "waypoint near a sibling is not a path fail")
 expect(AutoDrive.path_hits_peer({{position = {x = 3, y = 0}}}, truck_a) == false, "waypoints next to the start are not a peer-path fail")
 expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}}}, truck_a) == false, "path far from siblings is accepted")
+expect(AutoDrive.path_hits_peer({{position = {x = 4, y = 0}}}, truck_a) == false, "home path that grazes a distant sibling is accepted")
 expect(AutoDrive.path_hits_peer({{position = {x = 80, y = 80}, needs_destroy_to_reach = true}}, truck_a) == true, "destroy-to-reach paths are rejected")
+expect(AutoDrive.peer_needs_blocker(truck_a, truck_b, {x = 200, y = 0}) == true, "sibling 8 tiles from start is local traffic")
+local far = {valid = true, unit_number = 99, surface = peer_surf, position = {x = 200, y = 40}}
+expect(AutoDrive.peer_needs_blocker(truck_a, far, {x = 180, y = 0}) == false, "sibling far from start and goal is not a blocker")
+expect(AutoDrive.peer_needs_blocker(truck_a, far, {x = 200, y = 36}) == true, "sibling sitting on the dock/goal is a blocker")
+local beside = {valid = true, unit_number = 98, surface = peer_surf, position = {x = 3, y = 0}}
+expect(AutoDrive.peer_needs_blocker(truck_a, beside, {x = 80, y = 0}) == false, "sibling already next to start is not a blocker")
 truck_b.position = {x = 3, y = 0}
 expect(AutoDrive.blocked_by_peer(truck_a) == true, "eastbound truck brakes for a sibling ahead")
 expect(AutoDrive.rear_clear(truck_a) == true, "rear is clear when the sibling is ahead")
