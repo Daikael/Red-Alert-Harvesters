@@ -280,6 +280,24 @@ local function mock_fuel_inv(items, cap)
 		items[stack.name] = have - n
 		return n
 	end
+	inv.get_item_count = function(name)
+		if name == nil then
+			local n = 0
+			for _, c in pairs(items) do
+				n = n + c
+			end
+			return n
+		end
+		return items[name] or 0
+	end
+	inv.is_empty = function()
+		for _, c in pairs(items) do
+			if c and c > 0 then
+				return false
+			end
+		end
+		return true
+	end
 	return inv
 end
 local chest_inv = mock_fuel_inv(chest_items, 1000)
@@ -323,9 +341,53 @@ expect((tank_2slot.coal or 0) == 2, "chest coal landed in the ore truck fuel tan
 expect((trunk_items["iron-ore"] or 0) == 10, "refuel does not insert coal into the cargo trunk")
 expect((depot_chest._items.coal or 0) == 78, "chest keeps coal the 2-slot tank could not take")
 expect(HybridDrive.pad_refuel_complete(0, false, true) == false, "chest coal + 0 moved is not a finished pad visit")
-expect(HybridDrive.pad_refuel_complete(0, true, true) == true, "full tank ends the pad visit even if chest still has coal")
+expect(HybridDrive.pad_refuel_complete(0, true, true, true) == true, "full tank ends the pad visit even if chest still has coal")
+expect(HybridDrive.pad_refuel_complete(0, true, true, false) == false, "empty tank + 0 moved is not done even if can_insert said no")
 expect(HybridDrive.pad_refuel_complete(0, false, false) == true, "empty chest ends the pad visit")
 expect(HybridDrive.pad_refuel_complete(5, false, true) == false, "partial chest fill stays until the tank cannot take more")
+local empty_tank = mock_fuel_inv({}, 2)
+empty_tank.can_insert = function()
+	return false
+end
+expect(HybridDrive.tank_cannot_take_convertible(empty_tank, depot_chest) == false, "empty tank is not treated as unable to take coal")
+local count_only_coal = 12
+local count_src = {
+	valid = true,
+	get_item_count = function(name)
+		return name == "coal" and count_only_coal or 0
+	end,
+	remove = function(stack)
+		local n = math.min(stack.count, count_only_coal)
+		count_only_coal = count_only_coal - n
+		return n
+	end,
+}
+local count_dst_items = {}
+local count_dst = mock_fuel_inv(count_dst_items, 50)
+expect(HybridDrive.transfer_convertible_fuel(count_src, count_dst) == 12, "get_item_count fallback moves chest coal when slots/contents miss")
+expect((count_dst_items.coal or 0) == 12, "item-count coal landed in the tank")
+expect(count_only_coal == 0, "item-count chest was decremented")
+local ent_coal = 20
+local ent_tank_items = {}
+local ent_tank = mock_fuel_inv(ent_tank_items, 50)
+local fuel_ent = {
+	valid = true,
+	get_inventory = function()
+		return nil
+	end,
+	get_item_count = function(name)
+		return name == "coal" and ent_coal or 0
+	end,
+	remove_item = function(stack)
+		local n = math.min(stack.count, ent_coal)
+		ent_coal = ent_coal - n
+		return n
+	end,
+}
+expect(HybridDrive.container_has_convertible(fuel_ent) == true, "entity get_item_count sees chest coal")
+expect(HybridDrive.transfer_from_container(fuel_ent, ent_tank) == 20, "entity remove_item fills the tank when inventories are missed")
+expect((ent_tank_items.coal or 0) == 20, "entity-level coal landed in the tank")
+expect(ent_coal == 0, "entity-level chest coal was removed")
 local slot_stack = {name = "coal", count = 8, valid_for_read = true}
 local slot_chest = {valid = true, [1] = slot_stack}
 local slot_tank_items = {}
@@ -743,6 +805,7 @@ expect(hv_src:find("convert_inventory_fuels(self.vehicle)", 1, true) ~= nil, "Re
 expect(hv_src:find("Must run even when the tank is empty", 1, true) ~= nil, "Tick calls MaybeReturnHome before aborting on empty fuel")
 expect(hv_src:find("HybridDrive.fuel_inventory(vehicle)", 1, true) ~= nil, "harvester reads the burner fuel tank helper")
 expect(hv_src:find("pad_refuel_complete", 1, true) ~= nil, "Refueling uses pad_refuel_complete not 8 MJ alone")
+expect(hv_src:find("transfer_from_container", 1, true) ~= nil, "Refueling pulls from every refinery inventory")
 expect(hv_src:find("container_inventory", 1, true) ~= nil, "Refueling reads the refinery chest via container_inventory")
 expect(hv_src:find("if this visit moved", 1, true) ~= nil, "Refueling comment forbids leaving on 0 moved")
 expect(io.open("hybriddrive.lua"):read("*a"):find("function HybridDrive.fuel_inventory", 1, true) ~= nil, "fuel_inventory prefers burner.inventory")
@@ -752,7 +815,7 @@ local refin_ent = assert(io.open("prototypes/entities/refin_entity.lua"):read("*
 expect(refin_ent:find("circuit_wire_max_distance = default_circuit_wire_max_distance", 1, true) ~= nil, "refinery sets 2.0 circuit wire reach")
 expect(refin_ent:find("circuit_connector_definitions.create_vector", 1, true) ~= nil, "refinery has a 2.0 circuit_connector")
 expect(refin_ent:find("universal_connector_template", 1, true) ~= nil, "refinery uses the vanilla connector template")
-expect(io.open("refinery.lua"):read("*a"):find("HybridDrive.convertible_joules", 1, true) ~= nil, "HasFuel counts convertible burnables")
+expect(io.open("refinery.lua"):read("*a"):find("HybridDrive.container_has_convertible", 1, true) ~= nil, "HasFuel counts convertible burnables")
 expect(io.open("refinery.lua"):read("*a"):find("count = count - proto.stack_size", 1, true) ~= nil, "DropOnBelt still withholds one fuel stack")
 expect(io.open("hybriddrive.lua"):read("*a"):find("function HybridDrive.transfer_convertible_fuel", 1, true) ~= nil, "transfer_convertible_fuel exists")
 local hv_onload = hv_src:match("\n\tOnload = function%(self%)\n(.-)\n\tend,")

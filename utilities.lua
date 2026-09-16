@@ -52,13 +52,32 @@ function EntityPrototype(name)
 end
 
 -- 2.0/2.1 get_contents() returns { {name=, count=, quality=}, ... } instead of a name->count map.
+-- Some inventories still yield the 1.1 name→count map. Handle both so a chest
+-- walk cannot look empty while get_item_count("coal") is nonzero.
 -- Scooping rolls quality in scoop.lua; this helper preserves stack quality on unload.
 function EachInventoryItem(inventory, callback)
-	if not (inventory and inventory.valid) then
+	if not (inventory and inventory.valid and inventory.get_contents) then
 		return
 	end
-	for _, item in pairs(inventory.get_contents()) do
-		callback(item.name, item.count, item.quality)
+	local ok, contents = pcall(function()
+		return inventory.get_contents()
+	end)
+	if not ok or not contents then
+		return
+	end
+	local first = contents[1]
+	if type(first) == "table" and first.name then
+		for _, item in pairs(contents) do
+			if item and item.name then
+				callback(item.name, item.count, item.quality)
+			end
+		end
+		return
+	end
+	for name, count in pairs(contents) do
+		if type(name) == "string" and type(count) == "number" then
+			callback(name, count)
+		end
 	end
 end
 

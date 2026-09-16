@@ -185,17 +185,7 @@ Refinery = {
 
 	-- Convertible burnables HybridDrive will accept (not nuclear / hybrid-charge).
 	HasFuel = function(self)
-		local inv = refinery_inventory(self)
-		if not inv then
-			return false
-		end
-		local found = false
-		EachInventoryItem(inv, function(itemName)
-			if HybridDrive.convertible_joules(itemName) > 0 then
-				found = true
-			end
-		end)
-		return found
+		return HybridDrive.container_has_convertible(self.entity)
 	end,
 
 	IsFull = function(self)

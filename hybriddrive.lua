@@ -11,6 +11,13 @@ HybridDrive.BATTERY_NAME = "Hybrid-drive-battery"
 HybridDrive.CHARGE_ITEM = "cncharvester-hybrid-charge"
 HybridDrive.CHARGE_CATEGORY = "cncharvester-hybrid"
 HybridDrive.KICKOFF_ITEMS = { "coal", "wood" }
+-- get_item_count fallback when slot walk / get_contents miss container rows.
+HybridDrive.COMMON_CHEMICAL_FUELS = {
+	"coal",
+	"wood",
+	"solid-fuel",
+	"rocket-fuel",
+}
 HybridDrive.NUCLEAR_FUELS = {
 	["uranium-fuel-cell"] = true,
 	["nuclear-fuel"] = true,
@@ -228,28 +235,43 @@ local function restore_inventory_bar(inv, bar)
 	end)
 end
 
-local function insert_stack(dest, stack)
-	local ok, inserted = pcall(function()
-		return dest.insert(stack)
-	end)
-	if not ok then
+-- 2.0.77 without Space Age can reject quality="normal". Try a plain
+-- {name,count} SimpleItemStack first; quality is a fallback.
+local function insert_count(dest, name, count, quality)
+	if not (dest and name and count and count > 0) then
 		return 0
 	end
-	if type(inserted) ~= "number" then
-		inserted = inserted and stack.count or 0
-	end
-	if inserted > 0 then
+	local ok, inserted = pcall(function()
+		return dest.insert({name = name, count = count})
+	end)
+	if ok and type(inserted) == "number" and inserted > 0 then
 		return inserted
 	end
-	if stack.quality then
+	if quality then
 		ok, inserted = pcall(function()
-			return dest.insert({name = stack.name, count = stack.count})
+			return dest.insert({name = name, count = count, quality = quality})
 		end)
 		if ok and type(inserted) == "number" and inserted > 0 then
 			return inserted
 		end
 	end
 	return 0
+end
+
+local function insert_stack(dest, stack)
+	if not (dest and stack) then
+		return 0
+	end
+	-- Real LuaItemStack: inventory.insert copies it (quality/spoilage intact).
+	if stack.valid_for_read == true or type(stack) == "userdata" then
+		local ok, inserted = pcall(function()
+			return dest.insert(stack)
+		end)
+		if ok and type(inserted) == "number" and inserted > 0 then
+			return inserted
+		end
+	end
+	return insert_count(dest, stack.name, stack.count, stack.quality)
 end
 
 -- The only legal currently_burning. Always write remaining after assigning
@@ -379,12 +401,62 @@ local function stack_convertible(stack)
 	if stack.valid_for_read == false then
 		return false
 	end
-	local name = stack.name
-	return name ~= nil and HybridDrive.convertible_joules(name) > 0 and (stack.count or 0) > 0
+	local ok, name = pcall(function()
+		return stack.name
+	end)
+	if not ok then
+		name = nil
+	end
+	local ok_c, count = pcall(function()
+		return stack.count
+	end)
+	if not ok_c then
+		count = 0
+	end
+	return name ~= nil and HybridDrive.convertible_joules(name) > 0 and (count or 0) > 0
+end
+
+local function remove_from_source(source, name, count, quality)
+	if not (source and source.remove and name and count and count > 0) then
+		return
+	end
+	local ok, n = pcall(function()
+		return source.remove(InventoryItemStack(name, count, quality))
+	end)
+	local removed = (ok and type(n) == "number") and n or 0
+	if removed >= count then
+		return
+	end
+	pcall(function()
+		source.remove({name = name, count = count - removed})
+	end)
+end
+
+local function decrement_source_stack(source, stack, name, count, quality, inserted)
+	local new_count = count - inserted
+	local wrote = false
+	if new_count <= 0 then
+		wrote = pcall(function()
+			stack.clear()
+		end)
+		if not wrote then
+			wrote = pcall(function()
+				stack.count = 0
+			end)
+		end
+	else
+		wrote = pcall(function()
+			stack.count = new_count
+		end)
+	end
+	if not wrote then
+		remove_from_source(source, name, inserted, quality)
+	end
 end
 
 -- LuaItemStack walk. get_contents() can miss container rows; trunk often
--- still iterates. Slot copy is the reliable chest → tank path.
+-- still iterates. Pass the real stack to dest.insert so quality/spoilage
+-- copy natively; SimpleItemStack is the fallback inside insert_stack.
 local function transfer_by_slots(source, dest)
 	local ok_len, len = pcall(function()
 		return #source
@@ -400,30 +472,16 @@ local function transfer_by_slots(source, dest)
 		if ok_stack and stack_convertible(stack) then
 			local name = stack.name
 			local count = stack.count
-			local quality = stack.quality
-			local inserted = insert_stack(dest, InventoryItemStack(name, count, quality))
+			local quality
+			pcall(function()
+				quality = stack.quality
+			end)
+			local inserted = insert_stack(dest, stack)
+			if inserted < 1 then
+				inserted = insert_count(dest, name, count, quality)
+			end
 			if inserted > 0 then
-				local new_count = count - inserted
-				local wrote = false
-				if new_count <= 0 then
-					wrote = pcall(function()
-						stack.clear()
-					end)
-					if not wrote then
-						wrote = pcall(function()
-							stack.count = 0
-						end)
-					end
-				else
-					wrote = pcall(function()
-						stack.count = new_count
-					end)
-				end
-				if not wrote then
-					pcall(function()
-						source.remove(InventoryItemStack(name, inserted, quality))
-					end)
-				end
+				decrement_source_stack(source, stack, name, count, quality, inserted)
 				moved = moved + inserted
 			end
 		end
@@ -449,12 +507,9 @@ local function transfer_by_contents(source, dest)
 				and HybridDrive.convertible_joules(item.name) > 0
 				and (not filter_prefer or prefer[item.name])
 			if can then
-				local stack = InventoryItemStack(item.name, item.count, item.quality)
-				local inserted = insert_stack(dest, stack)
+				local inserted = insert_count(dest, item.name, item.count, item.quality)
 				if inserted > 0 then
-					pcall(function()
-						source.remove(InventoryItemStack(item.name, inserted, item.quality))
-					end)
+					remove_from_source(source, item.name, inserted, item.quality)
 					item.count = item.count - inserted
 					moved = moved + inserted
 				end
@@ -468,11 +523,77 @@ local function transfer_by_contents(source, dest)
 	return moved
 end
 
+local function add_fuel_name(names, seen, name)
+	if name and not seen[name] and HybridDrive.convertible_joules(name) > 0 then
+		seen[name] = true
+		names[#names + 1] = name
+	end
+end
+
+-- Last-resort: inventory.get_item_count("coal") still sees container coal
+-- when #inv / get_contents / slot userdata miss. Kickoff names always
+-- probed so a chest of only coal still transfers.
+local function transfer_by_item_count(source, dest)
+	if not (source and source.get_item_count) then
+		return 0
+	end
+	local names = {}
+	local seen = {}
+	EachInventoryItem(source, function(name)
+		add_fuel_name(names, seen, name)
+	end)
+	local ok_len, len = pcall(function()
+		return #source
+	end)
+	if ok_len and type(len) == "number" then
+		for i = 1, len do
+			local ok_stack, stack = pcall(function()
+				return source[i]
+			end)
+			if ok_stack and stack then
+				local name
+				pcall(function()
+					name = stack.name
+				end)
+				add_fuel_name(names, seen, name)
+			end
+		end
+	end
+	for _, name in ipairs(HybridDrive.KICKOFF_ITEMS) do
+		add_fuel_name(names, seen, name)
+	end
+	for _, name in ipairs(HybridDrive.COMMON_CHEMICAL_FUELS) do
+		add_fuel_name(names, seen, name)
+	end
+	local moved = 0
+	for _, name in ipairs(names) do
+		local ok, have = pcall(function()
+			return source.get_item_count(name)
+		end)
+		if ok and type(have) == "number" and have > 0 then
+			local inserted = insert_count(dest, name, have)
+			if inserted > 0 then
+				pcall(function()
+					source.remove({name = name, count = inserted})
+				end)
+				moved = moved + inserted
+			end
+		end
+	end
+	return moved
+end
+
 -- Pad visit is done when the tank cannot take more convertible fuel, or
 -- the chest has none left. potential >= 8 MJ alone is NOT success if the
 -- chest still has burnables and this visit moved zero items (solar/grid
 -- can sit above the trip threshold without ever taking chest coal).
-function HybridDrive.pad_refuel_complete(moved, tank_cannot_take, chest_has_fuel)
+-- Empty tank + 0 moved + chest still has fuel is never done: can_insert
+-- can lie the same way is_full() did.
+function HybridDrive.pad_refuel_complete(moved, tank_cannot_take, chest_has_fuel, tank_has_solids)
+	moved = moved or 0
+	if chest_has_fuel and moved < 1 and not tank_has_solids then
+		return false
+	end
 	if tank_cannot_take then
 		return true
 	end
@@ -487,32 +608,53 @@ function HybridDrive.tank_cannot_take_convertible(dest, source)
 		return true
 	end
 	-- can_insert is the truth. is_full() on a 2-slot Ore Truck can lie
-	-- (bar / filter) while coal would still insert.
-	if dest.can_insert and source then
-		local sample = nil
-		EachInventoryItem(source, function(name, count)
-			if sample or not count or count < 1 then
-				return
-			end
-			if HybridDrive.convertible_joules(name) > 0 then
-				sample = name
-			end
+	-- (bar / filter) while coal would still insert. An empty dest is never
+	-- "cannot take" — that is the pad-visit false-success we are closing.
+	if dest.is_empty then
+		local ok_empty, empty = pcall(function()
+			return dest.is_empty()
 		end)
-		if not sample then
-			local ok_len, len = pcall(function()
-				return #source
+		if ok_empty and empty then
+			return false
+		end
+	end
+	local dest_count = 0
+	EachInventoryItem(dest, function(_, count)
+		dest_count = dest_count + (count or 0)
+	end)
+	if dest_count < 1 then
+		return false
+	end
+	if dest.can_insert then
+		local sample = nil
+		if source then
+			EachInventoryItem(source, function(name, count)
+				if sample or not count or count < 1 then
+					return
+				end
+				if HybridDrive.convertible_joules(name) > 0 then
+					sample = name
+				end
 			end)
-			if ok_len and type(len) == "number" then
-				for i = 1, len do
-					local ok_stack, stack = pcall(function()
-						return source[i]
-					end)
-					if ok_stack and stack_convertible(stack) then
-						sample = stack.name
-						break
+			if not sample then
+				local ok_len, len = pcall(function()
+					return #source
+				end)
+				if ok_len and type(len) == "number" then
+					for i = 1, len do
+						local ok_stack, stack = pcall(function()
+							return source[i]
+						end)
+						if ok_stack and stack_convertible(stack) then
+							sample = stack.name
+							break
+						end
 					end
 				end
 			end
+		end
+		if not sample then
+			sample = HybridDrive.KICKOFF_ITEMS[1]
 		end
 		if sample then
 			local ok, can = pcall(function()
@@ -544,7 +686,165 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 	if moved == 0 then
 		moved = transfer_by_contents(source, dest)
 	end
+	if moved == 0 then
+		moved = transfer_by_item_count(source, dest)
+	end
 	restore_inventory_bar(dest, saved_bar)
+	return moved
+end
+
+function HybridDrive.each_container_inventory(entity, cb)
+	if not (entity and entity.valid) or not cb then
+		return
+	end
+	local seen = {}
+	local function consider(inv)
+		if inv and inv.valid and not seen[inv] then
+			seen[inv] = true
+			cb(inv)
+		end
+	end
+	consider(HybridDrive.container_inventory(entity))
+	if entity.get_output_inventory then
+		local ok, inv = pcall(function()
+			return entity.get_output_inventory()
+		end)
+		if ok then
+			consider(inv)
+		end
+	end
+	if entity.get_inventory then
+		local keys = {1, 2, 3, 4}
+		if defines and defines.inventory then
+			keys[#keys + 1] = defines.inventory.chest
+			keys[#keys + 1] = defines.inventory.fuel
+		end
+		for _, key in ipairs(keys) do
+			if key ~= nil then
+				local ok, inv = pcall(function()
+					return entity.get_inventory(key)
+				end)
+				if ok then
+					consider(inv)
+				end
+			end
+		end
+	end
+end
+
+function HybridDrive.inventory_has_convertible(inv)
+	if not (inv and inv.valid) then
+		return false
+	end
+	local found = false
+	EachInventoryItem(inv, function(name, count)
+		if found or not count or count < 1 then
+			return
+		end
+		if HybridDrive.convertible_joules(name) > 0 then
+			found = true
+		end
+	end)
+	if found then
+		return true
+	end
+	local ok_len, len = pcall(function()
+		return #inv
+	end)
+	if ok_len and type(len) == "number" then
+		for i = 1, len do
+			local ok_stack, stack = pcall(function()
+				return inv[i]
+			end)
+			if ok_stack and stack_convertible(stack) then
+				return true
+			end
+		end
+	end
+	if inv.get_item_count then
+		for _, name in ipairs(HybridDrive.KICKOFF_ITEMS) do
+			local ok, n = pcall(function()
+				return inv.get_item_count(name)
+			end)
+			if ok and type(n) == "number" and n > 0 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function HybridDrive.container_has_convertible(entity)
+	if not (entity and entity.valid) then
+		return false
+	end
+	local found = false
+	HybridDrive.each_container_inventory(entity, function(inv)
+		if not found and HybridDrive.inventory_has_convertible(inv) then
+			found = true
+		end
+	end)
+	if found then
+		return true
+	end
+	if entity.get_item_count then
+		for _, name in ipairs(HybridDrive.KICKOFF_ITEMS) do
+			local ok, n = pcall(function()
+				return entity.get_item_count(name)
+			end)
+			if ok and type(n) == "number" and n > 0 and HybridDrive.convertible_joules(name) > 0 then
+				return true
+			end
+		end
+		for _, name in ipairs(HybridDrive.COMMON_CHEMICAL_FUELS) do
+			local ok, n = pcall(function()
+				return entity.get_item_count(name)
+			end)
+			if ok and type(n) == "number" and n > 0 and HybridDrive.convertible_joules(name) > 0 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Pull every convertible stack on the refinery entity into dest. Walks all
+-- container inventories, then entity.get_item_count / remove_item so a
+-- missed defines.inventory.chest cannot leave coal sitting in the building.
+function HybridDrive.transfer_from_container(entity, dest)
+	if not (entity and entity.valid and dest and dest.valid) then
+		return 0
+	end
+	local moved = 0
+	HybridDrive.each_container_inventory(entity, function(inv)
+		moved = moved + HybridDrive.transfer_convertible_fuel(inv, dest)
+	end)
+	if moved == 0 and entity.get_item_count and entity.remove_item then
+		local saved_bar = unlock_inventory_bar(dest)
+		local names = {}
+		local seen = {}
+		for _, name in ipairs(HybridDrive.KICKOFF_ITEMS) do
+			add_fuel_name(names, seen, name)
+		end
+		for _, name in ipairs(HybridDrive.COMMON_CHEMICAL_FUELS) do
+			add_fuel_name(names, seen, name)
+		end
+		for _, name in ipairs(names) do
+			local ok, have = pcall(function()
+				return entity.get_item_count(name)
+			end)
+			if ok and type(have) == "number" and have > 0 then
+				local inserted = insert_count(dest, name, have)
+				if inserted > 0 then
+					pcall(function()
+						entity.remove_item({name = name, count = inserted})
+					end)
+					moved = moved + inserted
+				end
+			end
+		end
+		restore_inventory_bar(dest, saved_bar)
+	end
 	return moved
 end
 

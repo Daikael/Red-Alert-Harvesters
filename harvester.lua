@@ -1314,8 +1314,8 @@ cncharvester = {
 				self.state = States.FindingRefuelRefinery
 				return
 			end
-			local chest = HybridDrive.container_inventory(targetRefinery.entity)
-			if not (chest and chest.valid) then
+			local dest = vehicle_fuel_inventory(self.vehicle)
+			if not (dest and dest.valid) then
 				self.state = States.FindingRefuelRefinery
 				return
 			end
@@ -1323,13 +1323,21 @@ cncharvester = {
 			-- until the tank cannot take more or the chest has no convertible
 			-- left. Do not leave on potential >= 8 MJ if this visit moved
 			-- nothing — solar/grid can sit above the trip threshold while the
-			-- chest still has coal.
-			local moved = self:RefuelFromInventory(chest)
+			-- chest still has coal. Walk every container inventory, then
+			-- entity.get_item_count, so a missed chest define cannot skip coal.
+			HybridDrive.strip_banned_fuel(self.vehicle)
+			local moved = HybridDrive.transfer_from_container(targetRefinery.entity, dest)
+			if moved < 1 then
+				local chest = HybridDrive.container_inventory(targetRefinery.entity)
+				moved = self:RefuelFromInventory(chest)
+			end
 			HybridDrive.convert_inventory_fuels(self.vehicle)
-			local dest = vehicle_fuel_inventory(self.vehicle)
+			dest = vehicle_fuel_inventory(self.vehicle)
 			local chest_has = targetRefinery:HasFuel()
+			local tank_has = HybridDrive.tank_convertible_joules(self.vehicle) > 0
+			local chest = HybridDrive.container_inventory(targetRefinery.entity)
 			local tank_cannot = HybridDrive.tank_cannot_take_convertible(dest, chest)
-			if not HybridDrive.pad_refuel_complete(moved, tank_cannot, chest_has) then
+			if not HybridDrive.pad_refuel_complete(moved, tank_cannot, chest_has, tank_has) then
 				if moved < 1 then
 					self.refuel_fail_n = (self.refuel_fail_n or 0) + 1
 					if self.refuel_fail_n > 60 then
