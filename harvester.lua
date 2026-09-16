@@ -1391,3 +1391,5 @@ cncharvester = {
 		end,
 	}
 }
+
+cncharvester.States = States

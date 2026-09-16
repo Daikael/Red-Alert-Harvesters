@@ -640,6 +640,7 @@ expect(loc:find("no%-empty%-refinery=Cannot find unoccupied empty refinery", 1) 
 expect(loc:find("Hybrid-drive=", 1, true) == nil, "locale has no Hybrid-drive item name")
 expect(loc:find("Tiberium-Harvesting=Tiberium Harvesting", 1, true) ~= nil, "Tiberium Harvesting tech is localized")
 expect(loc:find("no%-fuel%-refinery=Cannot find refinery with fuel", 1) ~= nil, "no-fuel-refinery is localized")
+expect(loc:find("save%-migrated=", 1) ~= nil, "old-save migration notice is localized")
 expect(loc:find("Fuel inserted in the tank charges this electrical capacity", 1, true) ~= nil, "fuel→electrical capacity string is localized")
 
 local toast_files = { "control.lua", "harvester.lua" }
@@ -835,7 +836,10 @@ expect(on_load_fn:find("ensure_storage", 1, true) == nil, "On_Load does not call
 expect(on_load_fn:find("AfterLoad", 1, true) == nil, "On_Load does not call AfterLoad")
 expect(on_load_fn:find("storage%.[%w_]+%s*=", 1) == nil, "On_Load does not assign storage fields")
 expect(on_load_fn:find("auto_enabled", 1, true) == nil, "On_Load does not write auto_enabled")
-expect(ctl_src:find("script.on_load(On_Load)", 1, true) ~= nil, "on_load hooks On_Load")
+expect(on_load_fn:find("RahMigrate", 1, true) == nil, "On_Load does not run RahMigrate")
+expect(ctl_src:find('require "migrate"', 1, true) ~= nil, "control requires migrate")
+expect(ctl_src:find("RahMigrate.apply()", 1, true) ~= nil, "config/load tick applies rah_migration")
+expect(ctl_src:find("RahMigrate.stamp(storage)", 1, true) ~= nil, "new games stamp rah_migration without the old-save print")
 expect(ctl_src:find("migrate_after_load()", 1, true) ~= nil, "first tick migrates stale path ids")
 expect(hv_src:find("Pause-on-enter: player has the seat", 1, true) ~= nil, "Tick yields riding only for pause-on-enter")
 expect(hv_src:find("FindingOre / path / riding_state every tick, even occupied", 1, true) ~= nil, "auto_on keeps AI while occupied")
@@ -1180,6 +1184,83 @@ expect(storage.autodrive_purge == true, "begin_load_recovery starts a purge")
 expect(storage.cncharvesters[1].reservedRefinery == false, "load recovery drops stale pad claims")
 expect(storage.refineries[9].reserved == false, "load recovery clears pad reserved")
 expect(storage.refineries[9].reserved_by == nil, "load recovery clears reserved_by")
+dofile("migrate.lua")
+expect(RahMigrate.REV == 1, "save recovery rev is 1")
+expect(RahMigrate.needs_run({}) == true, "missing rah_migration needs a run")
+expect(RahMigrate.needs_run({rah_migration = {rev = 1}}) == false, "current rev does not re-run")
+expect(RahMigrate.needs_run({rah_migration = {rev = 0}}) == true, "older rev needs a run")
+local ghost = {
+	cncharvesters = {
+		[1] = {
+			vehicle = {valid = true, unit_number = 1},
+			state = RahMigrate.STATE.Refueling,
+			refueling = true,
+			refuel_fail_n = 90,
+			reservedRefinery = true,
+			targetRefinery = 55,
+			path_id = 321,
+			path = {{x = 1, y = 1}},
+			path_blockers = {1},
+			going_home = true,
+			home_early = true,
+			busy_until = 999999,
+			arrival_state = 9,
+			auto_enabled = false,
+			pause_on_enter = true,
+			filled = false,
+		},
+		[2] = {
+			vehicle = {valid = true, unit_number = 2},
+			state = RahMigrate.STATE.FindingOre,
+			refueling = false,
+			auto_enabled = true,
+			pause_on_enter = false,
+			filled = false,
+			reservedRefinery = true,
+			targetRefinery = 55,
+		},
+		[8] = {
+			vehicle = {valid = false},
+			state = RahMigrate.STATE.FindingRefuelRefinery,
+			auto_enabled = true,
+		},
+	},
+	refineries = {
+		[55] = {
+			entity = {valid = true, unit_number = 55},
+			reserved = true,
+			reserved_by = 1,
+		},
+		[99] = {
+			entity = {valid = false, unit_number = 99},
+			reserved = true,
+			reserved_by = 8,
+		},
+	},
+}
+expect(RahMigrate.clean_storage(ghost, {tank_empty = {[2] = true}}) == true, "ghost storage is cleaned once")
+expect(ghost.cncharvesters[8] == nil, "dead harvester unit-number is dropped")
+expect(ghost.refineries[99] == nil, "dead refinery unit-number is dropped")
+expect(ghost.cncharvesters[1].auto_enabled == false, "migration does not rewrite auto_enabled")
+expect(ghost.cncharvesters[1].pause_on_enter == true, "migration does not rewrite pause-on-enter")
+expect(ghost.cncharvesters[1].refueling == false, "mid-refuel flag is cleared")
+expect(ghost.cncharvesters[1].refuel_fail_n == 0, "refuel fail counter is cleared")
+expect(ghost.cncharvesters[1].reservedRefinery == false, "orphan pad claim is cleared")
+expect(ghost.cncharvesters[1].targetRefinery == false, "stale targetRefinery is cleared")
+expect(ghost.cncharvesters[1].path_id == nil, "in-flight path id is cleared")
+expect(ghost.cncharvesters[1].path == nil, "stale path waypoints are cleared")
+expect(ghost.cncharvesters[1].going_home == false, "going_home is cleared")
+expect(ghost.cncharvesters[1].busy_until == 0, "stuck busy_until is cleared")
+expect(ghost.cncharvesters[1].state == RahMigrate.STATE.FindingOre, "auto-off truck is not left in Refueling")
+expect(ghost.refineries[55].reserved == false, "refinery reserve is cleared")
+expect(ghost.refineries[55].reserved_by == nil, "refinery reserved_by is cleared")
+expect(ghost.cncharvesters[2].state == RahMigrate.STATE.FindingRefuelRefinery, "empty-tank ghost is sent back to the pad")
+expect(ghost.rah_migration.rev == RahMigrate.REV, "rah_migration rev is stamped")
+expect(RahMigrate.clean_storage(ghost, {tank_empty = {[2] = true}}) == false, "second pass is a no-op")
+expect(ghost.cncharvesters[2].state == RahMigrate.STATE.FindingRefuelRefinery, "no-op pass does not re-stamp state")
+expect(io.open("harvester.lua"):read("*a"):find("FindingRefuelRefinery = 7", 1, true) ~= nil, "migrate STATE.FindingRefuelRefinery matches harvester.lua")
+expect(io.open("harvester.lua"):read("*a"):find("Refueling = 9", 1, true) ~= nil, "migrate STATE.Refueling matches harvester.lua")
+expect(io.open("harvester.lua"):read("*a"):find("cncharvester.States = States", 1, true) ~= nil, "harvester exports States")
 game = nil
 storage = nil
 expect(io.open("locale/en/all.cfg"):read("*a"):find("auto-stuck-miner=", 1, true) ~= nil, "stuck miner locale exists")

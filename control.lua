@@ -6,6 +6,7 @@ require "modulebay"
 require "scoop"
 require "hybriddrive"
 require "harvester"
+require "migrate"
 require "specialOres"
 
 -- Console cannot see ChunkIndex (mod sandbox). Use remote.call from /c:
@@ -144,6 +145,10 @@ script.on_init(function()
 	attach_existing_harvesters()
 	ChunkIndex.seed_existing()
 	ChunkIndex.overlay_sync_shortcuts()
+	-- New games are already current; skip the old-save recovery print.
+	if RahMigrate and RahMigrate.stamp then
+		RahMigrate.stamp(storage)
+	end
 end)
 
 script.on_configuration_changed(function()
@@ -151,6 +156,9 @@ script.on_configuration_changed(function()
 	ModuleBay.attach_existing()
 	ChunkIndex.seed_existing()
 	-- legacy teleport AI disabled; physical AutoDrive runs below when the flag is on.
+	if RahMigrate and RahMigrate.apply then
+		RahMigrate.apply()
+	end
 	if storage.cncharvesters then
 		AutoDrive.begin_load_recovery()
 		for _, harvester in pairs(storage.cncharvesters) do
@@ -184,8 +192,13 @@ local function migrate_after_load()
 		return
 	end
 	after_load_migrate = false
-	AutoDrive.begin_load_recovery()
 	ensure_storage()
+	-- Same-version zip overwrite may not fire on_configuration_changed.
+	-- First tick after on_load still recovers ghost pad/refuel state.
+	if RahMigrate and RahMigrate.apply then
+		RahMigrate.apply()
+	end
+	AutoDrive.begin_load_recovery()
 	if storage.cncharvesters then
 		for _, harvester in pairs(storage.cncharvesters) do
 			harvester:AfterLoad()
