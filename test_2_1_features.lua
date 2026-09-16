@@ -791,6 +791,17 @@ expect(panel_src:find('SetAutoEnabled(want, "player_checkbox")', 1, true) ~= nil
 expect(panel_src:find("Never write storage from", 1, true) ~= nil, "checked-state events do not write auto by default")
 expect(panel_src:find("last_sync_tick", 1, true) ~= nil, "checkbox writes ignore the sync tick")
 expect(panel_src:find("SYNC_GRACE_TICKS", 1, true) ~= nil, "checkbox writes ignore a few ticks after sync")
+expect(panel_src:find('names = {"cncharvester", "cncharvester-type2"}', 1, true) == nil, "auto panel does not share a names-array car_gui anchor")
+expect(panel_src:find("function AutoPanel.anchor_for", 1, true) ~= nil, "anchor_for builds a per-prototype GuiAnchor")
+expect(panel_src:find("relative_gui_position.top", 1, true) ~= nil, "narrow displays pin the panel on top of the car GUI")
+expect(panel_src:find("cncharvester-auto-panel-screen", 1, true) ~= nil, "Deck fallback uses a screen-left Harvester AI frame")
+expect(panel_src:find("function AutoPanel.on_player_tick", 1, true) ~= nil, "opened ore truck GUI is ensured while inventory is open")
+expect(panel_src:find('name = vehicle_name', 1, true) ~= nil, "GuiAnchor uses singular prototype name")
+expect(ctl_src:find("attach_existing_harvesters", 1, true) ~= nil, "existing ore trucks are scanned into storage.cncharvesters")
+expect(ctl_src:find("name = veh_ok and veh.name", 1, true) ~= nil, "harvester_ai reports prototype name")
+expect(ctl_src:find("AutoPanel.on_player_tick", 1, true) ~= nil, "nth-tick ensures the auto panel for an opened truck")
+expect(ctl_src:find('["cncharvester"] = true', 1, true) ~= nil, "ore truck is in HARVESTER_NAMES")
+expect(ctl_src:find("player.opened", 1, true) ~= nil, "on_gui_opened falls back to player.opened")
 expect(io.open("control.lua"):read("*a"):find("auto_on = auto_on", 1, true) ~= nil, "harvester_ai reports auto_on")
 expect(io.open("control.lua"):read("*a"):find("seat_locked = auto_on and h.pause_on_enter ~= true", 1, true) ~= nil, "harvester_ai reports seat_locked")
 expect(io.open("control.lua"):read("*a"):find("path_id = h.path_id", 1, true) ~= nil, "harvester_ai reports path_id")
@@ -1458,6 +1469,39 @@ expect(index_src:find("overlay_orange", 1, true) ~= nil, "overlay one-shot rebui
 expect(index_src:find("st.scan = nil", 1, true) ~= nil, "idle tick clears the scan blink")
 expect(index_src:find("function ChunkIndex.overlay_clear", 1, true) ~= nil, "overlay off destroys render objects")
 expect(io.open("locale/en/all.cfg"):read("*a"):find("chunkindex-overlay-on=", 1, true) ~= nil, "overlay on locale exists")
+
+defines.relative_gui_type = {car_gui = "car_gui"}
+defines.relative_gui_position = {left = "left", top = "top"}
+dofile("autopanel.lua")
+local ore_anchor = AutoPanel.anchor_for("cncharvester", "left")
+expect(ore_anchor.name == "cncharvester", "ore truck GuiAnchor uses singular name cncharvester")
+expect(ore_anchor.names == nil, "ore truck GuiAnchor does not set names array")
+expect(ore_anchor.type == nil, "ore truck GuiAnchor does not set type=car")
+expect(ore_anchor.gui == "car_gui", "ore truck GuiAnchor is car_gui")
+local tib_anchor = AutoPanel.anchor_for("cncharvester-type2", "top")
+expect(tib_anchor.name == "cncharvester-type2", "type2 GuiAnchor uses singular name cncharvester-type2")
+expect(AutoPanel.harvester_names()["cncharvester"] == true, "ore truck is a panel harvester")
+expect(AutoPanel.harvester_names()["cncharvester-type2"] == true, "type2 is a panel harvester")
+expect(AutoPanel.narrow_display({
+	valid = true,
+	display_resolution = {width = 1280, height = 800},
+	display_scale = 1,
+}) == true, "Deck 1280x800 is a narrow display")
+expect(AutoPanel.narrow_display({
+	valid = true,
+	display_resolution = {width = 1920, height = 1080},
+	display_scale = 1,
+}) == false, "1080p is not a narrow display")
+expect(AutoPanel.panel_position({
+	valid = true,
+	display_resolution = {width = 1280, height = 800},
+	display_scale = 1,
+}) == "top", "Deck panel position is top")
+expect(AutoPanel.panel_position({
+	valid = true,
+	display_resolution = {width = 1920, height = 1080},
+	display_scale = 1,
+}) == "left", "wide panel position is left")
 
 if fails > 0 then
 	print(fails .. " failed")

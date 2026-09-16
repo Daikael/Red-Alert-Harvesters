@@ -45,6 +45,7 @@ remote.add_interface("Red-Alert-Harvester", {
 			local auto_on = h.auto_enabled ~= false
 			out[#out + 1] = {
 				id = id,
+				name = veh_ok and veh.name or nil,
 				state = h.state,
 				auto_enabled = h.auto_enabled,
 				auto_on = auto_on,
@@ -96,7 +97,7 @@ local function ensure_storage()
 	HybridDrive.ensure_storage()
 end
 
-local function track_harvester(ent)
+local function track_harvester(ent, opts)
 	if not (ent and ent.valid and HARVESTER_NAMES[ent.name]) then
 		return
 	end
@@ -104,14 +105,43 @@ local function track_harvester(ent)
 	HybridDrive.prepare_vehicle(ent)
 	ChunkIndex.watch_harvester(ent)
 	if auto_harvester_enabled and not storage.cncharvesters[ent.unit_number] then
-		storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
+		local h = cncharvester.New(ent)
+		storage.cncharvesters[ent.unit_number] = h
+		-- Load/config scans can New() many parked Ore Trucks at once.
+		-- Stagger StartDrive the same way AfterLoad does (pad-storm CTD).
+		if opts and opts.after_load and h.AfterLoad then
+			h:AfterLoad()
+		end
 	end
 end
 AutoPanel.track_vehicle = track_harvester
 
+-- Ore Truck and type-2. Do not filter type2-only. Parked unmanned trucks
+-- are not sitting in player.vehicle, so Tick never saw them until this scan.
+local function attach_existing_harvesters(opts)
+	if not auto_harvester_enabled then
+		return
+	end
+	if not game then
+		return
+	end
+	ensure_storage()
+	for _, surface in pairs(game.surfaces) do
+		for _, ent in pairs(surface.find_entities_filtered{name = {"cncharvester", "cncharvester-type2"}}) do
+			track_harvester(ent, opts)
+		end
+		for _, ent in pairs(surface.find_entities_filtered{name = "refinery"}) do
+			if not storage.refineries[ent.unit_number] then
+				storage.refineries[ent.unit_number] = Refinery.New(ent)
+			end
+		end
+	end
+end
+
 script.on_init(function()
 	ensure_storage()
 	ModuleBay.attach_existing()
+	attach_existing_harvesters()
 	ChunkIndex.seed_existing()
 	ChunkIndex.overlay_sync_shortcuts()
 end)
@@ -127,21 +157,7 @@ script.on_configuration_changed(function()
 			harvester:AfterLoad()
 		end
 	end
-	if not auto_harvester_enabled then
-		return
-	end
-	for _, surface in pairs(game.surfaces) do
-		for _, ent in pairs(surface.find_entities_filtered{name = {"cncharvester", "cncharvester-type2"}}) do
-			if not storage.cncharvesters[ent.unit_number] then
-				storage.cncharvesters[ent.unit_number] = cncharvester.New(ent)
-			end
-		end
-		for _, ent in pairs(surface.find_entities_filtered{name = "refinery"}) do
-			if not storage.refineries[ent.unit_number] then
-				storage.refineries[ent.unit_number] = Refinery.New(ent)
-			end
-		end
-	end
+	attach_existing_harvesters({after_load = true})
 end)
 
 -- Factorio: on_load must not mutate `storage` (CRC before/after). Stale
@@ -169,12 +185,15 @@ local function migrate_after_load()
 	end
 	after_load_migrate = false
 	AutoDrive.begin_load_recovery()
-	if not storage.cncharvesters then
-		return
+	ensure_storage()
+	if storage.cncharvesters then
+		for _, harvester in pairs(storage.cncharvesters) do
+			harvester:AfterLoad()
+		end
 	end
-	for _, harvester in pairs(storage.cncharvesters) do
-		harvester:AfterLoad()
-	end
+	-- Untracked Ore Trucks (placed while testing was off, or never opened)
+	-- must enter storage.cncharvesters or Tick never runs FindingOre/refuel.
+	attach_existing_harvesters({after_load = true})
 end
 
 local function On_Built(event)
@@ -325,9 +344,15 @@ end)
 
 script.on_event(defines.events.on_gui_opened, function(event)
 	local player = game.get_player(event.player_index)
-	local ent = event.entity
-	if not (player and ent and ent.valid) then
+	if not player then
 		return
+	end
+	local ent = event.entity
+	if not (ent and ent.valid) then
+		ent = player.opened
+		if not (ent and ent.valid and ent.object_name == "LuaEntity") then
+			return
+		end
 	end
 	if ModuleBay.NAMES[ent.name] then
 		ModuleBay.ensure_draw_gui(player, ent)
@@ -340,8 +365,14 @@ end)
 
 script.on_event(defines.events.on_gui_closed, function(event)
 	local player = game.get_player(event.player_index)
+	if not player then
+		return
+	end
+	if AutoPanel.hide_transient then
+		AutoPanel.hide_transient(player)
+	end
 	local ent = event.entity
-	if not (player and ent and ent.valid) then
+	if not (ent and ent.valid) then
 		return
 	end
 	if ModuleBay.NAMES[ent.name] then
@@ -428,6 +459,9 @@ script.on_nth_tick(1, function()
 		local vehicle = player.vehicle
 		if vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name] then
 			track_harvester(vehicle)
+		end
+		if AutoPanel.on_player_tick then
+			AutoPanel.on_player_tick(player)
 		end
 	end
 

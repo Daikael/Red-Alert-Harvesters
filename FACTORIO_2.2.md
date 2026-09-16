@@ -161,7 +161,7 @@ Pathfinder busy (`try_again_later`) retries after `BUSY_RETRY_TICKS = 30` and do
 
 #### Per-vehicle inventory toggles
 
-Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defines.relative_gui_type.car_gui`). Not a global startup setting. Hidden when **Automatic harvester testing** is off.
+Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defines.relative_gui_type.car_gui`). **One relative frame per prototype** using singular `GuiAnchor.name` (`cncharvester` and `cncharvester-type2` separately). Do **not** share `type="car"` + `names={cncharvester,cncharvester-type2}` — Factorio 2.0.77 does not show that frame on the Ore Truck. On narrow displays (Steam Deck 1280×800) the panel is `relative_gui_position.top` plus a screen-left copy so it is not off the left edge. Not a global startup setting. Hidden when **Automatic harvester testing** is off. Existing Ore Trucks are scanned into `storage.cncharvesters` on init / configuration / first tick after load so unmanned AI runs without sitting in the cab.
 
 | Toggle | Default | Persist |
 | --- | --- | --- |

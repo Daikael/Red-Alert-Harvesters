@@ -5,10 +5,18 @@
 -- destroying, or entering a car fires state=false on those checkboxes
 -- while the inventory is still "open", which used to SetAutoEnabled(false).
 -- Real toggles apply only from on_gui_click while the car GUI is open.
+--
+-- Factorio 2.0.77: a single relative frame with type="car" plus
+-- names={cncharvester, cncharvester-type2} does not show on the Ore Truck
+-- (cncharvester). type2 can still look fine. Each prototype gets its own
+-- frame with a singular `name` and no `type` filter. Narrow displays
+-- (Steam Deck 1280×800) put the panel on top of the car GUI — left of a
+-- small car inventory is off the left edge.
 
 AutoPanel = AutoPanel or {}
 
 local FRAME = "cncharvester-auto-panel"
+local FRAME_SCREEN = "cncharvester-auto-panel-screen"
 local AUTO_CB = "cncharvester-auto-enabled"
 local PAUSE_CB = "cncharvester-pause-on-enter"
 
@@ -17,12 +25,19 @@ local HARVESTER_NAMES = {
 	["cncharvester-type2"] = true,
 }
 
+local HARVESTER_NAME_LIST = {
+	"cncharvester",
+	"cncharvester-type2",
+}
+
 -- Nested while creating/syncing/destroying so those .state writes are not
 -- treated as a player click.
 local ignore_checked = 0
 local last_sync_tick = {}
 local pending_click = {}
 local SYNC_GRACE_TICKS = 2
+-- Below this effective width, left-of-car-gui is often off-screen.
+local NARROW_WIDTH = 1366
 
 local function testing_on()
 	return ChunkIndex and ChunkIndex.enabled and ChunkIndex.enabled()
@@ -62,70 +77,269 @@ local function in_sync_grace(player_index)
 	return synced ~= nil and game.tick <= synced + SYNC_GRACE_TICKS
 end
 
+local function relative_frame_id(proto_name)
+	return FRAME .. "-" .. proto_name
+end
+
+function AutoPanel.harvester_names()
+	return HARVESTER_NAMES
+end
+
+function AutoPanel.narrow_display(player)
+	if not (player and player.valid and player.display_resolution) then
+		return false
+	end
+	local w = player.display_resolution.width or 0
+	local scale = player.display_scale or 1
+	if scale < 0.1 then
+		scale = 1
+	end
+	return (w / scale) <= NARROW_WIDTH
+end
+
+function AutoPanel.panel_position(player)
+	if AutoPanel.narrow_display(player) then
+		return defines.relative_gui_position.top
+	end
+	return defines.relative_gui_position.left
+end
+
+-- Singular prototype name, no type="car", no names-array. 2.0.77 failed to
+-- show the Ore Truck panel with type+names={ore,type2} on one frame.
+function AutoPanel.anchor_for(vehicle_name, position)
+	return {
+		gui = defines.relative_gui_type.car_gui,
+		position = position,
+		name = vehicle_name,
+	}
+end
+
+local function add_checkboxes(frame)
+	frame.add{
+		type = "checkbox",
+		name = AUTO_CB,
+		caption = {"cncharvester-gui.auto-operation"},
+		tooltip = {"cncharvester-gui.auto-operation-tooltip"},
+		state = true,
+	}
+	frame.add{
+		type = "checkbox",
+		name = PAUSE_CB,
+		caption = {"cncharvester-gui.pause-on-enter"},
+		tooltip = {"cncharvester-gui.pause-on-enter-tooltip"},
+		state = false,
+	}
+end
+
+local function destroy_named(parent, name)
+	if not (parent and name) then
+		return
+	end
+	local el = parent[name]
+	if el and el.valid then
+		el.destroy()
+	end
+end
+
 function AutoPanel.destroy(player)
-	if not (player and player.valid and player.gui and player.gui.relative) then
+	if not (player and player.valid and player.gui) then
 		return
 	end
 	with_ignore(function()
-		local frame = player.gui.relative[FRAME]
-		if frame and frame.valid then
-			frame.destroy()
+		local rel = player.gui.relative
+		if rel then
+			destroy_named(rel, FRAME)
+			for _, proto in ipairs(HARVESTER_NAME_LIST) do
+				destroy_named(rel, relative_frame_id(proto))
+			end
+		end
+		if player.gui.screen then
+			destroy_named(player.gui.screen, FRAME_SCREEN)
 		end
 	end)
+end
+
+function AutoPanel.hide_transient(player)
+	if not (player and player.valid and player.gui and player.gui.screen) then
+		return
+	end
+	with_ignore(function()
+		destroy_named(player.gui.screen, FRAME_SCREEN)
+	end)
+end
+
+local function each_panel_frame(player, vehicle, fn)
+	if not (player and player.valid and player.gui) then
+		return
+	end
+	local screen = player.gui.screen
+	if screen then
+		local sf = screen[FRAME_SCREEN]
+		if sf and sf.valid then
+			fn(sf)
+		end
+	end
+	local rel = player.gui.relative
+	if not rel then
+		return
+	end
+	if vehicle and vehicle.valid then
+		local named = rel[relative_frame_id(vehicle.name)]
+		if named and named.valid then
+			fn(named)
+		end
+	end
+	local legacy = rel[FRAME]
+	if legacy and legacy.valid then
+		fn(legacy)
+	end
+end
+
+local function relative_anchor_ok(frame, vehicle_name, position)
+	if not (frame and frame.valid) then
+		return false
+	end
+	local anchor = frame.anchor
+	if not anchor then
+		return false
+	end
+	if anchor.position ~= position then
+		return false
+	end
+	-- Reading always populates `names`. Require a single exact prototype.
+	local names = anchor.names
+	local n = anchor.name
+	if n == vehicle_name and (not names or #names <= 1) then
+		return true
+	end
+	if names and #names == 1 and names[1] == vehicle_name then
+		return true
+	end
+	return false
 end
 
 function AutoPanel.sync(player, vehicle)
-	if not (player and player.valid and player.gui and player.gui.relative) then
-		return
-	end
-	local frame = player.gui.relative[FRAME]
-	if not (frame and frame.valid) then
+	if not (player and player.valid and player.gui) then
 		return
 	end
 	local h = vehicle and storage.cncharvesters and storage.cncharvesters[vehicle.unit_number]
-	local auto_cb = frame[AUTO_CB]
-	local pause_cb = frame[PAUSE_CB]
 	local flag = testing_on()
 	mark_sync(player)
-	with_ignore(function()
-		if vehicle and vehicle.valid then
-			frame.tags = {unit_number = vehicle.unit_number}
+	each_panel_frame(player, vehicle, function(frame)
+		if not (frame and frame.valid) then
+			return
 		end
-		if auto_cb and auto_cb.valid then
+		local auto_cb = frame[AUTO_CB]
+		local pause_cb = frame[PAUSE_CB]
+		with_ignore(function()
 			if vehicle and vehicle.valid then
-				auto_cb.tags = {unit_number = vehicle.unit_number}
+				frame.tags = {unit_number = vehicle.unit_number}
 			end
-			local want_auto = h ~= nil and h.auto_enabled ~= false
-			if auto_cb.state ~= want_auto then
-				auto_cb.state = want_auto
+			if auto_cb and auto_cb.valid then
+				if vehicle and vehicle.valid then
+					auto_cb.tags = {unit_number = vehicle.unit_number}
+				end
+				local want_auto = h ~= nil and h.auto_enabled ~= false
+				if auto_cb.state ~= want_auto then
+					auto_cb.state = want_auto
+				end
+				auto_cb.enabled = flag and h ~= nil
+				if not flag then
+					auto_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
+				else
+					auto_cb.tooltip = {"cncharvester-gui.auto-operation-tooltip"}
+				end
 			end
-			auto_cb.enabled = flag and h ~= nil
-			if not flag then
-				auto_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
-			else
-				auto_cb.tooltip = {"cncharvester-gui.auto-operation-tooltip"}
+			if pause_cb and pause_cb.valid then
+				if vehicle and vehicle.valid then
+					pause_cb.tags = {unit_number = vehicle.unit_number}
+				end
+				local want_pause = h ~= nil and h.pause_on_enter == true
+				if pause_cb.state ~= want_pause then
+					pause_cb.state = want_pause
+				end
+				pause_cb.enabled = flag and h ~= nil
+				if not flag then
+					pause_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
+				else
+					pause_cb.tooltip = {"cncharvester-gui.pause-on-enter-tooltip"}
+				end
 			end
-		end
-		if pause_cb and pause_cb.valid then
-			if vehicle and vehicle.valid then
-				pause_cb.tags = {unit_number = vehicle.unit_number}
-			end
-			local want_pause = h ~= nil and h.pause_on_enter == true
-			if pause_cb.state ~= want_pause then
-				pause_cb.state = want_pause
-			end
-			pause_cb.enabled = flag and h ~= nil
-			if not flag then
-				pause_cb.tooltip = {"cncharvester-gui.needs-testing-flag"}
-			else
-				pause_cb.tooltip = {"cncharvester-gui.pause-on-enter-tooltip"}
-			end
-		end
+		end)
 	end)
 end
 
+local function ensure_relative(player, vehicle, position)
+	local rel = player.gui.relative
+	if not rel then
+		return
+	end
+	-- Drop the 2.0.77 type+names-array frame that hid the Ore Truck panel.
+	destroy_named(rel, FRAME)
+	-- One frame per prototype (singular `name`). Factorio shows only the
+	-- frame whose name matches the opened car — type2 must not steal ore.
+	for _, proto in ipairs(HARVESTER_NAME_LIST) do
+		local fid = relative_frame_id(proto)
+		local frame = rel[fid]
+		if frame and frame.valid and not relative_anchor_ok(frame, proto, position) then
+			with_ignore(function()
+				frame.destroy()
+			end)
+			frame = nil
+		end
+		if not (frame and frame.valid) then
+			with_ignore(function()
+				frame = rel.add{
+					type = "frame",
+					name = fid,
+					caption = {"cncharvester-gui.auto-caption"},
+					anchor = AutoPanel.anchor_for(proto, position),
+					direction = "vertical",
+				}
+				add_checkboxes(frame)
+			end)
+		end
+	end
+end
+
+local function ensure_screen(player, vehicle)
+	local screen = player.gui.screen
+	if not screen then
+		return
+	end
+	local frame = screen[FRAME_SCREEN]
+	if not (frame and frame.valid) then
+		with_ignore(function()
+			frame = screen.add{
+				type = "frame",
+				name = FRAME_SCREEN,
+				caption = {"cncharvester-gui.auto-caption"},
+				direction = "vertical",
+			}
+			add_checkboxes(frame)
+		end)
+	end
+	if frame and frame.valid then
+		local res = player.display_resolution
+		local scale = player.display_scale or 1
+		if scale < 0.1 then
+			scale = 1
+		end
+		local y = 96
+		if res and res.height then
+			y = math.max(48, math.floor((res.height / scale) * 0.12))
+		end
+		pcall(function()
+			frame.location = {x = 8, y = y}
+		end)
+		pcall(function()
+			frame.bring_to_front()
+		end)
+	end
+end
+
 function AutoPanel.ensure(player, vehicle)
-	if not (player and player.valid and player.gui and player.gui.relative) then
+	if not (player and player.valid and player.gui) then
 		return
 	end
 	if not testing_on() then
@@ -139,40 +353,48 @@ function AutoPanel.ensure(player, vehicle)
 		AutoPanel.track_vehicle(vehicle)
 	end
 	mark_sync(player)
-	local rel = player.gui.relative
-	local frame = rel[FRAME]
-	if not (frame and frame.valid) then
-		with_ignore(function()
-			local anchor = {
-				gui = defines.relative_gui_type.car_gui,
-				position = defines.relative_gui_position.left,
-				type = "car",
-				names = {"cncharvester", "cncharvester-type2"},
-			}
-			frame = rel.add{
-				type = "frame",
-				name = FRAME,
-				caption = {"cncharvester-gui.auto-caption"},
-				anchor = anchor,
-				direction = "vertical",
-			}
-			frame.add{
-				type = "checkbox",
-				name = AUTO_CB,
-				caption = {"cncharvester-gui.auto-operation"},
-				tooltip = {"cncharvester-gui.auto-operation-tooltip"},
-				state = true,
-			}
-			frame.add{
-				type = "checkbox",
-				name = PAUSE_CB,
-				caption = {"cncharvester-gui.pause-on-enter"},
-				tooltip = {"cncharvester-gui.pause-on-enter-tooltip"},
-				state = false,
-			}
-		end)
+	local narrow = AutoPanel.narrow_display(player)
+	local position = AutoPanel.panel_position(player)
+	-- Wide: per-prototype relative (left). Narrow / Deck: relative on top
+	-- of the car GUI. Screen-left is the fallback so a failed ore-truck
+	-- car_gui match cannot hide the toggles.
+	if player.gui.relative then
+		ensure_relative(player, vehicle, position)
+	end
+	if narrow and player.gui.screen then
+		ensure_screen(player, vehicle)
+	else
+		AutoPanel.hide_transient(player)
 	end
 	AutoPanel.sync(player, vehicle)
+end
+
+-- Cheap: track + create if missing. Must not sync every tick or the
+-- click-ignore grace never expires and checkboxes cannot write auto_enabled.
+function AutoPanel.on_player_tick(player)
+	if not (player and player.valid) then
+		return
+	end
+	local vehicle = opened_harvester(player)
+	if not vehicle then
+		AutoPanel.hide_transient(player)
+		return
+	end
+	if AutoPanel.track_vehicle then
+		AutoPanel.track_vehicle(vehicle)
+	end
+	if not testing_on() then
+		return
+	end
+	local frame = nil
+	each_panel_frame(player, vehicle, function(el)
+		if not frame then
+			frame = el
+		end
+	end)
+	if not (frame and frame.valid) then
+		AutoPanel.ensure(player, vehicle)
+	end
 end
 
 function AutoPanel.sync_viewers(vehicle)
