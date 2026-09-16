@@ -2,6 +2,11 @@
 -- Quality radius / hybrid behavior is scripted. Mining modules apply on the slave drill.
 data:extend(
 	{
+		-- Identity is load-bearing. Do not rename, change setting_type, or
+		-- change type (bool-setting). Factorio then drops the saved value and
+		-- falls back to default_value (false), which looks like auto "died
+		-- between zips." Overwriting the same 2.2.0 zip can still reset the
+		-- mods-GUI copy to default off — re-enable + restart.
 		{
 			type = "bool-setting",
 			name = "Auto-cncharvester-testing",

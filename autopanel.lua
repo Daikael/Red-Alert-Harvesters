@@ -12,6 +12,10 @@
 -- frame with a singular `name` and no `type` filter. Narrow displays
 -- (Steam Deck 1280×800) put the panel on top of the car GUI — left of a
 -- small car inventory is off the left edge.
+--
+-- When Automatic harvester testing is off, do not destroy the panel.
+-- Show a one-line notice (zip overwrite often resets that startup flag
+-- to default off, which used to look like an Ore Truck-only bug).
 
 AutoPanel = AutoPanel or {}
 
@@ -19,6 +23,7 @@ local FRAME = "cncharvester-auto-panel"
 local FRAME_SCREEN = "cncharvester-auto-panel-screen"
 local AUTO_CB = "cncharvester-auto-enabled"
 local PAUSE_CB = "cncharvester-pause-on-enter"
+local NOTICE = "cncharvester-auto-needs-testing"
 
 local HARVESTER_NAMES = {
 	["cncharvester"] = true,
@@ -35,7 +40,9 @@ local HARVESTER_NAME_LIST = {
 local ignore_checked = 0
 local last_sync_tick = {}
 local pending_click = {}
+local last_notice_tick = {}
 local SYNC_GRACE_TICKS = 2
+local NOTICE_TOAST_TICKS = 300
 -- Below this effective width, left-of-car-gui is often off-screen.
 local NARROW_WIDTH = 1366
 
@@ -129,6 +136,59 @@ local function add_checkboxes(frame)
 		tooltip = {"cncharvester-gui.pause-on-enter-tooltip"},
 		state = false,
 	}
+end
+
+local function add_notice(frame)
+	local lab = frame.add{
+		type = "label",
+		name = NOTICE,
+		caption = {"cncharvester-gui.needs-testing-flag-notice"},
+		tooltip = {"cncharvester-gui.needs-testing-flag"},
+	}
+	pcall(function()
+		lab.style.single_line = true
+	end)
+end
+
+function AutoPanel.frame_is_notice(frame)
+	return frame ~= nil and frame.valid == true and frame[NOTICE] ~= nil and frame[NOTICE].valid == true
+end
+
+function AutoPanel.frame_is_full(frame)
+	return frame ~= nil and frame.valid == true and frame[AUTO_CB] ~= nil and frame[AUTO_CB].valid == true
+end
+
+local function frame_mode_ok(frame, want_notice)
+	if want_notice then
+		return AutoPanel.frame_is_notice(frame)
+	end
+	return AutoPanel.frame_is_full(frame)
+end
+
+local function toast_testing_off(player, vehicle)
+	if not (player and player.valid) then
+		return
+	end
+	local now = game and game.tick or 0
+	local prev = last_notice_tick[player.index]
+	if prev and now < prev + NOTICE_TOAST_TICKS then
+		return
+	end
+	last_notice_tick[player.index] = now
+	pcall(function()
+		player.print({"cncharvester-gui.needs-testing-flag-notice"})
+	end)
+	if not (vehicle and vehicle.valid and vehicle.surface and vehicle.position) then
+		return
+	end
+	pcall(function()
+		vehicle.surface.create_entity{
+			name = "flying-text",
+			position = vehicle.position,
+			text = {"cncharvester-gui.needs-testing-flag-notice"},
+			color = {r = 1, g = 0.85, b = 0.3},
+		}
+	end)
 end
 
 local function destroy_named(parent, name)
@@ -269,7 +329,7 @@ function AutoPanel.sync(player, vehicle)
 	end)
 end
 
-local function ensure_relative(player, vehicle, position)
+local function ensure_relative(player, vehicle, position, want_notice)
 	local rel = player.gui.relative
 	if not rel then
 		return
@@ -281,11 +341,14 @@ local function ensure_relative(player, vehicle, position)
 	for _, proto in ipairs(HARVESTER_NAME_LIST) do
 		local fid = relative_frame_id(proto)
 		local frame = rel[fid]
-		if frame and frame.valid and not relative_anchor_ok(frame, proto, position) then
-			with_ignore(function()
-				frame.destroy()
-			end)
-			frame = nil
+		if frame and frame.valid then
+			local ok = relative_anchor_ok(frame, proto, position) and frame_mode_ok(frame, want_notice)
+			if not ok then
+				with_ignore(function()
+					frame.destroy()
+				end)
+				frame = nil
+			end
 		end
 		if not (frame and frame.valid) then
 			with_ignore(function()
@@ -296,18 +359,28 @@ local function ensure_relative(player, vehicle, position)
 					anchor = AutoPanel.anchor_for(proto, position),
 					direction = "vertical",
 				}
-				add_checkboxes(frame)
+				if want_notice then
+					add_notice(frame)
+				else
+					add_checkboxes(frame)
+				end
 			end)
 		end
 	end
 end
 
-local function ensure_screen(player, vehicle)
+local function ensure_screen(player, vehicle, want_notice)
 	local screen = player.gui.screen
 	if not screen then
 		return
 	end
 	local frame = screen[FRAME_SCREEN]
+	if frame and frame.valid and not frame_mode_ok(frame, want_notice) then
+		with_ignore(function()
+			frame.destroy()
+		end)
+		frame = nil
+	end
 	if not (frame and frame.valid) then
 		with_ignore(function()
 			frame = screen.add{
@@ -316,7 +389,11 @@ local function ensure_screen(player, vehicle)
 				caption = {"cncharvester-gui.auto-caption"},
 				direction = "vertical",
 			}
-			add_checkboxes(frame)
+			if want_notice then
+				add_notice(frame)
+			else
+				add_checkboxes(frame)
+			end
 		end)
 	end
 	if frame and frame.valid then
@@ -342,31 +419,36 @@ function AutoPanel.ensure(player, vehicle)
 	if not (player and player.valid and player.gui) then
 		return
 	end
-	if not testing_on() then
-		AutoPanel.destroy(player)
-		return
-	end
 	if not (vehicle and vehicle.valid and HARVESTER_NAMES[vehicle.name]) then
 		return
 	end
-	if AutoPanel.track_vehicle then
+	local flag = testing_on()
+	-- Flag off: do not destroy the panel. A missing GUI looks like an
+	-- Ore Truck-only regression when a zip overwrite reset the startup
+	-- setting to default off.
+	if flag and AutoPanel.track_vehicle then
 		AutoPanel.track_vehicle(vehicle)
 	end
 	mark_sync(player)
+	local want_notice = not flag
 	local narrow = AutoPanel.narrow_display(player)
 	local position = AutoPanel.panel_position(player)
 	-- Wide: per-prototype relative (left). Narrow / Deck: relative on top
 	-- of the car GUI. Screen-left is the fallback so a failed ore-truck
 	-- car_gui match cannot hide the toggles.
 	if player.gui.relative then
-		ensure_relative(player, vehicle, position)
+		ensure_relative(player, vehicle, position, want_notice)
 	end
 	if narrow and player.gui.screen then
-		ensure_screen(player, vehicle)
+		ensure_screen(player, vehicle, want_notice)
 	else
 		AutoPanel.hide_transient(player)
 	end
-	AutoPanel.sync(player, vehicle)
+	if flag then
+		AutoPanel.sync(player, vehicle)
+	else
+		toast_testing_off(player, vehicle)
+	end
 end
 
 -- Cheap: track + create if missing. Must not sync every tick or the
@@ -380,19 +462,18 @@ function AutoPanel.on_player_tick(player)
 		AutoPanel.hide_transient(player)
 		return
 	end
-	if AutoPanel.track_vehicle then
+	local flag = testing_on()
+	if flag and AutoPanel.track_vehicle then
 		AutoPanel.track_vehicle(vehicle)
 	end
-	if not testing_on() then
-		return
-	end
+	local want_notice = not flag
 	local frame = nil
 	each_panel_frame(player, vehicle, function(el)
 		if not frame then
 			frame = el
 		end
 	end)
-	if not (frame and frame.valid) then
+	if not (frame and frame.valid and frame_mode_ok(frame, want_notice)) then
 		AutoPanel.ensure(player, vehicle)
 	end
 end

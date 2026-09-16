@@ -823,6 +823,10 @@ expect(loc:find("auto%-locked=", 1) == nil, "eject toast locale is gone")
 expect(loc:find("auto%-passenger=", 1) ~= nil, "passenger demote locale exists")
 expect(loc:find("auto%-no%-passenger=", 1) ~= nil, "no-passenger-seat locale exists")
 expect(loc:find("auto%-off%-blocked=", 1) ~= nil, "auto-off-blocked locale exists")
+expect(panel_src:find("cncharvester-auto-needs-testing", 1, true) ~= nil, "flag-off panel has a notice widget")
+expect(panel_src:find("Flag off: do not destroy the panel", 1, true) ~= nil, "flag off does not silently destroy the Harvester AI panel")
+expect(panel_src:find("needs-testing-flag-notice", 1, true) ~= nil, "flag-off notice uses the restart locale")
+expect(loc:find("needs%-testing%-flag%-notice=", 1) ~= nil, "testing-flag notice locale exists")
 expect(loc:find("needs%-testing%-flag=", 1) ~= nil, "testing-flag tooltip locale exists")
 dofile("autodrive.lua")
 expect(AutoDrive.player_occupying(nil) == false, "nil vehicle is not occupied")
@@ -1383,6 +1387,10 @@ expect(empty_c.has_tib == false, "empty chunk is not Tib")
 local settings_src = assert(io.open("settings.lua"):read("*a"))
 expect(settings_src:find('name = "cncharvester-chunk-index"', 1, true) == nil, "runtime chunk-index setting is removed")
 expect(settings_src:find('name = "Auto-cncharvester-testing"', 1, true) ~= nil, "startup testing flag remains the scanner gate")
+expect(settings_src:find('setting_type = "startup"', 1, true) ~= nil, "testing flag stays a startup setting")
+expect(settings_src:find('type = "bool-setting"', 1, true) ~= nil, "testing flag stays a bool-setting")
+expect(settings_src:find('default_value = false', 1, true) ~= nil, "testing flag default stays off")
+expect(settings_src:find('name = "cncharvester-auto-testing"', 1, true) == nil, "testing flag was not renamed")
 expect(index_src:find("cncharvester-chunk-index", 1, true) == nil, "chunkindex does not read a runtime setting")
 expect(index_src:find('Auto-cncharvester-testing', 1, true) ~= nil, "chunkindex.enabled reads the startup testing flag")
 storage = storage or {}
@@ -1502,6 +1510,12 @@ expect(AutoPanel.panel_position({
 	display_resolution = {width = 1920, height = 1080},
 	display_scale = 1,
 }) == "left", "wide panel position is left")
+local notice_frame = {valid = true, ["cncharvester-auto-needs-testing"] = {valid = true}}
+expect(AutoPanel.frame_is_notice(notice_frame) == true, "notice frame is detected")
+expect(AutoPanel.frame_is_full(notice_frame) == false, "notice frame is not the checkbox panel")
+local full_frame = {valid = true, ["cncharvester-auto-enabled"] = {valid = true}}
+expect(AutoPanel.frame_is_full(full_frame) == true, "checkbox frame is detected")
+expect(AutoPanel.frame_is_notice(full_frame) == false, "checkbox frame is not the notice panel")
 
 if fails > 0 then
 	print(fails .. " failed")
