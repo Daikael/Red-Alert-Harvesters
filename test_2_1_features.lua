@@ -848,8 +848,15 @@ expect(hv_src:find("self:KickAuto()", 1, true) ~= nil, "occupancy/toggle call Ki
 local after_load_fn = hv_src:match("AfterLoad = function%(self%)\n(.-)\n\tauto_on = function")
 expect(after_load_fn ~= nil, "AfterLoad body is extractable")
 expect(after_load_fn:find("self:KickAuto", 1, true) == nil, "AfterLoad does not KickAuto/StartDrive on the load tick")
+expect(after_load_fn:find("self:RebootAI", 1, true) == nil, "AfterLoad does not RebootAI on the load tick")
+expect(after_load_fn:find("self:StartDrive", 1, true) == nil, "AfterLoad does not StartDrive on the load tick")
+expect(after_load_fn:find("prepare_after_load", 1, true) ~= nil, "AfterLoad re-picks a goal without requesting a path")
 expect(after_load_fn:find("LOAD_GRACE_TICKS", 1, true) ~= nil, "AfterLoad staggers resume after load grace")
 expect(after_load_fn:find("rec:Reserve", 1, true) == nil, "AfterLoad does not re-claim pads from the save")
+expect(hv_src:find('require "aiwatch"', 1, true) ~= nil, "harvester requires aiwatch")
+expect(hv_src:find("RebootAI = function", 1, true) ~= nil, "RebootAI exists")
+expect(hv_src:find("WatchAI = function", 1, true) ~= nil, "WatchAI exists")
+expect(hv_src:find("self:WatchAI()", 1, true) ~= nil, "Tick runs the staggered watchdog")
 expect(ctl_src:find("destroy_orphan_blockers", 1, true) == nil, "load migrate does not mass-destroy path blockers")
 expect(ctl_src:find("begin_load_recovery", 1, true) ~= nil, "load migrate starts batched blocker recovery")
 expect(ctl_src:find("tick_purge_blockers", 1, true) ~= nil, "nth-tick runs the batched blocker purge")
@@ -1258,6 +1265,146 @@ expect(ghost.cncharvesters[2].state == RahMigrate.STATE.FindingRefuelRefinery, "
 expect(ghost.rah_migration.rev == RahMigrate.REV, "rah_migration rev is stamped")
 expect(RahMigrate.clean_storage(ghost, {tank_empty = {[2] = true}}) == false, "second pass is a no-op")
 expect(ghost.cncharvesters[2].state == RahMigrate.STATE.FindingRefuelRefinery, "no-op pass does not re-stamp state")
+dofile("aiwatch.lua")
+expect(AiWatch.CHECK_INTERVAL == 30, "watchdog is tick-throttled")
+expect(AiWatch.COOLDOWN_TICKS == 3600, "reboot cooldown is 60 s")
+expect(AiWatch.TIMEOUT[AiWatch.STATE.FindingOre] == 5400, "FindingOre timeout is 90 s")
+expect(AiWatch.TIMEOUT[AiWatch.STATE.MovingToLocation] == 5400, "MovingToLocation timeout is 90 s")
+expect(AiWatch.TIMEOUT[AiWatch.STATE.FindingRefinery] == 3600, "FindingRefinery timeout is 60 s")
+expect(AiWatch.TIMEOUT[AiWatch.STATE.Refueling] == 2700, "Refueling timeout is 45 s")
+expect(AiWatch.TIMEOUT[AiWatch.STATE.MiningOre] == 2700, "MiningOre timeout is 45 s")
+expect(AiWatch.pick_goal({auto_on = false}) == nil, "pick_goal leaves auto-off trucks alone")
+expect(AiWatch.pick_goal({auto_on = true, filled = true, tank_empty = true}) == AiWatch.STATE.FindingRefinery, "full trunk beats empty tank")
+expect(AiWatch.pick_goal({auto_on = true, trunk_full = true}) == AiWatch.STATE.FindingRefinery, "is_full trunk dumps")
+expect(AiWatch.pick_goal({auto_on = true, tank_empty = true}) == AiWatch.STATE.FindingRefuelRefinery, "empty tank goes to refuel")
+expect(AiWatch.pick_goal({auto_on = true}) == AiWatch.STATE.FindingOre, "fuel + room goes to ore")
+local stuck_ref = {
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	path_id = 77,
+	path = {{x = 1, y = 1}},
+	path_blockers = {9},
+	busy_until = 999999,
+	reservedRefinery = true,
+	targetRefinery = 55,
+	going_home = true,
+	filled = true,
+	last_progress_tick = 0,
+	vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+}
+expect(AiWatch.should_reboot(stuck_ref, 4000, {}) == true, "FindingRefinery with no progress reboots")
+expect(AiWatch.apply_reboot(stuck_ref, 4000, {filled = true}) == true, "RebootAI applies to a stuck dump truck")
+expect(stuck_ref.path_id == nil, "reboot clears the in-flight path id")
+expect(stuck_ref.path == nil, "reboot clears path waypoints")
+expect(stuck_ref.path_blockers == nil, "reboot drops path-blocker refs")
+expect(stuck_ref.busy_until == 0, "reboot clears forever busy_until")
+expect(stuck_ref.reservedRefinery == false, "reboot drops the pad claim")
+expect(stuck_ref.state == AiWatch.STATE.FindingRefinery, "filled truck reboots into FindingRefinery")
+expect(AiWatch.should_reboot(stuck_ref, 4001, {}) == false, "cooldown blocks an immediate re-reboot")
+expect(AiWatch.apply_reboot(stuck_ref, 4001, {filled = true}) == false, "apply_reboot honors cooldown")
+local stuck_fuel = {
+	auto_enabled = true,
+	state = AiWatch.STATE.Refueling,
+	path_id = 12,
+	path = {{x = 2, y = 2}},
+	last_progress_tick = 0,
+	filled = false,
+}
+expect(AiWatch.apply_reboot(stuck_fuel, 100, {tank_empty = true}) == true, "stuck Refueling reboots")
+expect(stuck_fuel.path_id == nil, "refuel reboot clears path")
+expect(stuck_fuel.state == AiWatch.STATE.FindingRefuelRefinery, "empty tank reboots toward refuel")
+local stuck_mine = {
+	auto_enabled = true,
+	state = AiWatch.STATE.MiningOre,
+	path_id = 3,
+	last_progress_tick = 0,
+	filled = false,
+}
+expect(AiWatch.apply_reboot(stuck_mine, 50, {}) == true, "stuck MiningOre reboots")
+expect(stuck_mine.path_id == nil, "mine reboot clears path")
+expect(stuck_mine.state == AiWatch.STATE.FindingOre, "room + fuel reboots toward ore")
+local auto_off = {
+	auto_enabled = false,
+	state = AiWatch.STATE.FindingRefinery,
+	path_id = 99,
+	path = {{x = 0, y = 0}},
+	last_progress_tick = 0,
+}
+expect(AiWatch.should_reboot(auto_off, 99999, {}) == false, "auto-off trucks are not watchdog-rebooted")
+expect(AiWatch.apply_reboot(auto_off, 99999, {filled = true}) == false, "RebootAI does not touch auto-off trucks")
+expect(auto_off.path_id == 99, "auto-off path is left alone")
+expect(auto_off.state == AiWatch.STATE.FindingRefinery, "auto-off state is left alone")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	reboot_until = 5000,
+}, 4000, {}) == false, "cooldown field alone blocks should_reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	busy_until = 4100,
+}, 4000, {}) == false, "busy grace blocks should_reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	busy_until = 999999,
+}, 4000, {}) == true, "forever busy_until is not immunity")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+}, 4000, {pause_yield = true}) == false, "pause-on-enter driver yield is not a reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+}, 4000, {in_load_grace = true}) == false, "load grace blocks should_reboot")
+local after = {
+	auto_enabled = true,
+	state = AiWatch.STATE.MovingToLocation,
+	path_id = 4,
+	filled = true,
+}
+expect(AiWatch.prepare_after_load(after, 10, {filled = true}) == true, "AfterLoad sanity rewrites a mid-depot truck")
+expect(after.state == AiWatch.STATE.FindingRefinery, "AfterLoad filled truck is sent to dump")
+expect(after.path_id == 4, "AfterLoad prepare does not clear path (AfterLoad itself does)")
+expect(after.last_progress_tick == 10, "AfterLoad stamps last_progress")
+local after_off = {
+	auto_enabled = false,
+	state = AiWatch.STATE.Refueling,
+	path_id = 5,
+}
+expect(AiWatch.prepare_after_load(after_off, 10, {tank_empty = true}) == false, "AfterLoad does not reboot auto-off")
+expect(after_off.state == AiWatch.STATE.Refueling, "AfterLoad leaves auto-off state")
+local wait_h = {
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	busy_until = 120,
+	vehicle = {unit_number = 0},
+}
+expect(AiWatch.due(wait_h, 90) == true, "unit 0 is due on tick 90")
+expect(AiWatch.tick(wait_h, 90, {}) == "wait", "active busy_until freezes the watchdog")
+expect(wait_h.last_progress_tick == 90, "busy grace refreshes last_progress")
+local idle_h = {
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	watch_snap = {state = AiWatch.STATE.FindingRefinery, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
+	vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+}
+expect(AiWatch.tick(idle_h, 3600, {}) == "reboot", "no-progress FindingRefinery heartbeat reboots")
+expect(AiWatch.progressed(
+	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = 1, reserved = false, scoops = 0},
+	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}
+) == true, "path finish counts as progress")
+expect(AiWatch.progressed(
+	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
+	{state = 3, x = 0.1, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}
+) == false, "sub-tile jitter is not progress")
 expect(io.open("harvester.lua"):read("*a"):find("FindingRefuelRefinery = 7", 1, true) ~= nil, "migrate STATE.FindingRefuelRefinery matches harvester.lua")
 expect(io.open("harvester.lua"):read("*a"):find("Refueling = 9", 1, true) ~= nil, "migrate STATE.Refueling matches harvester.lua")
 expect(io.open("harvester.lua"):read("*a"):find("cncharvester.States = States", 1, true) ~= nil, "harvester exports States")
@@ -1274,6 +1421,9 @@ expect(io.open("control.lua"):read("*a"):find("ChunkIndex.debug_stats", 1, true)
 expect(io.open("control.lua"):read("*a"):find("chunkindex_overlay", 1, true) ~= nil, "remote exposes chunkindex_overlay")
 expect(io.open("control.lua"):read("*a"):find("chunkindex_reseed", 1, true) ~= nil, "remote exposes chunkindex_reseed")
 expect(io.open("control.lua"):read("*a"):find("chunkindex_reseed_full", 1, true) ~= nil, "remote exposes chunkindex_reseed_full")
+expect(io.open("control.lua"):read("*a"):find("last_progress = h.last_progress_tick", 1, true) ~= nil, "harvester_ai reports last_progress")
+expect(io.open("control.lua"):read("*a"):find('require "aiwatch"', 1, true) ~= nil, "control requires aiwatch")
+expect(io.open("locale/en/all.cfg"):read("*a"):find("ai-rebooted=", 1, true) ~= nil, "reboot toast locale exists")
 expect(io.open("control.lua"):read("*a"):find("ChunkIndex.reseed(full)", 1, true) ~= nil, "reseed remote forwards the full/missing arg")
 expect(io.open("control.lua"):read("*a"):find("cncharvester-chunkindex-overlay", 1, true) ~= nil, "control hooks the overlay toggle")
 local input_src = assert(io.open("prototypes/custom-input.lua"):read("*a"))

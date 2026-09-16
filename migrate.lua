@@ -57,22 +57,26 @@ function RahMigrate.clean_harvester(h, opts)
 		return h
 	end
 	opts = opts or {}
-	h.path_id = nil
-	h.path = nil
-	h.path_index = 1
-	h.path_blockers = nil
-	h.going_home = false
-	h.home_early = false
-	h.arrival_state = false
-	h.busy_until = 0
-	h.repath_n = 0
-	h.alt_n = 0
-	h.home_repath_n = 0
-	h.dock_try = 0
-	h.refueling = false
-	h.refuel_fail_n = 0
-	h.reservedRefinery = false
-	h.targetRefinery = false
+	if AiWatch and AiWatch.clear_transients then
+		AiWatch.clear_transients(h)
+	else
+		h.path_id = nil
+		h.path = nil
+		h.path_index = 1
+		h.path_blockers = nil
+		h.going_home = false
+		h.home_early = false
+		h.arrival_state = false
+		h.busy_until = 0
+		h.repath_n = 0
+		h.alt_n = 0
+		h.home_repath_n = 0
+		h.dock_try = 0
+		h.refueling = false
+		h.refuel_fail_n = 0
+		h.reservedRefinery = false
+		h.targetRefinery = false
+	end
 	local st = h.state
 	local S = RahMigrate.STATE
 	local padish = st == S.FindingRefinery

@@ -5,6 +5,7 @@ require "autopanel"
 require "modulebay"
 require "scoop"
 require "hybriddrive"
+require "aiwatch"
 require "harvester"
 require "migrate"
 require "specialOres"
@@ -63,6 +64,8 @@ remote.add_interface("Red-Alert-Harvester", {
 				home_repath_n = h.home_repath_n,
 				going_home = h.going_home == true,
 				home_early = h.home_early == true,
+				last_progress = h.last_progress_tick,
+				reboot_until = h.reboot_until,
 				range = h.search_range,
 				assign = h.assign_cx and {si = h.assign_si, x = h.assign_cx, y = h.assign_cy} or nil,
 			}

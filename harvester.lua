@@ -7,6 +7,7 @@ require "scoop"
 require "hybriddrive"
 require "autodrive"
 require "chunkindex"
+require "aiwatch"
 
 -- New / first-track only. Saved trucks keep persisted auto_enabled.
 -- Default of the startup setting is false: placed trucks sit still until
@@ -203,11 +204,41 @@ cncharvester = {
 		-- via auto_on() and `pause_on_enter == true`.
 		-- Pad locks are reset in begin_load_recovery. Do not re-claim from
 		-- the save (every truck with reservedRefinery=true would fight one pad).
-		-- Do not KickAuto/StartDrive on the load tick. 7 trucks × request_path
-		-- + blocker spawn is a hard engine kill (log ends at control checksum).
+		-- Do not KickAuto/StartDrive/RebootAI on the load tick. 7 trucks ×
+		-- request_path + blocker spawn is a hard engine kill (log ends at
+		-- control checksum). Re-pick the goal from inventory + fuel only.
 		local id = self.vehicle and self.vehicle.unit_number or 0
 		local now = game and game.tick or 0
 		self.busy_until = now + AutoDrive.LOAD_GRACE_TICKS + (id % 45)
+		if AiWatch and AiWatch.prepare_after_load then
+			local tank_empty, trunk_full
+			local v = self.vehicle
+			if v and v.valid and HybridDrive then
+				pcall(function()
+					if HybridDrive.fuel_inventory then
+						HybridDrive.fuel_inventory(v)
+					end
+					if HybridDrive.prepare_vehicle then
+						HybridDrive.prepare_vehicle(v)
+					end
+					if HybridDrive.strip_banned_fuel then
+						HybridDrive.strip_banned_fuel(v)
+					end
+					if HybridDrive.tank_convertible_joules then
+						tank_empty = HybridDrive.tank_convertible_joules(v) < 1
+					end
+					local trunk = vehicle_trunk(v)
+					if trunk and trunk.is_full then
+						trunk_full = trunk:is_full()
+					end
+				end)
+			end
+			AiWatch.prepare_after_load(self, now, {
+				filled = self.filled,
+				tank_empty = tank_empty,
+				trunk_full = trunk_full,
+			})
+		end
 	end,
 
 	auto_on = function(self)
@@ -283,6 +314,80 @@ cncharvester = {
 		self.path_index = 1
 		AutoDrive.clear_wiggle(self)
 		AutoDrive.clear_path_blockers(self.vehicle)
+	end,
+
+	-- Runtime self-heal. Clears pathfinder / pad leftovers and re-picks a
+	-- goal from inventory + fuel. Does not write auto_enabled / pause.
+	-- Do not call from AfterLoad (blocker destroy + request_path CTD).
+	RebootAI = function(self, reason)
+		if not self:auto_on() then
+			return false
+		end
+		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
+			return false
+		end
+		local now = game and game.tick or 0
+		if (self.reboot_until or 0) > now then
+			return false
+		end
+		self:CancelPendingPath()
+		if self.vehicle and self.vehicle.valid then
+			AutoDrive.stop(self.vehicle)
+			AutoDrive.clear_wiggle(self)
+		end
+		if self.reservedRefinery then
+			local rec = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
+			if self:holds_pad(rec) then
+				self:release_pad()
+			else
+				self.reservedRefinery = false
+				self.targetRefinery = false
+			end
+		end
+		local tank_empty, trunk_full
+		local v = self.vehicle
+		if v and v.valid and HybridDrive then
+			pcall(function()
+				if HybridDrive.fuel_inventory then
+					HybridDrive.fuel_inventory(v)
+				end
+				if HybridDrive.prepare_vehicle then
+					HybridDrive.prepare_vehicle(v)
+				end
+				if HybridDrive.strip_banned_fuel then
+					HybridDrive.strip_banned_fuel(v)
+				end
+				if HybridDrive.tank_convertible_joules then
+					tank_empty = HybridDrive.tank_convertible_joules(v) < 1
+				end
+				local trunk = vehicle_trunk(v)
+				if trunk and trunk.is_full then
+					trunk_full = trunk:is_full()
+				end
+			end)
+		end
+		local ok = AiWatch.apply_reboot(self, now, {
+			filled = self.filled,
+			tank_empty = tank_empty,
+			trunk_full = trunk_full,
+		})
+		if ok then
+			AiWatch.toast(self, reason)
+		end
+		return ok
+	end,
+
+	WatchAI = function(self)
+		if not (AiWatch and AiWatch.tick) then
+			return
+		end
+		local now = game and game.tick or 0
+		local ctx = {
+			in_load_grace = AutoDrive.in_load_grace and AutoDrive.in_load_grace() or false,
+		}
+		if AiWatch.tick(self, now, ctx) == "reboot" then
+			self:RebootAI("watchdog")
+		end
 	end,
 
 	-- Empty + auto ON: repath if we have a dest, else FindingOre so Tick
@@ -401,6 +506,10 @@ cncharvester = {
 			ModuleBay.starve(self.vehicle)
 			return
 		end
+
+		-- Staggered stuck watchdog. Safe during busy_until (timer freezes
+		-- unless busy_until is a leftover forever lock).
+		self:WatchAI()
 
 		if (self.busy_until or 0) > game.tick then
 			return
