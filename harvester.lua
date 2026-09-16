@@ -491,15 +491,14 @@ cncharvester = {
 	-- Chest / trunk → vehicle fuel inventory. Fills empty fuel slots with
 	-- HybridDrive-convertible burnables (quality-aware). Does not belt-withhold;
 	-- DropOnBelt still keeps one fuel stack in the refinery for other trucks.
-	-- Returns true if the tank is full or at least one item moved.
+	-- Returns the number of items moved into the tank.
 	RefuelFromInventory = function(self, inventory)
 		local dest = vehicle_fuel_inventory(self.vehicle)
 		if not (dest and dest.valid and inventory and inventory.valid) then
-			return false
+			return 0
 		end
 		HybridDrive.strip_banned_fuel(self.vehicle)
-		local moved = HybridDrive.transfer_convertible_fuel(inventory, dest)
-		return moved > 0 or HybridDrive.tank_convertible_joules(self.vehicle) > 0
+		return HybridDrive.transfer_convertible_fuel(inventory, dest)
 	end,
 
 	RefuelFromHold = function(self)
@@ -1275,7 +1274,7 @@ cncharvester = {
 			end
 			self.dock_try = 0
 			if AutoDrive.can_dump(self.vehicle.position, refinery.entity.position) then
-				self.state = States.ApproachedForRefuel
+				self.state = States.Refueling
 				return
 			end
 			self:StartDrive(
@@ -1315,40 +1314,54 @@ cncharvester = {
 				self.state = States.FindingRefuelRefinery
 				return
 			end
-			local chest = targetRefinery.entity.get_inventory(defines.inventory.chest)
+			local chest = HybridDrive.container_inventory(targetRefinery.entity)
 			if not (chest and chest.valid) then
 				self.state = States.FindingRefuelRefinery
 				return
 			end
-			-- Physical-drive arrival: move chest burnables into the fuel tank,
-			-- then convert into the hybrid pool (4 MJ floor, rest stays in tank).
-			self:RefuelFromInventory(chest)
+			-- Physical-drive arrival: move chest burnables into the fuel tank
+			-- until the tank cannot take more or the chest has no convertible
+			-- left. Do not leave on potential >= 8 MJ if this visit moved
+			-- nothing — solar/grid can sit above the trip threshold while the
+			-- chest still has coal.
+			local moved = self:RefuelFromInventory(chest)
 			HybridDrive.convert_inventory_fuels(self.vehicle)
 			local dest = vehicle_fuel_inventory(self.vehicle)
-			local potential = HybridDrive.potential_joules(self.vehicle)
-			-- Do not treat dest.is_full() as success: a 2-slot Ore Truck bar
-			-- or the wrong inventory looks "full" while the tank is still empty.
-			-- Done when potential is at/above the 8 MJ low-fuel trip, or the
-			-- tank cannot take more convertible fuel and we actually have some.
-			local tank_full = dest and dest.valid and dest.is_full()
-				and HybridDrive.tank_convertible_joules(self.vehicle) > 0
-			if tank_full or potential >= AutoDrive.FUEL_LOW_J then
-				self.refueling = false
-				local trunk = vehicle_trunk(self.vehicle)
-				if trunk and trunk.get_item_count() > 0 then
-					self.state = States.DroppingOre
+			local chest_has = targetRefinery:HasFuel()
+			local tank_cannot = HybridDrive.tank_cannot_take_convertible(dest, chest)
+			if not HybridDrive.pad_refuel_complete(moved, tank_cannot, chest_has) then
+				if moved < 1 then
+					self.refuel_fail_n = (self.refuel_fail_n or 0) + 1
+					if self.refuel_fail_n > 60 then
+						self.refuel_fail_n = 0
+						if (game.tick % 120) == 0 then
+							self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
+						end
+						self:release_pad()
+						self.state = States.FindingRefuelRefinery
+					end
 				else
-					self.state = States.FindingOre
-					self:release_pad()
+					self.refuel_fail_n = 0
 				end
 				return
 			end
-			if not targetRefinery:HasFuel() then
+			self.refuel_fail_n = 0
+			self.refueling = false
+			local potential = HybridDrive.potential_joules(self.vehicle)
+			if potential < AutoDrive.FUEL_LOW_J and not chest_has then
 				if (game.tick % 120) == 0 then
 					self:FloatingText({"cncharvester.no-fuel-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				self:release_pad()
 				self.state = States.FindingRefuelRefinery
+				return
+			end
+			local trunk = vehicle_trunk(self.vehicle)
+			if trunk and trunk.get_item_count() > 0 then
+				self.state = States.DroppingOre
+			else
+				self.state = States.FindingOre
+				self:release_pad()
 			end
 		end,
 	}

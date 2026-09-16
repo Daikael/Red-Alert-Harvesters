@@ -322,6 +322,31 @@ expect(HybridDrive.transfer_convertible_fuel(depot_chest, HybridDrive.fuel_inven
 expect((tank_2slot.coal or 0) == 2, "chest coal landed in the ore truck fuel tank")
 expect((trunk_items["iron-ore"] or 0) == 10, "refuel does not insert coal into the cargo trunk")
 expect((depot_chest._items.coal or 0) == 78, "chest keeps coal the 2-slot tank could not take")
+expect(HybridDrive.pad_refuel_complete(0, false, true) == false, "chest coal + 0 moved is not a finished pad visit")
+expect(HybridDrive.pad_refuel_complete(0, true, true) == true, "full tank ends the pad visit even if chest still has coal")
+expect(HybridDrive.pad_refuel_complete(0, false, false) == true, "empty chest ends the pad visit")
+expect(HybridDrive.pad_refuel_complete(5, false, true) == false, "partial chest fill stays until the tank cannot take more")
+local slot_stack = {name = "coal", count = 8, valid_for_read = true}
+local slot_chest = {valid = true, [1] = slot_stack}
+local slot_tank_items = {}
+local slot_tank = mock_fuel_inv(slot_tank_items, 50)
+slot_tank.is_full = function()
+	return true
+end
+expect(HybridDrive.transfer_convertible_fuel(slot_chest, slot_tank) == 8, "slot walk moves chest coal even when is_full lies")
+expect((slot_tank_items.coal or 0) == 8, "slot-walk coal landed in the tank")
+expect(slot_stack.count == 0, "slot-walk decremented the chest stack")
+local chest_ent = {
+	valid = true,
+	get_inventory = function(kind)
+		if kind == "chest" or kind == 1 then
+			return depot_chest
+		end
+		return nil
+	end,
+}
+defines.inventory.chest = "chest"
+expect(HybridDrive.container_inventory(chest_ent) == depot_chest, "container_inventory uses defines.inventory.chest")
 local fallback_tank = mock_fuel_inv({coal = 1}, 2)
 local fallback_veh = {
 	valid = true,
@@ -717,10 +742,11 @@ expect(hv_src:find("transfer_convertible_fuel", 1, true) ~= nil, "refuel uses Hy
 expect(hv_src:find("convert_inventory_fuels(self.vehicle)", 1, true) ~= nil, "Refueling converts tank solids into the hybrid pool")
 expect(hv_src:find("Must run even when the tank is empty", 1, true) ~= nil, "Tick calls MaybeReturnHome before aborting on empty fuel")
 expect(hv_src:find("HybridDrive.fuel_inventory(vehicle)", 1, true) ~= nil, "harvester reads the burner fuel tank helper")
-expect(hv_src:find("tank_convertible_joules(self.vehicle) > 0", 1, true) ~= nil, "Refueling does not treat an empty is_full tank as refueled")
+expect(hv_src:find("pad_refuel_complete", 1, true) ~= nil, "Refueling uses pad_refuel_complete not 8 MJ alone")
+expect(hv_src:find("container_inventory", 1, true) ~= nil, "Refueling reads the refinery chest via container_inventory")
+expect(hv_src:find("if this visit moved", 1, true) ~= nil, "Refueling comment forbids leaving on 0 moved")
 expect(io.open("hybriddrive.lua"):read("*a"):find("function HybridDrive.fuel_inventory", 1, true) ~= nil, "fuel_inventory prefers burner.inventory")
 expect(io.open("scoop.lua"):read("*a"):find("HybridDrive.fuel_inventory(vehicle)", 1, true) ~= nil, "scoop parasitic drain uses the burner fuel tank")
-expect(hv_src:find("potential >= AutoDrive.FUEL_LOW_J", 1, true) ~= nil, "refuel leaves when potential is at least the 8 MJ trip")
 expect(hv_src:find("Empty burner must not skip dock/refuel", 1, true) ~= nil, "Tick still docks when the burner is empty")
 local refin_ent = assert(io.open("prototypes/entities/refin_entity.lua"):read("*a"))
 expect(refin_ent:find("circuit_wire_max_distance = default_circuit_wire_max_distance", 1, true) ~= nil, "refinery sets 2.0 circuit wire reach")

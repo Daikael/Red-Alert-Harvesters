@@ -326,19 +326,112 @@ function HybridDrive.has_usable_energy(vehicle)
 	return HybridDrive.has_convertible_fuel(vehicle)
 end
 
--- Move convertible burnables (coal/wood/chemical, not nuclear / hybrid-charge)
--- from a chest or trunk into the vehicle fuel inventory. Uses insert()'s
--- return count so we never delete extra from the source. Fills dest slots.
--- Returns the number of items moved.
-function HybridDrive.transfer_convertible_fuel(source, dest)
-	if not (source and source.valid and dest and dest.valid) then
+-- Container (refinery) inventory. Factorio 2.0 usually uses
+-- defines.inventory.chest; also try output / slot 1 so a missed define
+-- does not look like "chest fuel exists but Refueling cannot see it."
+function HybridDrive.container_inventory(entity)
+	if not (entity and entity.valid) then
+		return nil
+	end
+	local function take(inv)
+		if inv and inv.valid then
+			return inv
+		end
+		return nil
+	end
+	if entity.get_inventory and defines and defines.inventory and defines.inventory.chest then
+		local ok, inv = pcall(function()
+			return entity.get_inventory(defines.inventory.chest)
+		end)
+		if ok then
+			local got = take(inv)
+			if got then
+				return got
+			end
+		end
+	end
+	if entity.get_output_inventory then
+		local ok, inv = pcall(function()
+			return entity.get_output_inventory()
+		end)
+		if ok then
+			local got = take(inv)
+			if got then
+				return got
+			end
+		end
+	end
+	if entity.get_inventory then
+		local ok, inv = pcall(function()
+			return entity.get_inventory(1)
+		end)
+		if ok then
+			return take(inv)
+		end
+	end
+	return nil
+end
+
+local function stack_convertible(stack)
+	if not stack then
+		return false
+	end
+	if stack.valid_for_read == false then
+		return false
+	end
+	local name = stack.name
+	return name ~= nil and HybridDrive.convertible_joules(name) > 0 and (stack.count or 0) > 0
+end
+
+-- LuaItemStack walk. get_contents() can miss container rows; trunk often
+-- still iterates. Slot copy is the reliable chest → tank path.
+local function transfer_by_slots(source, dest)
+	local ok_len, len = pcall(function()
+		return #source
+	end)
+	if not ok_len or type(len) ~= "number" or len < 1 then
 		return 0
 	end
-	local saved_bar = unlock_inventory_bar(dest)
-	if dest.is_full and dest.is_full() then
-		restore_inventory_bar(dest, saved_bar)
-		return 0
+	local moved = 0
+	for i = 1, len do
+		local ok_stack, stack = pcall(function()
+			return source[i]
+		end)
+		if ok_stack and stack_convertible(stack) then
+			local name = stack.name
+			local count = stack.count
+			local quality = stack.quality
+			local inserted = insert_stack(dest, InventoryItemStack(name, count, quality))
+			if inserted > 0 then
+				local new_count = count - inserted
+				local wrote = false
+				if new_count <= 0 then
+					wrote = pcall(function()
+						stack.clear()
+					end)
+					if not wrote then
+						wrote = pcall(function()
+							stack.count = 0
+						end)
+					end
+				else
+					wrote = pcall(function()
+						stack.count = new_count
+					end)
+				end
+				if not wrote then
+					pcall(function()
+						source.remove(InventoryItemStack(name, inserted, quality))
+					end)
+				end
+				moved = moved + inserted
+			end
+		end
 	end
+	return moved
+end
+
+local function transfer_by_contents(source, dest)
 	local moved = 0
 	local contents = {}
 	EachInventoryItem(source, function(name, count, quality)
@@ -352,9 +445,6 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 	end)
 	local function take(filter_prefer)
 		for _, item in ipairs(contents) do
-			if dest.is_full and dest.is_full() then
-				return
-			end
 			local can = item.count and item.count > 0
 				and HybridDrive.convertible_joules(item.name) > 0
 				and (not filter_prefer or prefer[item.name])
@@ -375,6 +465,85 @@ function HybridDrive.transfer_convertible_fuel(source, dest)
 		take(true)
 	end
 	take(false)
+	return moved
+end
+
+-- Pad visit is done when the tank cannot take more convertible fuel, or
+-- the chest has none left. potential >= 8 MJ alone is NOT success if the
+-- chest still has burnables and this visit moved zero items (solar/grid
+-- can sit above the trip threshold without ever taking chest coal).
+function HybridDrive.pad_refuel_complete(moved, tank_cannot_take, chest_has_fuel)
+	if tank_cannot_take then
+		return true
+	end
+	if not chest_has_fuel then
+		return true
+	end
+	return false
+end
+
+function HybridDrive.tank_cannot_take_convertible(dest, source)
+	if not (dest and dest.valid) then
+		return true
+	end
+	-- can_insert is the truth. is_full() on a 2-slot Ore Truck can lie
+	-- (bar / filter) while coal would still insert.
+	if dest.can_insert and source then
+		local sample = nil
+		EachInventoryItem(source, function(name, count)
+			if sample or not count or count < 1 then
+				return
+			end
+			if HybridDrive.convertible_joules(name) > 0 then
+				sample = name
+			end
+		end)
+		if not sample then
+			local ok_len, len = pcall(function()
+				return #source
+			end)
+			if ok_len and type(len) == "number" then
+				for i = 1, len do
+					local ok_stack, stack = pcall(function()
+						return source[i]
+					end)
+					if ok_stack and stack_convertible(stack) then
+						sample = stack.name
+						break
+					end
+				end
+			end
+		end
+		if sample then
+			local ok, can = pcall(function()
+				return dest.can_insert({name = sample, count = 1})
+			end)
+			if ok then
+				return can == false
+			end
+		end
+	end
+	if dest.is_full and dest.is_full() then
+		return true
+	end
+	return false
+end
+
+-- Move convertible burnables (coal/wood/chemical, not nuclear / hybrid-charge)
+-- from a chest or trunk into the vehicle fuel inventory. Uses insert()'s
+-- return count so we never delete extra from the source. Fills dest slots.
+-- Returns the number of items moved.
+function HybridDrive.transfer_convertible_fuel(source, dest)
+	if not (source and source.valid and dest and dest.valid) then
+		return 0
+	end
+	local saved_bar = unlock_inventory_bar(dest)
+	-- Do not abort on is_full() before trying: a 2-slot Ore Truck bar or a
+	-- filtered empty tank can look full while insert would still take coal.
+	local moved = transfer_by_slots(source, dest)
+	if moved == 0 then
+		moved = transfer_by_contents(source, dest)
+	end
 	restore_inventory_bar(dest, saved_bar)
 	return moved
 end

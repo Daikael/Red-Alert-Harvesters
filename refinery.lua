@@ -25,10 +25,7 @@ local function belt_direction(dir)
 end
 
 local function refinery_inventory(self)
-	if self.entity and self.entity.valid then
-		return self.entity.get_inventory(defines.inventory.chest)
-	end
-	return nil
+	return HybridDrive.container_inventory(self.entity)
 end
 
 Refinery = {
