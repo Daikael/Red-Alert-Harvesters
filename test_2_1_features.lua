@@ -783,7 +783,9 @@ expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "demote clears
 expect(drive_src:find("vehicle.set_passenger", 1, true) ~= nil, "demote uses set_passenger")
 expect(drive_src:find("player.driving = false", 1, true) == nil, "no player.driving ground dump")
 local hv_src = assert(io.open("harvester.lua"):read("*a"))
-expect(hv_src:find("auto_enabled = true", 1, true) ~= nil, "new trucks default auto ON")
+expect(hv_src:find('settings.startup["harvester-auto-by-default"]', 1, true) ~= nil, "new trucks read harvester-auto-by-default")
+expect(hv_src:find("auto_enabled = auto_by_default()", 1, true) ~= nil, "new trucks take auto_enabled from the startup setting")
+expect(hv_src:find("auto_enabled = true", 1, true) == nil, "new trucks do not hardcode auto ON")
 expect(hv_src:find("pause_on_enter = false", 1, true) ~= nil, "pause-on-enter defaults OFF")
 expect(hv_src:find("return self.auto_enabled ~= false", 1, true) ~= nil, "nil auto_enabled reads as ON")
 expect(hv_src:find("pause_on_enter == true", 1, true) ~= nil, "nil pause_on_enter reads as OFF")
@@ -882,8 +884,10 @@ expect(panel_src:find("last_sync_tick", 1, true) ~= nil, "checkbox writes ignore
 expect(panel_src:find("SYNC_GRACE_TICKS", 1, true) ~= nil, "checkbox writes ignore a few ticks after sync")
 expect(panel_src:find('names = {"cncharvester", "cncharvester-type2"}', 1, true) == nil, "auto panel does not share a names-array car_gui anchor")
 expect(panel_src:find("function AutoPanel.anchor_for", 1, true) ~= nil, "anchor_for builds a per-prototype GuiAnchor")
-expect(panel_src:find("relative_gui_position.top", 1, true) ~= nil, "narrow displays pin the panel on top of the car GUI")
-expect(panel_src:find("cncharvester-auto-panel-screen", 1, true) ~= nil, "Deck fallback uses a screen-left Harvester AI frame")
+expect(panel_src:find("relative_gui_position.top", 1, true) == nil, "panel is not pinned to the top of the car GUI")
+expect(panel_src:find("function ensure_screen", 1, true) == nil, "panel does not create a floating screen-left copy")
+expect(panel_src:find("cncharvester-auto-panel-screen", 1, true) ~= nil, "leftover Deck screen frames are still destroyed")
+expect(panel_src:find("AutoPanel.hide_transient(player)", 1, true) ~= nil, "ensure destroys leftover floating Harvester AI frames")
 expect(panel_src:find("function AutoPanel.on_player_tick", 1, true) ~= nil, "opened ore truck GUI is ensured while inventory is open")
 expect(panel_src:find('name = vehicle_name', 1, true) ~= nil, "GuiAnchor uses singular prototype name")
 expect(ctl_src:find("attach_existing_harvesters", 1, true) ~= nil, "existing ore trucks are scanned into storage.cncharvesters")
@@ -1479,7 +1483,9 @@ expect(settings_src:find('name = "Auto-cncharvester-testing"', 1, true) ~= nil, 
 expect(settings_src:find('setting_type = "startup"', 1, true) ~= nil, "testing flag stays a startup setting")
 expect(settings_src:find('type = "bool-setting"', 1, true) ~= nil, "testing flag stays a bool-setting")
 expect(settings_src:find('default_value = false', 1, true) ~= nil, "testing flag default stays off")
-expect(settings_src:find('name = "cncharvester-auto-testing"', 1, true) == nil, "testing flag was not renamed")
+expect(settings_src:find('name = "harvester-auto-by-default"', 1, true) ~= nil, "auto-by-default startup setting exists")
+expect(loc:find("Reserved startup setting", 1, true) == nil, "auto-by-default locale is no longer reserved/unused")
+expect(loc:find("newly placed harvesters start with Automatic operation", 1, true) ~= nil, "auto-by-default locale describes new placements")
 expect(index_src:find("cncharvester-chunk-index", 1, true) == nil, "chunkindex does not read a runtime setting")
 expect(index_src:find('Auto-cncharvester-testing', 1, true) ~= nil, "chunkindex.enabled reads the startup testing flag")
 storage = storage or {}
@@ -1593,7 +1599,7 @@ expect(AutoPanel.panel_position({
 	valid = true,
 	display_resolution = {width = 1280, height = 800},
 	display_scale = 1,
-}) == "top", "Deck panel position is top")
+}) == "left", "Deck panel position is left of the car GUI")
 expect(AutoPanel.panel_position({
 	valid = true,
 	display_resolution = {width = 1920, height = 1080},

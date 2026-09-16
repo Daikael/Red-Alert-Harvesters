@@ -9,9 +9,9 @@
 -- Factorio 2.0.77: a single relative frame with type="car" plus
 -- names={cncharvester, cncharvester-type2} does not show on the Ore Truck
 -- (cncharvester). type2 can still look fine. Each prototype gets its own
--- frame with a singular `name` and no `type` filter. Narrow displays
--- (Steam Deck 1280×800) put the panel on top of the car GUI — left of a
--- small car inventory is off the left edge.
+-- frame with a singular `name` and no `type` filter. One panel only:
+-- relative `car_gui` at `left` on every display (including Steam Deck).
+-- Do not also pin a top bar or a free-floating `gui.screen` copy.
 --
 -- When Automatic harvester testing is off, do not destroy the panel.
 -- Show a one-line notice (zip overwrite often resets that startup flag
@@ -104,10 +104,7 @@ function AutoPanel.narrow_display(player)
 	return (w / scale) <= NARROW_WIDTH
 end
 
-function AutoPanel.panel_position(player)
-	if AutoPanel.narrow_display(player) then
-		return defines.relative_gui_position.top
-	end
+function AutoPanel.panel_position(_player)
 	return defines.relative_gui_position.left
 end
 
@@ -369,52 +366,6 @@ local function ensure_relative(player, vehicle, position, want_notice)
 	end
 end
 
-local function ensure_screen(player, vehicle, want_notice)
-	local screen = player.gui.screen
-	if not screen then
-		return
-	end
-	local frame = screen[FRAME_SCREEN]
-	if frame and frame.valid and not frame_mode_ok(frame, want_notice) then
-		with_ignore(function()
-			frame.destroy()
-		end)
-		frame = nil
-	end
-	if not (frame and frame.valid) then
-		with_ignore(function()
-			frame = screen.add{
-				type = "frame",
-				name = FRAME_SCREEN,
-				caption = {"cncharvester-gui.auto-caption"},
-				direction = "vertical",
-			}
-			if want_notice then
-				add_notice(frame)
-			else
-				add_checkboxes(frame)
-			end
-		end)
-	end
-	if frame and frame.valid then
-		local res = player.display_resolution
-		local scale = player.display_scale or 1
-		if scale < 0.1 then
-			scale = 1
-		end
-		local y = 96
-		if res and res.height then
-			y = math.max(48, math.floor((res.height / scale) * 0.12))
-		end
-		pcall(function()
-			frame.location = {x = 8, y = y}
-		end)
-		pcall(function()
-			frame.bring_to_front()
-		end)
-	end
-end
-
 function AutoPanel.ensure(player, vehicle)
 	if not (player and player.valid and player.gui) then
 		return
@@ -431,18 +382,12 @@ function AutoPanel.ensure(player, vehicle)
 	end
 	mark_sync(player)
 	local want_notice = not flag
-	local narrow = AutoPanel.narrow_display(player)
 	local position = AutoPanel.panel_position(player)
-	-- Wide: per-prototype relative (left). Narrow / Deck: relative on top
-	-- of the car GUI. Screen-left is the fallback so a failed ore-truck
-	-- car_gui match cannot hide the toggles.
+	-- One relative left strip on the car GUI. Kill leftover top/screen
+	-- copies from earlier 2.2.0 zips (Deck used to spawn both).
+	AutoPanel.hide_transient(player)
 	if player.gui.relative then
 		ensure_relative(player, vehicle, position, want_notice)
-	end
-	if narrow and player.gui.screen then
-		ensure_screen(player, vehicle, want_notice)
-	else
-		AutoPanel.hide_transient(player)
 	end
 	if flag then
 		AutoPanel.sync(player, vehicle)
@@ -458,8 +403,8 @@ function AutoPanel.on_player_tick(player)
 		return
 	end
 	local vehicle = opened_harvester(player)
+	AutoPanel.hide_transient(player)
 	if not vehicle then
-		AutoPanel.hide_transient(player)
 		return
 	end
 	local flag = testing_on()
@@ -467,13 +412,14 @@ function AutoPanel.on_player_tick(player)
 		AutoPanel.track_vehicle(vehicle)
 	end
 	local want_notice = not flag
-	local frame = nil
-	each_panel_frame(player, vehicle, function(el)
-		if not frame then
-			frame = el
-		end
-	end)
-	if not (frame and frame.valid and frame_mode_ok(frame, want_notice)) then
+	local position = AutoPanel.panel_position(player)
+	local rel = player.gui and player.gui.relative
+	local frame = rel and rel[relative_frame_id(vehicle.name)]
+	local ok = frame
+		and frame.valid
+		and relative_anchor_ok(frame, vehicle.name, position)
+		and frame_mode_ok(frame, want_notice)
+	if not ok then
 		AutoPanel.ensure(player, vehicle)
 	end
 end

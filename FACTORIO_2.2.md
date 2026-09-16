@@ -36,7 +36,7 @@ What it actually does today:
 - `chunksearcher.lua` (dead stub) is **deleted**. The index lives in `chunkindex.lua`.
 - `storage.orechunk` / `storage.tibchunk` are the index home, written by the slow scanner when it is enabled.
 
-`harvester-auto-by-default` exists but is unused by the runtime loop. Commented `Auto-cncharvester-Ragne` is not a design input — range in 2.2.x comes from the **depot** (GUI / circuit), not a startup int.
+`harvester-auto-by-default` (startup bool, default **off**) sets `auto_enabled` when `cncharvester.New` first tracks a truck. Existing saves keep persisted `auto_enabled`. Commented `Auto-cncharvester-Ragne` is not a design input — range in 2.2.x comes from the **depot** (GUI / circuit), not a startup int.
 
 ---
 
@@ -161,11 +161,11 @@ Pathfinder busy (`try_again_later`) retries after `BUSY_RETRY_TICKS = 30` and do
 
 #### Per-vehicle inventory toggles
 
-Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defines.relative_gui_type.car_gui`). **One relative frame per prototype** using singular `GuiAnchor.name` (`cncharvester` and `cncharvester-type2` separately). Do **not** share `type="car"` + `names={cncharvester,cncharvester-type2}` — Factorio 2.0.77 does not show that frame on the Ore Truck. On narrow displays (Steam Deck 1280×800) the panel is `relative_gui_position.top` plus a screen-left copy so it is not off the left edge. Not a global startup setting. When **Automatic harvester testing** is off, show a one-line notice (do not destroy the panel — a zip overwrite often resets that flag to default off). Existing Ore Trucks are scanned into `storage.cncharvesters` on init / configuration / first tick after load so unmanned AI runs without sitting in the cab. Setting id `Auto-cncharvester-testing` must stay a startup bool; renaming it drops the saved value.
+Relative Factorio 2.0 GUI on the **left of the harvester car inventory** (`defines.relative_gui_type.car_gui`). **One relative frame per prototype** using singular `GuiAnchor.name` (`cncharvester` and `cncharvester-type2` separately). Do **not** share `type="car"` + `names={cncharvester,cncharvester-type2}` — Factorio 2.0.77 does not show that frame on the Ore Truck. **One panel only**, `relative_gui_position.left` on every display (including Steam Deck 1280×800). Do not also create a top bar or a `gui.screen` floating copy — those stacked on Deck. Not a global startup setting. When **Automatic harvester testing** is off, show a one-line notice (do not destroy the panel — a zip overwrite often resets that flag to default off). Existing Ore Trucks are scanned into `storage.cncharvesters` on init / configuration / first tick after load so unmanned AI runs without sitting in the cab. Setting id `Auto-cncharvester-testing` must stay a startup bool; renaming it drops the saved value. `harvester-auto-by-default` (startup bool, default **off**) sets `auto_enabled` on **new** trucks only.
 
 | Toggle | Default | Persist |
 | --- | --- | --- |
-| **Automatic operation** | **On** for tracked trucks (testers with the flag already on keep AI) | `storage.cncharvesters[].auto_enabled` |
+| **Automatic operation** | Startup `harvester-auto-by-default` (default **off**) for new trucks; saved trucks keep persisted `auto_enabled` | `storage.cncharvesters[].auto_enabled` |
 | **Pause when somebody jumps in** | **Off** | `storage.cncharvesters[].pause_on_enter` |
 
 | Auto | Pause on enter | Player |
@@ -353,7 +353,7 @@ Stuck / path failure (former #11) is **locked** — see **Physical driving → L
 | `harvesterstats.lua` | Dump / approach offsets still used. `MovementSpeed` / `RotationSpeed` are unused by AutoDrive. |
 | `chunkindex.lua` | M1 slow index plus `find_ore_chunks` / `row_allows_vehicle` for FindingOre. Overlay dirty/incremental. |
 | `refinery.lua` | Dump, reserve, fuel chest, belts. Home target until the M2 depot exists. |
-| `settings.lua` | `Auto-cncharvester-testing` (startup; index + auto-drive gate), unused `harvester-auto-by-default`. Tib world flags live in **Factorio-Tiberium**, not here. |
+| `settings.lua` | `Auto-cncharvester-testing` (startup; index + auto-drive gate), `harvester-auto-by-default` (startup; new-truck `auto_enabled`). Tib world flags live in **Factorio-Tiberium**, not here. |
 | `prototypes/technology/technology.lua` | `Old-World-Harvesting` (ore truck + refinery). `Tiberium-Harvesting` (electric engines) — **auto-mine Tib gate**. |
 | `specialOres.lua` | Resource entity name ≠ item name. Index stores item names. |
 | `modulebay.lua` / `hybriddrive.lua` / `scoop.lua` | Unchanged except hitch still follows the truck. |

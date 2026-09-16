@@ -8,6 +8,22 @@ require "hybriddrive"
 require "autodrive"
 require "chunkindex"
 
+-- New / first-track only. Saved trucks keep persisted auto_enabled.
+-- Default of the startup setting is false: placed trucks sit still until
+-- the player checks Automatic operation.
+local function auto_by_default()
+	if not (settings and settings.startup) then
+		return false
+	end
+	local ok, s = pcall(function()
+		return settings.startup["harvester-auto-by-default"]
+	end)
+	if not ok or not s then
+		return false
+	end
+	return s.value == true
+end
+
 local States = {
 	Animating = 0,
 	FindingOre = 1,
@@ -91,11 +107,12 @@ cncharvester = {
 			busy_until = 0,
 			search_range = AutoDrive.RANGE_TILES,
 
-			-- Per-truck (not a global startup setting). Default auto ON so
-			-- testers with Automatic harvester testing already on keep AI.
+			-- Per-truck. New records follow startup harvester-auto-by-default
+			-- (false → auto off until the player checks Automatic operation).
+			-- Existing saves keep whatever auto_enabled was persisted.
 			-- Pause-on-enter default OFF: auto keeps the wheel (input ignored).
 			-- Pause ON is the only way to sit and yield while auto is running.
-			auto_enabled = true,
+			auto_enabled = auto_by_default(),
 			pause_on_enter = false,
 			occupied = false,
 		}

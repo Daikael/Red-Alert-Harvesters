@@ -14,6 +14,8 @@ data:extend(
 			default_value = false
 		},
 		{
+			-- New placements only. false = auto off until the inventory
+			-- checkbox is checked. Existing saves keep persisted auto_enabled.
 			type = "bool-setting",
 			name = "harvester-auto-by-default",
 			setting_type = "startup",
