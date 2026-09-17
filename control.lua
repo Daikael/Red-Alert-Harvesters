@@ -68,6 +68,9 @@ remote.add_interface("Red-Alert-Harvester", {
 				busy_until = h.busy_until,
 				last_progress = h.last_progress_tick,
 				reboot_until = h.reboot_until,
+				reboot_streak = h.reboot_streak or 0,
+				reboot_hop_until = h.reboot_hop_until or 0,
+				path_busy = AiWatch.path_busy and AiWatch.path_busy(h) or false,
 				range = h.search_range,
 				assign = h.assign_cx and {si = h.assign_si, x = h.assign_cx, y = h.assign_cy} or nil,
 			}

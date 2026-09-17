@@ -1498,6 +1498,195 @@ expect(AiWatch.progressed(
 	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
 	{state = 3, x = 0.1, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}
 ) == false, "sub-tile jitter is not progress")
+expect(AiWatch.progressed(
+	{state = 6, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0, path_index = 1},
+	{state = 6, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0, path_index = 2}
+) == true, "waypoint index advance counts as progress")
+expect(AiWatch.progressed(
+	{state = 6, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
+	{state = 6, x = 0.6, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}
+) == true, "half-tile move from last-progress snap counts")
+expect(AiWatch.path_busy({path_id = 9}) == true, "in-flight path_id is path busy")
+expect(AiWatch.path_busy({path = {{x = 1, y = 1}}}) == true, "active waypoint path is path busy")
+expect(AiWatch.path_busy({state = 3}) == false, "no path_id/path is not path busy")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.MovingToLocation,
+	last_progress_tick = 0,
+	path_id = 9,
+}, 99999, {}) == false, "in-flight pathfinder does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.MovingToLocation,
+	last_progress_tick = 0,
+	path = {{x = 4, y = 4}},
+}, 99999, {}) == false, "following a path does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.MovingToLocation,
+	last_progress_tick = 0,
+	reverse_until = 5000,
+}, 4000, {}) == false, "peer reverse peel does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingOre,
+	last_progress_tick = 0,
+}, 99999, {}) == false, "idle FindingOre (index wait) does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefuelRefinery,
+	last_progress_tick = 0,
+}, 99999, {}) == false, "idle FindingRefuelRefinery does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.Animating,
+	last_progress_tick = 0,
+	wait_ticks = 12,
+}, 99999, {}) == false, "animation wait_ticks does not reboot")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	path_id = 77,
+	path = {{x = 1, y = 1}},
+	busy_until = 999999,
+}, 4000, {}) == true, "forever busy_until still reboots through leftover path")
+local path_wait = {
+	auto_enabled = true,
+	state = AiWatch.STATE.MovingToLocation,
+	last_progress_tick = 0,
+	path_id = 9,
+	vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+}
+expect(AiWatch.due(path_wait, 90) == true, "path-busy unit 0 is due on tick 90")
+expect(AiWatch.tick(path_wait, 90, {pos = {x = 0, y = 0}}) == "wait", "in-flight path_id heartbeat is wait")
+expect(path_wait.last_progress_tick == 90, "path-busy wait refreshes last_progress")
+local ore_wait = {
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingOre,
+	last_progress_tick = 0,
+	vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+}
+expect(AiWatch.tick(ore_wait, 90, {pos = {x = 0, y = 0}}) == "wait", "FindingOre index wait is wait not reboot")
+local crawl = {
+	auto_enabled = true,
+	state = AiWatch.STATE.MiningOre,
+	last_progress_tick = 0,
+	watch_snap = {state = AiWatch.STATE.MiningOre, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
+	vehicle = {unit_number = 0, valid = true, position = {x = 0.3, y = 0}},
+}
+expect(AiWatch.tick(crawl, 30, {pos = {x = 0.3, y = 0}}) == "ok", "sub-threshold crawl is not yet a reboot")
+expect(crawl.last_progress_tick == 0, "sub-threshold crawl does not stamp last_progress")
+expect(crawl.watch_snap.x == 0, "no-progress does not clobber the last-progress snap")
+expect(AiWatch.tick(crawl, 60, {pos = {x = 0.6, y = 0}}) == "ok", "accumulated 0.6 tile crawl is ok")
+expect(crawl.last_progress_tick == 60, "accumulated move stamps last_progress")
+local reason_h = {
+	state = AiWatch.STATE.MovingToLocation,
+	last_progress_tick = 100,
+	queued_for_pad = nil,
+	busy_until = 0,
+	path_id = 44,
+	path = nil,
+	reboot_streak = 1,
+	vehicle = {unit_number = 7},
+}
+local fields = AiWatch.reason_fields(reason_h, 400, {goal = AiWatch.STATE.FindingOre})
+expect(fields.state == AiWatch.STATE.MovingToLocation, "reason logs state")
+expect(fields.goal == AiWatch.STATE.FindingOre, "reason logs pick_goal")
+expect(fields.last_progress == 100, "reason logs last_progress")
+expect(fields.age == 300, "reason logs age")
+expect(fields.queued_for_pad == nil, "reason logs queued_for_pad")
+expect(fields.busy_until == 0, "reason logs busy_until")
+expect(fields.path_id == 44, "reason logs path_id")
+expect(fields.path_busy == true, "reason logs path busy")
+local reason_line = AiWatch.format_reason(fields)
+expect(reason_line:find("state=", 1, true) ~= nil, "format_reason includes state")
+expect(reason_line:find("queued=", 1, true) ~= nil, "format_reason includes queued")
+expect(reason_line:find("path_busy=", 1, true) ~= nil, "format_reason includes path_busy")
+expect(reason_line:find("busy=", 1, true) ~= nil, "format_reason includes busy_until")
+expect(AiWatch.toast(reason_h, "watchdog", fields):find("path_id=44", 1, true) ~= nil, "toast line includes path_id for Deck/log")
+expect(AiWatch.hop_range(1) == 0, "attempt 1 hop range is 0 (clear only)")
+expect(AiWatch.hop_range(2) == 8, "attempt 2 hop range is 8")
+expect(AiWatch.hop_range(3) == 16, "attempt 3 hop range is 16")
+expect(AiWatch.hop_range(4) == 32, "attempt 4 hop range is 32")
+expect(AiWatch.hop_range(5) == 64, "attempt 5 hop range is 64")
+expect(AiWatch.hop_range(9) == 64, "hop range hard-caps at 64")
+local hop1 = {auto_enabled = true, reboot_streak = 1, vehicle = {name = "cncharvester", valid = true, teleport = function() return true end}}
+expect(AiWatch.may_teleport(hop1, 100, {}) == false, "attempt 1 does not teleport")
+expect(AiWatch.may_teleport({reboot_streak = 2, queued_for_pad = 55}, 100, {}) == false, "queued_for_pad never teleports")
+expect(AiWatch.may_teleport({reboot_streak = 2}, 100, {player_driver = true}) == false, "player driver never teleports")
+expect(AiWatch.may_teleport({reboot_streak = 2}, 100, {pause_yield = true}) == false, "pause-on-enter yield never teleports")
+expect(AiWatch.may_teleport({reboot_streak = 2, reboot_hop_until = 500}, 100, {}) == false, "hop cooldown blocks teleport")
+expect(AiWatch.may_teleport({reboot_streak = 2}, 100, {}) == true, "attempt 2 may hop")
+local hop_calls = {}
+local hop_h = {
+	auto_enabled = true,
+	reboot_streak = 2,
+	path_id = 9,
+	path = {{x = 1, y = 1}},
+	path_index = 4,
+	targetPosition = {x = 10, y = 20},
+	vehicle = {
+		name = "cncharvester",
+		valid = true,
+		position = {x = 0, y = 0},
+		teleport = function(pos)
+			hop_calls[#hop_calls + 1] = pos
+			return true
+		end,
+		surface = {
+			find_non_colliding_position = function(name, center, range, prec, tile)
+				hop_calls.find = {name = name, center = center, range = range, prec = prec, tile = tile}
+				return {x = 12, y = 20}
+			end,
+		},
+	},
+}
+expect(AiWatch.try_hop(hop_h, 200, {}) == true, "attempt 2 hops to a non-colliding tile")
+expect(hop_calls.find.name == "cncharvester", "hop searches by vehicle.name")
+expect(hop_calls.find.center.x == 10 and hop_calls.find.center.y == 20, "hop searches goal_or_here")
+expect(hop_calls.find.range == 8, "hop uses streak range")
+expect(hop_calls.find.prec == 0.5, "hop precision is 0.5")
+expect(hop_calls.find.tile == true, "hop forces tile center")
+expect(hop_calls[1].x == 12 and hop_calls[1].y == 20, "hop teleports to the found tile")
+expect(hop_h.path_id == nil, "hop clears pathfinder goal id")
+expect(hop_h.path == nil, "hop clears path waypoints")
+expect(hop_h.targetPosition == nil, "hop clears pathfinder goal")
+expect(hop_h.reboot_hop_until == 200 + AiWatch.HOP_COOLDOWN, "hop stamps cooldown int")
+local no_pos = {
+	reboot_streak = 2,
+	vehicle = {
+		name = "cncharvester",
+		valid = true,
+		position = {x = 0, y = 0},
+		teleport = function()
+			error("must not blind-teleport")
+		end,
+		surface = {
+			find_non_colliding_position = function()
+				return nil
+			end,
+		},
+	},
+}
+expect(AiWatch.try_hop(no_pos, 10, {}) == false, "no non-colliding tile means no hop")
+expect(no_pos.reboot_hop_until == nil, "failed hop does not stamp cooldown")
+local streak_h = {auto_enabled = true, filled = true, state = 2}
+expect(AiWatch.apply_reboot(streak_h, 10, {filled = true}) == true, "apply_reboot increments streak")
+expect(streak_h.reboot_streak == 1, "first true reboot is streak 1")
+streak_h.reboot_until = 0
+expect(AiWatch.apply_reboot(streak_h, 4000, {filled = true}) == true, "second true reboot after cooldown")
+expect(streak_h.reboot_streak == 2, "consecutive reboot grows streak")
+local keep_streak = {reboot_streak = 3, reboot_hop_until = 99, path_id = 1}
+AiWatch.clear_transients(keep_streak)
+expect(keep_streak.reboot_streak == 3, "clear_transients keeps streak int")
+expect(keep_streak.reboot_hop_until == 99, "clear_transients keeps hop cooldown int")
+expect(io.open("harvester.lua"):read("*a"):find("if self.queued_for_pad then", 1, true) ~= nil, "RebootAI refuses queued waiters")
+expect(io.open("harvester.lua"):read("*a"):find("AiWatch.try_hop", 1, true) ~= nil, "RebootAI may hop on true streaks")
+expect(io.open("harvester.lua"):read("*a"):find("pause_yield = AutoDrive.player_is_driver", 1, true) ~= nil, "WatchAI passes pause_yield")
+expect(io.open("control.lua"):read("*a"):find("reboot_streak = h.reboot_streak", 1, true) ~= nil, "harvester_ai reports reboot_streak")
+expect(io.open("control.lua"):read("*a"):find("path_busy = AiWatch.path_busy", 1, true) ~= nil, "harvester_ai reports path_busy")
+expect(io.open("locale/en/all.cfg"):read("*a"):find("ai-rebooted=Harvester AI rebooted (__1__). __2__", 1, true) ~= nil, "Deck reboot print includes reason fields")
 expect(io.open("harvester.lua"):read("*a"):find("FindingRefuelRefinery = 7", 1, true) ~= nil, "migrate STATE.FindingRefuelRefinery matches harvester.lua")
 expect(io.open("harvester.lua"):read("*a"):find("Refueling = 9", 1, true) ~= nil, "migrate STATE.Refueling matches harvester.lua")
 expect(io.open("harvester.lua"):read("*a"):find("cncharvester.States = States", 1, true) ~= nil, "harvester exports States")

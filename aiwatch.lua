@@ -5,9 +5,12 @@
 --
 -- Must not StartDrive / request_path from AfterLoad (pad-storm CTD).
 -- Must not rewrite auto_enabled or pause_on_enter.
--- Pathfinder try_again_later / busy_until / load grace / pad queue freeze
+-- Pathfinder try_again_later / in-flight path_id / active path / peer yield /
+-- busy_until / load grace / pad queue / idle FindingOre|FindingRefuel freeze
 -- the timer. A huge leftover busy_until is treated as stuck, not immunity.
 -- queued_for_pad is a refinery unit_number (id) on the harvester record.
+-- Movement progress is measured from the last-progress snap (not per 30-tick
+-- sample), so a crawl below MOVE_TILES per heartbeat still counts.
 
 AiWatch = AiWatch or {}
 
@@ -23,6 +26,11 @@ AiWatch.BUSY_MAX_TICKS = 720
 AiWatch.DEFAULT_TIMEOUT = 3600
 -- Match AutoDrive.PAD_RECHECK_TICKS. Waiters idle this long between scans.
 AiWatch.PAD_RECHECK_TICKS = 30
+-- Emergency hop on true reboot streaks (attempt 2+). Physical path stays default.
+AiWatch.HOP_RANGE_BASE = 8
+AiWatch.HOP_RANGE_CAP = 64
+AiWatch.HOP_PRECISION = 0.5
+AiWatch.HOP_COOLDOWN = 3600
 
 -- Keep in sync with harvester.lua `States`.
 AiWatch.STATE = {
@@ -140,6 +148,8 @@ function AiWatch.snapshot(h, opts)
 		trunk = trunk or 0,
 		tank = tank or 0,
 		path_id = h and h.path_id,
+		has_path = h and h.path ~= nil,
+		path_index = h and (h.path_index or 0) or 0,
 		reserved = h and h.reservedRefinery and true or false,
 		scoops = h and (h.scoopsMined or 0) or 0,
 		queued = h and h.queued_for_pad or nil,
@@ -157,6 +167,12 @@ function AiWatch.progressed(prev, snap)
 		return true
 	end
 	if prev.path_id ~= snap.path_id then
+		return true
+	end
+	if (prev.has_path and true or false) ~= (snap.has_path and true or false) then
+		return true
+	end
+	if (prev.path_index or 0) ~= (snap.path_index or 0) then
 		return true
 	end
 	if prev.reserved ~= snap.reserved then
@@ -188,13 +204,17 @@ function AiWatch.forever_busy(h, now)
 	return (until_t - now) > AiWatch.BUSY_MAX_TICKS
 end
 
-function AiWatch.note_progress(h, now, snap)
+function AiWatch.note_progress(h, now, snap, reset_streak)
 	if not h then
 		return
 	end
 	h.last_progress_tick = now
 	if snap then
 		h.watch_snap = snap
+	end
+	-- Only a real delta (not the first snap / post-reboot seed) clears the streak.
+	if reset_streak then
+		h.reboot_streak = 0
 	end
 end
 
@@ -422,6 +442,41 @@ function AiWatch.end_pad_queue(h)
 	return h
 end
 
+-- In-flight request_path or a waypoint list AutoDrive is still following.
+function AiWatch.path_busy(h)
+	if not h then
+		return false
+	end
+	if h.path_id then
+		return true
+	end
+	if h.path then
+		return true
+	end
+	return false
+end
+
+-- Reverse peel / in-progress wiggle. Same class as pathfinder-busy.
+function AiWatch.peer_wait(h, now)
+	if not h then
+		return false
+	end
+	return (h.reverse_until or 0) > (now or 0)
+end
+
+-- Idle search: no drive yet. FindingOre waits on the chunk index;
+-- FindingRefuelRefinery waits for a fueled pad. Reboot cannot create ore/fuel.
+function AiWatch.search_wait(h)
+	if not h then
+		return false
+	end
+	if AiWatch.path_busy(h) then
+		return false
+	end
+	local st = h.state
+	return st == AiWatch.STATE.FindingOre or st == AiWatch.STATE.FindingRefuelRefinery
+end
+
 -- Quiet wait: reserved-but-not-full pad, or short pad-recheck busy.
 -- Same class as pathfinder try_again_later — not a RebootAI reason.
 function AiWatch.pad_wait(h, now)
@@ -432,6 +487,42 @@ function AiWatch.pad_wait(h, now)
 		return true
 	end
 	if (h.busy_until or 0) > (now or 0) and not AiWatch.forever_busy(h, now) then
+		return true
+	end
+	return false
+end
+
+-- Legitimate wait/progress that must not trip RebootAI. forever_busy still wins.
+function AiWatch.legit_wait(h, now, ctx)
+	if not h then
+		return false
+	end
+	ctx = ctx or {}
+	if ctx.pause_yield then
+		return true
+	end
+	if h.queued_for_pad then
+		return true
+	end
+	if AiWatch.peer_wait(h, now) then
+		return true
+	end
+	if AiWatch.path_busy(h) then
+		return true
+	end
+	if (h.wait_ticks or 0) > 0 then
+		return true
+	end
+	if AiWatch.search_wait(h) then
+		return true
+	end
+	if AiWatch.pad_wait(h, now) then
+		return true
+	end
+	if (h.busy_until or 0) > (now or 0) then
+		return true
+	end
+	if ctx.in_load_grace then
 		return true
 	end
 	return false
@@ -482,13 +573,7 @@ function AiWatch.should_reboot(h, now, ctx)
 	if ctx.in_load_grace and not forever then
 		return false
 	end
-	if h.queued_for_pad then
-		return false
-	end
-	if AiWatch.pad_wait(h, now) and not forever then
-		return false
-	end
-	if (h.busy_until or 0) > now and not forever then
+	if AiWatch.legit_wait(h, now, ctx) and not forever then
 		return false
 	end
 	local last = h.last_progress_tick
@@ -514,13 +599,13 @@ function AiWatch.tick(h, now, ctx)
 		return "skip"
 	end
 	local snap = AiWatch.snapshot(h, ctx)
-	if AiWatch.progressed(h.watch_snap, snap) then
+	if not h.watch_snap then
 		AiWatch.note_progress(h, now, snap)
-	else
-		h.watch_snap = snap
+	elseif AiWatch.progressed(h.watch_snap, snap) then
+		AiWatch.note_progress(h, now, snap, true)
 	end
 	local forever = AiWatch.forever_busy(h, now)
-	if h.queued_for_pad or ((ctx.in_load_grace or AiWatch.pad_wait(h, now)) and not forever) then
+	if AiWatch.legit_wait(h, now, ctx) and not forever then
 		h.last_progress_tick = now
 		return "wait"
 	end
@@ -528,6 +613,42 @@ function AiWatch.tick(h, now, ctx)
 		return "reboot"
 	end
 	return "ok"
+end
+
+function AiWatch.reason_fields(h, now, extra)
+	extra = extra or {}
+	local last = h and h.last_progress_tick
+	local age
+	if last ~= nil then
+		age = (now or 0) - last
+	end
+	return {
+		state = h and h.state,
+		goal = extra.goal,
+		last_progress = last,
+		age = age,
+		queued_for_pad = h and h.queued_for_pad,
+		busy_until = h and (h.busy_until or 0) or 0,
+		path_id = h and h.path_id,
+		has_path = h and h.path ~= nil,
+		path_busy = AiWatch.path_busy(h),
+		forever_busy = AiWatch.forever_busy(h, now),
+		streak = h and (h.reboot_streak or 0) or 0,
+		hop_until = h and (h.reboot_hop_until or 0) or 0,
+	}
+end
+
+function AiWatch.format_reason(fields)
+	fields = fields or {}
+	return "state=" .. tostring(fields.state)
+		.. " goal=" .. tostring(fields.goal)
+		.. " last=" .. tostring(fields.last_progress)
+		.. " age=" .. tostring(fields.age)
+		.. " queued=" .. tostring(fields.queued_for_pad)
+		.. " busy=" .. tostring(fields.busy_until)
+		.. " path_id=" .. tostring(fields.path_id)
+		.. " path_busy=" .. tostring(fields.path_busy)
+		.. " streak=" .. tostring(fields.streak)
 end
 
 function AiWatch.apply_reboot(h, now, opts)
@@ -554,6 +675,98 @@ function AiWatch.apply_reboot(h, now, opts)
 	h.reboot_until = now + AiWatch.COOLDOWN_TICKS
 	h.last_progress_tick = now
 	h.watch_snap = nil
+	h.reboot_streak = (h.reboot_streak or 0) + 1
+	return true
+end
+
+function AiWatch.hop_range(streak)
+	streak = streak or 0
+	if streak < 2 then
+		return 0
+	end
+	local range = AiWatch.HOP_RANGE_BASE
+	local grow = streak - 2
+	while grow > 0 and range < AiWatch.HOP_RANGE_CAP do
+		range = range * 2
+		grow = grow - 1
+	end
+	if range > AiWatch.HOP_RANGE_CAP then
+		range = AiWatch.HOP_RANGE_CAP
+	end
+	return range
+end
+
+function AiWatch.hop_center(h)
+	if h and h.targetPosition and h.targetPosition.x ~= nil then
+		return h.targetPosition
+	end
+	local v = h and h.vehicle
+	if v and v.position then
+		return v.position
+	end
+	return h and h.position
+end
+
+-- Attempt 2+ only. Never while queued / player driver / pause-on-enter yield.
+function AiWatch.may_teleport(h, now, opts)
+	if not h then
+		return false
+	end
+	opts = opts or {}
+	if opts.queued_for_pad or h.queued_for_pad then
+		return false
+	end
+	if opts.pause_yield then
+		return false
+	end
+	if opts.player_driver then
+		return false
+	end
+	if (h.reboot_hop_until or 0) > (now or 0) then
+		return false
+	end
+	return AiWatch.hop_range(h.reboot_streak) > 0
+end
+
+-- Safe hop: find_non_colliding_position then teleport. Never blind into cliffs/water.
+-- Clears pathfinder leftovers after a hop. Physical driving stays the default path.
+function AiWatch.try_hop(h, now, opts)
+	if not AiWatch.may_teleport(h, now, opts) then
+		return false
+	end
+	local v = h.vehicle
+	if not (v and v.valid ~= false and v.name and v.teleport) then
+		return false
+	end
+	local surface = v.surface
+	if not (surface and surface.find_non_colliding_position) then
+		return false
+	end
+	local center = AiWatch.hop_center(h)
+	if not center then
+		return false
+	end
+	local range = AiWatch.hop_range(h.reboot_streak)
+	local pos = surface.find_non_colliding_position(
+		v.name,
+		center,
+		range,
+		AiWatch.HOP_PRECISION,
+		true
+	)
+	if not pos then
+		return false
+	end
+	local ok = v.teleport(pos)
+	if ok == false then
+		return false
+	end
+	h.path_id = nil
+	h.path = nil
+	h.path_index = 1
+	h.path_blockers = nil
+	h.targetPosition = nil
+	h.reboot_hop_until = (now or 0) + AiWatch.HOP_COOLDOWN
 	return true
 end
 
@@ -581,22 +794,26 @@ function AiWatch.prepare_after_load(h, now, opts)
 	return true
 end
 
-function AiWatch.toast(h, reason)
-	if not (game and game.print) then
-		return
-	end
-	local now = game.tick or 0
-	storage = storage or {}
-	if (storage.rah_watch_toast_tick or 0) + AiWatch.TOAST_COOLDOWN > now then
-		return
-	end
-	storage.rah_watch_toast_tick = now
+function AiWatch.toast(h, reason, fields)
+	local now = (game and game.tick) or 0
 	local id = "?"
 	if h and h.vehicle and h.vehicle.unit_number then
 		id = tostring(h.vehicle.unit_number)
 	end
-	game.print({"cncharvester.ai-rebooted", id})
+	fields = fields or AiWatch.reason_fields(h, now, {goal = h and h.state})
+	local detail = AiWatch.format_reason(fields)
+	local line = "Red-Alert-Harvester: RebootAI " .. id .. " " .. tostring(reason or "watchdog") .. " " .. detail
 	if log then
-		log("Red-Alert-Harvester: RebootAI " .. id .. " " .. tostring(reason or "watchdog"))
+		log(line)
 	end
+	if not (game and game.print) then
+		return line
+	end
+	storage = storage or {}
+	if (storage.rah_watch_toast_tick or 0) + AiWatch.TOAST_COOLDOWN > now then
+		return line
+	end
+	storage.rah_watch_toast_tick = now
+	game.print({"cncharvester.ai-rebooted", id, detail})
+	return line
 end

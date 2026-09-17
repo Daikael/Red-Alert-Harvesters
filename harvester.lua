@@ -383,7 +383,12 @@ cncharvester = {
 		if not self:auto_on() then
 			return false
 		end
-		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
+		local player_driver = AutoDrive.player_is_driver(self.vehicle)
+		if player_driver and self:pause_yields() then
+			return false
+		end
+		-- Quiet pad waiters must not be kicked into a RebootAI loop.
+		if self.queued_for_pad then
 			return false
 		end
 		local now = game and game.tick or 0
@@ -432,7 +437,12 @@ cncharvester = {
 			trunk_full = trunk_full,
 		})
 		if ok then
-			AiWatch.toast(self, reason)
+			-- Attempt 1: clear only (apply_reboot). Attempt 2+: safe hop.
+			AiWatch.try_hop(self, now, {
+				player_driver = player_driver,
+				pause_yield = player_driver and self:pause_yields(),
+			})
+			AiWatch.toast(self, reason, AiWatch.reason_fields(self, now, {goal = self.state}))
 		end
 		return ok
 	end,
@@ -444,6 +454,7 @@ cncharvester = {
 		local now = game and game.tick or 0
 		local ctx = {
 			in_load_grace = AutoDrive.in_load_grace and AutoDrive.in_load_grace() or false,
+			pause_yield = AutoDrive.player_is_driver(self.vehicle) and self:pause_yields(),
 		}
 		if AiWatch.tick(self, now, ctx) == "reboot" then
 			self:RebootAI("watchdog")
