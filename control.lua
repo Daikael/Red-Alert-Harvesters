@@ -96,6 +96,7 @@ local HARVESTER_NAMES = {
 local function ensure_storage()
 	storage.cncharvesters = storage.cncharvesters or {}
 	storage.refineries = storage.refineries or {}
+	storage.rah_pads = storage.rah_pads or {}
 	storage.drive_scoop_wait = storage.drive_scoop_wait or {}
 	storage.drive_scoop_vehicle = storage.drive_scoop_vehicle or {}
 	ChunkIndex.ensure_storage()
@@ -171,6 +172,9 @@ script.on_configuration_changed(function()
 		end
 	end
 	attach_existing_harvesters({after_load = true})
+	if AiWatch and AiWatch.rebuild_pad_index then
+		AiWatch.rebuild_pad_index(storage)
+	end
 end)
 
 -- Factorio: on_load must not mutate `storage` (CRC before/after). Stale
@@ -212,6 +216,9 @@ local function migrate_after_load()
 	-- Untracked Ore Trucks (placed while testing was off, or never opened)
 	-- must enter storage.cncharvesters or Tick never runs FindingOre/refuel.
 	attach_existing_harvesters({after_load = true})
+	if AiWatch and AiWatch.rebuild_pad_index then
+		AiWatch.rebuild_pad_index(storage)
+	end
 end
 
 local function On_Built(event)

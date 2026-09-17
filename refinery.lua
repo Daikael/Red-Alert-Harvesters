@@ -1,5 +1,6 @@
 require "utilities"
 require "hybriddrive"
+require "aiwatch"
 
 local beltAreas = {
 	N = { -- North.
@@ -91,6 +92,7 @@ Refinery = {
 	New = function(entity)
 		local self = {
 			entity = entity,
+			unit_number = entity and entity.unit_number,
 			tickOffset = game.tick % 240,
 			hasBelts = false,
 			belts = {N = {}, E = {}, S = {}, W = {}},
@@ -141,11 +143,20 @@ Refinery = {
 		self.reserved = true
 		local id = holder and holder.vehicle and holder.vehicle.unit_number
 		self.reserved_by = id
+		local pad_id = self.unit_number or (self.entity and self.entity.unit_number)
+		if pad_id and storage and AiWatch and AiWatch.note_reserved then
+			AiWatch.note_reserved(storage, pad_id, id)
+		end
 	end,
 
 	UnReserve = function(self)
+		local pad_id = self.unit_number or (self.entity and self.entity.unit_number)
 		self.reserved = false
 		self.reserved_by = nil
+		-- Cheap pad-free signal: free_tick + wake only the next waiter id.
+		if pad_id and storage and AiWatch and AiWatch.wake_next_claimant then
+			AiWatch.wake_next_claimant(storage, pad_id, game and game.tick or 0)
+		end
 	end,
 
 	-- True while a living truck still holds this pad. A leaked `reserved`

@@ -153,7 +153,11 @@ cncharvester = {
 		end
 		refinery:Reserve(self)
 		self.reservedRefinery = true
-		self.targetRefinery = refinery.entity.unit_number
+		self.targetRefinery = refinery.unit_number or refinery.entity.unit_number
+		local truck_id = self.vehicle and self.vehicle.unit_number
+		if storage and self.targetRefinery and truck_id then
+			AiWatch.dequeue_waiter(storage, self.targetRefinery, truck_id)
+		end
 		self.queued_for_pad = nil
 		return true
 	end,
@@ -175,7 +179,12 @@ cncharvester = {
 		AutoDrive.stop(self.vehicle)
 		self:CancelPendingPath()
 		local now = game and game.tick or 0
-		AiWatch.begin_pad_queue(self, now, refinery.entity.unit_number)
+		local pad_id = refinery.unit_number or (refinery.entity and refinery.entity.unit_number)
+		local truck_id = self.vehicle and self.vehicle.unit_number
+		AiWatch.begin_pad_queue(self, now, pad_id)
+		if storage and pad_id and truck_id then
+			AiWatch.enqueue_waiter(storage, pad_id, truck_id)
+		end
 		if self.state == States.FindingRefuelRefinery
 		or self.state == States.ApproachedForRefuel
 		or self.state == States.Refueling then
@@ -1212,6 +1221,34 @@ cncharvester = {
 			if (self.busy_until or 0) > game.tick then
 				return
 			end
+			if self.queued_for_pad and not self:holds_pad() then
+				local queued = Refinery.GetByUnitNumber(self.queued_for_pad)
+				local ok = queued and queued.entity and queued.entity.valid and not queued:IsFull()
+				local free = ok and not queued:IsOccupied()
+				local act = AiWatch.queued_resume(storage, self, free, ok)
+				if act == "wait" then
+					self:queue_for_pad(queued)
+					return
+				end
+				if act == "claim" then
+					if self:claim_pad(queued) then
+						self.dock_try = 0
+						if AutoDrive.can_dump(self.vehicle.position, queued.entity.position) then
+							self.state = States.ApproachedRefinery
+							return
+						end
+						self:StartDrive(
+							Vector.add(queued.entity.position, Stats.RefineryApproachOffset),
+							States.ApproachedRefinery,
+							AutoDrive.PATH_RADIUS_HOME
+						)
+						return
+					end
+					self:queue_for_pad(queued)
+					return
+				end
+				self.queued_for_pad = nil
+			end
 			if self.reservedRefinery and self.targetRefinery then
 				local held = Refinery.GetByUnitNumber(self.targetRefinery)
 				if held and held.entity and held.entity.valid and not held:IsFull() then
@@ -1442,6 +1479,34 @@ cncharvester = {
 		[States.FindingRefuelRefinery] = function(self)
 			if (self.busy_until or 0) > game.tick then
 				return
+			end
+			if self.queued_for_pad and not self:holds_pad() then
+				local queued = Refinery.GetByUnitNumber(self.queued_for_pad)
+				local ok = queued and queued.entity and queued.entity.valid and queued:HasFuel()
+				local free = ok and not queued:IsOccupied()
+				local act = AiWatch.queued_resume(storage, self, free, ok)
+				if act == "wait" then
+					self:queue_for_pad(queued)
+					return
+				end
+				if act == "claim" then
+					if self:claim_pad(queued) then
+						self.dock_try = 0
+						if AutoDrive.can_dump(self.vehicle.position, queued.entity.position) then
+							self.state = States.Refueling
+							return
+						end
+						self:StartDrive(
+							Vector.add(queued.entity.position, Stats.RefineryApproachOffset),
+							States.ApproachedForRefuel,
+							AutoDrive.PATH_RADIUS_HOME
+						)
+						return
+					end
+					self:queue_for_pad(queued)
+					return
+				end
+				self.queued_for_pad = nil
 			end
 			local refinery = Refinery.NearestWithFuel(self.vehicle)
 			if not refinery then

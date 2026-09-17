@@ -1448,6 +1448,48 @@ local w2 = {auto_enabled = true, queued_for_pad = 55, last_progress_tick = 0, st
 expect(AiWatch.should_reboot(w1, 8000, {}) == false and AiWatch.should_reboot(w2, 8000, {}) == false, "several waiters on one reserved pad are not rebooted")
 expect(io.open("control.lua"):read("*a"):find("queued_for_pad = h.queued_for_pad", 1, true) ~= nil, "harvester_ai reports queued_for_pad")
 expect(io.open("control.lua"):read("*a"):find("busy_until = h.busy_until", 1, true) ~= nil, "harvester_ai reports busy_until")
+expect(AiWatch.as_id(55) == 55, "as_id keeps a unit_number")
+expect(AiWatch.as_id({unit_number = 55}) == nil, "as_id rejects a raw entity/table")
+expect(AiWatch.as_id(nil) == nil, "as_id rejects nil")
+local pad_st = {
+	cncharvesters = {
+		[10] = {vehicle = {unit_number = 10}, queued_for_pad = 55, busy_until = 200},
+		[20] = {vehicle = {unit_number = 20}, queued_for_pad = 55, busy_until = 200},
+	},
+}
+AiWatch.enqueue_waiter(pad_st, 55, 20)
+AiWatch.enqueue_waiter(pad_st, 55, 10)
+AiWatch.enqueue_waiter(pad_st, {valid = true, unit_number = 99}, 30)
+expect(pad_st.rah_pads[55] ~= nil, "pad index is keyed by unit_number")
+expect(pad_st.rah_pads[55].entity == nil, "pad index does not store an entity ref")
+expect(pad_st.rah_pads[55].waiters[10] == true and pad_st.rah_pads[55].waiters[20] == true, "waiters are truck unit_numbers")
+expect(pad_st.rah_pads[99] == nil, "entity table is not used as a pad key")
+expect(AiWatch.next_claimant(pad_st, 55) == 10, "next claimant is the lowest waiter id")
+expect(AiWatch.may_start_drive_for_pad(pad_st, 55, 10, true) == true, "elected waiter may StartDrive")
+expect(AiWatch.may_start_drive_for_pad(pad_st, 55, 20, true) == false, "other waiters must not StartDrive")
+expect(AiWatch.may_start_drive_for_pad(pad_st, 55, 10, false) == false, "reserved pad is not a StartDrive")
+expect(AiWatch.queued_resume(pad_st, pad_st.cncharvesters[10], true, true) == "claim", "free pad + elected waiter claims")
+expect(AiWatch.queued_resume(pad_st, pad_st.cncharvesters[20], true, true) == "wait", "free pad + non-elected waiter stays queued")
+expect(AiWatch.queued_resume(pad_st, pad_st.cncharvesters[10], false, true) == "wait", "still-reserved pad stays a quiet wait")
+expect(AiWatch.wake_next_claimant(pad_st, 55, 90) == 10, "UnReserve wakes only the next claimant")
+expect(pad_st.rah_pads[55].free_tick == 90, "pad-free signal is a tick")
+expect(pad_st.rah_pads[55].reserved_by == nil, "freed pad drops reserved_by id")
+expect(pad_st.cncharvesters[10].busy_until == 90, "next claimant busy_until is now")
+expect(pad_st.cncharvesters[20].busy_until == 200, "other waiters keep their recheck tick")
+local rebuilt = AiWatch.rebuild_pad_index({
+	cncharvesters = {
+		[3] = {vehicle = {unit_number = 3}, queued_for_pad = 8},
+		[4] = {vehicle = {unit_number = 4}, queued_for_pad = {valid = true}, reservedRefinery = true, targetRefinery = 8},
+	},
+})
+expect(rebuilt[8].waiters[3] == true, "rebuild indexes queued waiters by id")
+expect(rebuilt[8].waiters[4] == nil, "rebuild drops a table queued_for_pad")
+expect(rebuilt[8].reserved_by == 4, "rebuild notes a holder by unit_number")
+expect(rebuilt[8].entity == nil, "rebuild does not store entity refs")
+expect(io.open("control.lua"):read("*a"):find("storage.rah_pads", 1, true) ~= nil, "control keeps rah_pads in storage")
+expect(io.open("control.lua"):read("*a"):find("rebuild_pad_index", 1, true) ~= nil, "load rebuilds the pad id index")
+expect(io.open("refinery.lua"):read("*a"):find("wake_next_claimant", 1, true) ~= nil, "UnReserve wakes the next claimant only")
+expect(io.open("harvester.lua"):read("*a"):find("queued_resume", 1, true) ~= nil, "FindingRefinery uses queued_resume election")
 expect(AiWatch.progressed(
 	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = 1, reserved = false, scoops = 0},
 	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}

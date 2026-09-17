@@ -220,8 +220,184 @@ function AiWatch.clear_transients(h)
 	h.refuel_fail_n = 0
 	h.reservedRefinery = false
 	h.targetRefinery = false
+	local truck_id = h.vehicle and h.vehicle.unit_number
+	if storage and truck_id then
+		AiWatch.clear_waiter(storage, truck_id)
+	end
 	h.queued_for_pad = nil
 	return h
+end
+
+-- Numbers only. Never a LuaEntity / record (those are not storage-safe keys).
+function AiWatch.as_id(v)
+	if type(v) == "number" then
+		return v
+	end
+	return nil
+end
+
+function AiWatch.ensure_pad_index(st)
+	if not st then
+		return nil
+	end
+	st.rah_pads = st.rah_pads or {}
+	return st.rah_pads
+end
+
+function AiWatch.pad_rec(st, pad_id)
+	pad_id = AiWatch.as_id(pad_id)
+	local pads = AiWatch.ensure_pad_index(st)
+	if not (pads and pad_id) then
+		return nil
+	end
+	local rec = pads[pad_id]
+	if not rec then
+		rec = {waiters = {}, reserved_by = nil, free_tick = 0}
+		pads[pad_id] = rec
+	end
+	rec.waiters = rec.waiters or {}
+	return rec
+end
+
+function AiWatch.enqueue_waiter(st, pad_id, truck_id)
+	pad_id = AiWatch.as_id(pad_id)
+	truck_id = AiWatch.as_id(truck_id)
+	local rec = AiWatch.pad_rec(st, pad_id)
+	if not (rec and truck_id) then
+		return nil
+	end
+	rec.waiters[truck_id] = true
+	return rec
+end
+
+function AiWatch.dequeue_waiter(st, pad_id, truck_id)
+	pad_id = AiWatch.as_id(pad_id)
+	truck_id = AiWatch.as_id(truck_id)
+	local rec = st and st.rah_pads and pad_id and st.rah_pads[pad_id]
+	if rec and rec.waiters and truck_id then
+		rec.waiters[truck_id] = nil
+	end
+	return rec
+end
+
+function AiWatch.clear_waiter(st, truck_id)
+	truck_id = AiWatch.as_id(truck_id)
+	if not (st and st.rah_pads and truck_id) then
+		return
+	end
+	for _, rec in pairs(st.rah_pads) do
+		if rec.waiters then
+			rec.waiters[truck_id] = nil
+		end
+		if rec.reserved_by == truck_id then
+			rec.reserved_by = nil
+		end
+	end
+end
+
+function AiWatch.note_reserved(st, pad_id, truck_id)
+	local rec = AiWatch.pad_rec(st, pad_id)
+	if not rec then
+		return nil
+	end
+	rec.reserved_by = AiWatch.as_id(truck_id)
+	if rec.reserved_by and rec.waiters then
+		rec.waiters[rec.reserved_by] = nil
+	end
+	return rec
+end
+
+function AiWatch.note_free(st, pad_id, now)
+	local rec = AiWatch.pad_rec(st, pad_id)
+	if not rec then
+		return nil
+	end
+	rec.reserved_by = nil
+	rec.free_tick = now or 0
+	return rec
+end
+
+-- Lowest truck unit_number still queued on this pad. IDs only.
+function AiWatch.next_claimant(st, pad_id)
+	pad_id = AiWatch.as_id(pad_id)
+	local rec = st and st.rah_pads and pad_id and st.rah_pads[pad_id]
+	if not (rec and rec.waiters) then
+		return nil
+	end
+	local best
+	for id, on in pairs(rec.waiters) do
+		if on and type(id) == "number" and (not best or id < best) then
+			best = id
+		end
+	end
+	return best
+end
+
+-- Only the elected waiter may StartDrive when the pad frees.
+function AiWatch.may_start_drive_for_pad(st, pad_id, truck_id, pad_is_free)
+	if not pad_is_free then
+		return false
+	end
+	truck_id = AiWatch.as_id(truck_id)
+	pad_id = AiWatch.as_id(pad_id)
+	if not truck_id then
+		return false
+	end
+	local next_id = AiWatch.next_claimant(st, pad_id)
+	if next_id == nil then
+		return true
+	end
+	return next_id == truck_id
+end
+
+-- Holder cleared the pad. Mark free_tick and wake only the next claimant
+-- (busy_until = now). Other waiters keep their recheck tick.
+function AiWatch.wake_next_claimant(st, pad_id, now)
+	AiWatch.note_free(st, pad_id, now)
+	local id = AiWatch.next_claimant(st, pad_id)
+	if not id then
+		return nil
+	end
+	local h = st and st.cncharvesters and st.cncharvesters[id]
+	if h then
+		h.busy_until = now or 0
+	end
+	return id
+end
+
+function AiWatch.queued_resume(st, h, pad_is_free, pad_ok)
+	if not pad_ok then
+		return "gone"
+	end
+	if not pad_is_free then
+		return "wait"
+	end
+	local me = h and h.vehicle and h.vehicle.unit_number
+	if AiWatch.may_start_drive_for_pad(st, h and h.queued_for_pad, me, true) then
+		return "claim"
+	end
+	return "wait"
+end
+
+function AiWatch.rebuild_pad_index(st)
+	if not st then
+		return nil
+	end
+	st.rah_pads = {}
+	for id, h in pairs(st.cncharvesters or {}) do
+		local truck_id = AiWatch.as_id(h.vehicle and h.vehicle.unit_number) or AiWatch.as_id(id)
+		if truck_id then
+			local q = AiWatch.as_id(h.queued_for_pad)
+			if q then
+				AiWatch.enqueue_waiter(st, q, truck_id)
+			end
+			local pad = AiWatch.as_id(h.targetRefinery)
+			if h.reservedRefinery and pad then
+				AiWatch.note_reserved(st, pad, truck_id)
+			end
+		end
+	end
+	return st.rah_pads
 end
 
 -- Pad id is a unit_number. busy_until is a tick. No callbacks.
@@ -229,7 +405,7 @@ function AiWatch.begin_pad_queue(h, now, pad_id)
 	if not h then
 		return h
 	end
-	h.queued_for_pad = pad_id
+	h.queued_for_pad = AiWatch.as_id(pad_id)
 	local wait = AiWatch.PAD_RECHECK_TICKS
 	if AutoDrive and AutoDrive.PAD_RECHECK_TICKS then
 		wait = AutoDrive.PAD_RECHECK_TICKS
