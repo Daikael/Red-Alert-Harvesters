@@ -772,6 +772,11 @@ expect(io.open("harvester.lua"):read("*a"):find("clear_nearby_trees", 1, true) ~
 expect(io.open("harvester.lua"):read("*a"):find("near_dock", 1, true) ~= nil, "home trip accepts a close-enough dock")
 expect(io.open("harvester.lua"):read("*a"):find("dock_goal", 1, true) ~= nil, "stuck home trips try alternate dock faces")
 expect(io.open("harvester.lua"):read("*a"):find("self:claim_pad", 1, true) ~= nil, "FindingRefinery reserves before the drive")
+expect(io.open("harvester.lua"):read("*a"):find("self:queue_for_pad", 1, true) ~= nil, "FindingRefinery waiters call queue_for_pad")
+expect(io.open("harvester.lua"):read("*a"):find("self.queued_for_pad and not self:holds_pad()", 1, true) ~= nil, "StartDrive refuses waiter path requests")
+expect(io.open("harvester.lua"):read("*a"):find("if self.queued_for_pad then", 1, true) ~= nil, "KickAuto does not StartDrive a queued waiter")
+expect(io.open("harvester.lua"):read("*a"):find("can_alert_stuck_home", 1, true) ~= nil, "stuck alerts go through can_alert_stuck_home")
+expect(io.open("harvester.lua"):read("*a"):find("if self:holds_pad() then", 1, true) ~= nil, "OnPathFail home repath is holder-only")
 expect(io.open("harvester.lua"):read("*a"):find("self:release_pad", 1, true) ~= nil, "pad lock is released on dump/fail/leave")
 expect(io.open("harvester.lua"):read("*a"):find("GetAvailableSlots() > Stats.cncharvesterCargoSlots", 1, true) == nil, "dump no longer requires 21 empty chest stacks")
 expect(io.open("refinery.lua"):read("*a"):find("reserved_by", 1, true) ~= nil, "reserve records the holding truck")
@@ -1397,6 +1402,52 @@ local idle_h = {
 	vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
 }
 expect(AiWatch.tick(idle_h, 3600, {}) == "reboot", "no-progress FindingRefinery heartbeat reboots")
+expect(AiWatch.waiter_should_idle({waitable_pad = true}) == true, "no free pad + reserved not-full is a waiter")
+expect(AiWatch.waiter_should_idle({waitable_pad = true, holds_pad = true}) == false, "pad holder is not a waiter")
+expect(AiWatch.waiter_should_idle({waitable_pad = true, free_pad = true}) == false, "a free pad is not a waiter")
+expect(AiWatch.waiter_should_idle({waitable_pad = false, no_pads = true}) == false, "no pads is not a quiet queue")
+expect(AiWatch.should_alert_stuck_home({holds_pad = true}) == true, "holder after home repath budget may alert")
+expect(AiWatch.should_alert_stuck_home({no_pads = true}) == true, "no pads may alert")
+expect(AiWatch.should_alert_stuck_home({all_full = true}) == true, "all-full pads may alert")
+expect(AiWatch.should_alert_stuck_home({waitable_pad = true}) == false, "reserved not-full queue is not stuck")
+expect(AiWatch.should_alert_stuck_home({queued_for_pad = 55, holds_pad = true}) == false, "queued flag suppresses stuck even if holds_pad is set")
+expect(AiWatch.should_alert_stuck_home({queued_for_pad = 55, waitable_pad = true}) == false, "queued waiter is not stuck")
+local qh = {auto_enabled = true, state = AiWatch.STATE.FindingRefinery, last_progress_tick = 0, path_id = 44}
+AiWatch.begin_pad_queue(qh, 100, 55)
+expect(qh.queued_for_pad == 55, "pad queue stores a refinery unit_number")
+expect(qh.busy_until == 100 + AiWatch.PAD_RECHECK_TICKS, "pad queue stores a busy tick")
+expect(qh.going_home == false, "pad queue clears going_home")
+expect(AiWatch.pad_wait(qh, 100) == true, "queued_for_pad is a pad wait")
+expect(AiWatch.should_reboot(qh, 99999, {}) == false, "queued waiter is not RebootAI'd")
+expect(AiWatch.should_reboot({
+	auto_enabled = true,
+	state = AiWatch.STATE.FindingRefinery,
+	last_progress_tick = 0,
+	queued_for_pad = 55,
+}, 99999, {}) == false, "queued_for_pad skips reboot without busy_until")
+qh.vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}}
+qh.watch_snap = {state = AiWatch.STATE.FindingRefinery, x = 0, y = 0, trunk = 10, tank = 0, path_id = nil, reserved = false, scoops = 0, queued = 55}
+expect(AiWatch.due(qh, 120) == true, "queued unit 0 is due on tick 120")
+expect(AiWatch.tick(qh, 120, {trunk = 10, tank = 0, pos = {x = 0, y = 0}}) == "wait", "queued heartbeat treats no-move as wait")
+expect(qh.last_progress_tick == 120, "queued wait refreshes last_progress")
+local rebq = {
+	auto_enabled = true,
+	queued_for_pad = 55,
+	path_id = 9,
+	last_progress_tick = 0,
+	filled = true,
+}
+expect(AiWatch.apply_reboot(rebq, 50, {filled = true}) == true, "filled queued truck can still reboot when asked")
+expect(rebq.queued_for_pad == nil, "reboot transients drop queued_for_pad")
+expect(rebq.path_id == nil, "reboot still clears path")
+local cleared = {queued_for_pad = 55, path_id = 1, auto_enabled = true}
+AiWatch.clear_transients(cleared)
+expect(cleared.queued_for_pad == nil, "clear_transients drops queued_for_pad")
+local w1 = {auto_enabled = true, queued_for_pad = 55, last_progress_tick = 0, state = AiWatch.STATE.FindingRefinery}
+local w2 = {auto_enabled = true, queued_for_pad = 55, last_progress_tick = 0, state = AiWatch.STATE.FindingRefinery}
+expect(AiWatch.should_reboot(w1, 8000, {}) == false and AiWatch.should_reboot(w2, 8000, {}) == false, "several waiters on one reserved pad are not rebooted")
+expect(io.open("control.lua"):read("*a"):find("queued_for_pad = h.queued_for_pad", 1, true) ~= nil, "harvester_ai reports queued_for_pad")
+expect(io.open("control.lua"):read("*a"):find("busy_until = h.busy_until", 1, true) ~= nil, "harvester_ai reports busy_until")
 expect(AiWatch.progressed(
 	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = 1, reserved = false, scoops = 0},
 	{state = 3, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0}

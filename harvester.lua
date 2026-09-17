@@ -154,7 +154,58 @@ cncharvester = {
 		refinery:Reserve(self)
 		self.reservedRefinery = true
 		self.targetRefinery = refinery.entity.unit_number
+		self.queued_for_pad = nil
 		return true
+	end,
+
+	-- Waiters: a reserved/not-full pad exists. Stop. Store pad id + busy tick
+	-- only (no callbacks). Do not StartDrive.
+	queue_for_pad = function(self, refinery)
+		if not refinery then
+			refinery = Refinery.Nearest(self.vehicle)
+		end
+		if not (refinery and refinery.entity and refinery.entity.valid) then
+			self.queued_for_pad = nil
+			return false
+		end
+		if refinery.IsFull and refinery:IsFull() then
+			self.queued_for_pad = nil
+			return false
+		end
+		AutoDrive.stop(self.vehicle)
+		self:CancelPendingPath()
+		local now = game and game.tick or 0
+		AiWatch.begin_pad_queue(self, now, refinery.entity.unit_number)
+		if self.state == States.FindingRefuelRefinery
+		or self.state == States.ApproachedForRefuel
+		or self.state == States.Refueling then
+			self.state = States.FindingRefuelRefinery
+		else
+			self.state = States.FindingRefinery
+		end
+		return true
+	end,
+
+	can_alert_stuck_home = function(self)
+		local holds = self:holds_pad()
+		local total, not_full = 0, 0
+		local surface = self.vehicle and self.vehicle.surface
+		for _, rec in pairs(storage and storage.refineries or {}) do
+			local ent = rec and rec.entity
+			if ent and ent.valid and (not surface or ent.surface == surface) then
+				total = total + 1
+				if not (rec.IsFull and rec:IsFull()) then
+					not_full = not_full + 1
+				end
+			end
+		end
+		return AiWatch.should_alert_stuck_home({
+			queued_for_pad = self.queued_for_pad,
+			holds_pad = holds,
+			no_pads = total == 0,
+			all_full = total > 0 and not_full == 0,
+			waitable_pad = not_full > 0,
+		})
 	end,
 
 	Delete = function(self)
@@ -395,6 +446,9 @@ cncharvester = {
 	-- passenger must never skip this.
 	KickAuto = function(self)
 		if not self:auto_on() then
+			return
+		end
+		if self.queued_for_pad then
 			return
 		end
 		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
@@ -830,6 +884,10 @@ cncharvester = {
 		if AutoDrive.player_is_driver(self.vehicle) and self:pause_yields() then
 			return
 		end
+		-- Quiet pad queue: waiters must not request_path (herd OnPathFail).
+		if self.queued_for_pad and not self:holds_pad() then
+			return
+		end
 		-- Same dest already in flight: do not cancel + request_path + spawn blockers.
 		if self:already_driving(position, arrival_state) then
 			self.state = States.MovingToLocation
@@ -882,6 +940,9 @@ cncharvester = {
 	end,
 
 	raise_stuck_alert = function(self)
+		if not self:can_alert_stuck_home() then
+			return
+		end
 		local now = game.tick
 		if (self.alert_tick or 0) + AutoDrive.ALERT_COOLDOWN > now then
 			return
@@ -908,21 +969,31 @@ cncharvester = {
 	OnPathFail = function(self)
 		AutoDrive.stop(self.vehicle)
 		if self.going_home or self.home_early or self:is_home_state() then
-			self.home_repath_n = (self.home_repath_n or 0) + 1
-			if self.home_repath_n <= AutoDrive.HOME_REPATH_MAX then
-				local goal = self.targetPosition
-				local ref = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
-				if ref and ref.entity and ref.entity.valid then
-					self.dock_try = (self.dock_try or 0) + 1
-					goal = AutoDrive.dock_goal(ref.entity.position, self.dock_try)
-				end
-				if goal then
-					self:StartDrive(goal, self.arrival_state, AutoDrive.PATH_RADIUS_HOME)
-					return
+			-- Waiters (reserved/not-full pad, not the holder) idle. Do not
+			-- burn the home repath budget or raise yellow/red stuck.
+			if not self:holds_pad() and self:queue_for_pad() then
+				return
+			end
+			if self:holds_pad() then
+				self.home_repath_n = (self.home_repath_n or 0) + 1
+				if self.home_repath_n <= AutoDrive.HOME_REPATH_MAX then
+					local goal = self.targetPosition
+					local ref = self.targetRefinery and Refinery.GetByUnitNumber(self.targetRefinery)
+					if ref and ref.entity and ref.entity.valid then
+						self.dock_try = (self.dock_try or 0) + 1
+						goal = AutoDrive.dock_goal(ref.entity.position, self.dock_try)
+					end
+					if goal then
+						self:StartDrive(goal, self.arrival_state, AutoDrive.PATH_RADIUS_HOME)
+						return
+					end
 				end
 			end
-			self:raise_stuck_alert()
+			if self:can_alert_stuck_home() then
+				self:raise_stuck_alert()
+			end
 			self:release_pad()
+			self.queued_for_pad = nil
 			self.busy_until = (game and game.tick or 0) + AutoDrive.STUCK_RETRY_TICKS
 			self.state = States.FindingRefinery
 			return
@@ -1167,24 +1238,21 @@ cncharvester = {
 			end
 			local refinery = Refinery.NearestUnoccupied(self.vehicle)
 			if not refinery then
-				AutoDrive.stop(self.vehicle)
-				self:CancelPendingPath()
-				self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
 				local any = Refinery.Nearest(self.vehicle)
-				-- Reserved-but-not-full: wait in the queue. Toast only when
-				-- there is no pad or every pad is actually full.
-				if any and any.entity and any.entity.valid and not any:IsFull() then
+				if self:queue_for_pad(any) then
 					return
 				end
+				AutoDrive.stop(self.vehicle)
+				self:CancelPendingPath()
+				self.queued_for_pad = nil
+				self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
 				if (game.tick % 120) == 0 then
 					self:FloatingText({"cncharvester.no-empty-refinery"}, FLOATING_TEXT_ERROR_RED, FLOATING_TEXT_ERROR_TTL)
 				end
 				return
 			end
 			if not self:claim_pad(refinery) then
-				AutoDrive.stop(self.vehicle)
-				self:CancelPendingPath()
-				self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
+				self:queue_for_pad(refinery)
 				return
 			end
 			self.dock_try = 0
@@ -1208,7 +1276,7 @@ cncharvester = {
 			end
 			if not self:holds_pad(targetRefinery) then
 				if not self:claim_pad(targetRefinery) then
-					self.state = States.FindingRefinery
+					self:queue_for_pad(targetRefinery)
 					return
 				end
 			end
@@ -1300,11 +1368,7 @@ cncharvester = {
 					local holder = self:holds_pad(home)
 					if not holder and home:IsOccupied() then
 						-- Queue: do not drive onto a pad someone else holds.
-						AutoDrive.stop(self.vehicle)
-						self:CancelPendingPath()
-						self.going_home = false
-						self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
-						self.state = States.FindingRefinery
+						self:queue_for_pad(home)
 						return
 					end
 					if AutoDrive.near_dock(self.vehicle.position, pad.position) then
@@ -1387,15 +1451,11 @@ cncharvester = {
 				return
 			end
 			if refinery:IsOccupied() and not self:holds_pad(refinery) then
-				AutoDrive.stop(self.vehicle)
-				self:CancelPendingPath()
-				self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
+				self:queue_for_pad(refinery)
 				return
 			end
 			if not self:claim_pad(refinery) then
-				AutoDrive.stop(self.vehicle)
-				self:CancelPendingPath()
-				self.busy_until = game.tick + AutoDrive.PAD_RECHECK_TICKS
+				self:queue_for_pad(refinery)
 				return
 			end
 			self.dock_try = 0
@@ -1418,7 +1478,7 @@ cncharvester = {
 				return
 			end
 			if not self:holds_pad(targetRefinery) and not self:claim_pad(targetRefinery) then
-				self.state = States.FindingRefuelRefinery
+				self:queue_for_pad(targetRefinery)
 				return
 			end
 			if AutoDrive.can_dump(self.vehicle.position, targetRefinery.entity.position) then

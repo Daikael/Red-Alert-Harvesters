@@ -64,6 +64,8 @@ remote.add_interface("Red-Alert-Harvester", {
 				home_repath_n = h.home_repath_n,
 				going_home = h.going_home == true,
 				home_early = h.home_early == true,
+				queued_for_pad = h.queued_for_pad,
+				busy_until = h.busy_until,
 				last_progress = h.last_progress_tick,
 				reboot_until = h.reboot_until,
 				range = h.search_range,

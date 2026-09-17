@@ -5,8 +5,9 @@
 --
 -- Must not StartDrive / request_path from AfterLoad (pad-storm CTD).
 -- Must not rewrite auto_enabled or pause_on_enter.
--- Pathfinder try_again_later / busy_until / load grace freeze the timer.
--- A huge leftover busy_until is treated as stuck, not immunity.
+-- Pathfinder try_again_later / busy_until / load grace / pad queue freeze
+-- the timer. A huge leftover busy_until is treated as stuck, not immunity.
+-- queued_for_pad is a refinery unit_number (id) on the harvester record.
 
 AiWatch = AiWatch or {}
 
@@ -20,6 +21,8 @@ AiWatch.MOVE_TILES = 0.5
 -- STUCK_RETRY is 300. Anything farther out is a ghost forever-busy.
 AiWatch.BUSY_MAX_TICKS = 720
 AiWatch.DEFAULT_TIMEOUT = 3600
+-- Match AutoDrive.PAD_RECHECK_TICKS. Waiters idle this long between scans.
+AiWatch.PAD_RECHECK_TICKS = 30
 
 -- Keep in sync with harvester.lua `States`.
 AiWatch.STATE = {
@@ -139,6 +142,7 @@ function AiWatch.snapshot(h, opts)
 		path_id = h and h.path_id,
 		reserved = h and h.reservedRefinery and true or false,
 		scoops = h and (h.scoopsMined or 0) or 0,
+		queued = h and h.queued_for_pad or nil,
 	}
 end
 
@@ -156,6 +160,9 @@ function AiWatch.progressed(prev, snap)
 		return true
 	end
 	if prev.reserved ~= snap.reserved then
+		return true
+	end
+	if prev.queued ~= snap.queued then
 		return true
 	end
 	if (snap.scoops or 0) ~= (prev.scoops or 0) then
@@ -213,7 +220,72 @@ function AiWatch.clear_transients(h)
 	h.refuel_fail_n = 0
 	h.reservedRefinery = false
 	h.targetRefinery = false
+	h.queued_for_pad = nil
 	return h
+end
+
+-- Pad id is a unit_number. busy_until is a tick. No callbacks.
+function AiWatch.begin_pad_queue(h, now, pad_id)
+	if not h then
+		return h
+	end
+	h.queued_for_pad = pad_id
+	local wait = AiWatch.PAD_RECHECK_TICKS
+	if AutoDrive and AutoDrive.PAD_RECHECK_TICKS then
+		wait = AutoDrive.PAD_RECHECK_TICKS
+	end
+	h.busy_until = (now or 0) + wait
+	h.going_home = false
+	return h
+end
+
+function AiWatch.end_pad_queue(h)
+	if h then
+		h.queued_for_pad = nil
+	end
+	return h
+end
+
+-- Quiet wait: reserved-but-not-full pad, or short pad-recheck busy.
+-- Same class as pathfinder try_again_later — not a RebootAI reason.
+function AiWatch.pad_wait(h, now)
+	if not h then
+		return false
+	end
+	if h.queued_for_pad then
+		return true
+	end
+	if (h.busy_until or 0) > (now or 0) and not AiWatch.forever_busy(h, now) then
+		return true
+	end
+	return false
+end
+
+-- No free pad, but a not-full (often reserved) pad exists → idle, no StartDrive.
+function AiWatch.waiter_should_idle(opts)
+	opts = opts or {}
+	if opts.holds_pad or opts.free_pad then
+		return false
+	end
+	return opts.waitable_pad and true or false
+end
+
+-- After the home repath budget. Quiet queue is not yellow/red stuck.
+function AiWatch.should_alert_stuck_home(opts)
+	opts = opts or {}
+	if opts.queued_for_pad then
+		return false
+	end
+	if opts.holds_pad then
+		return true
+	end
+	if opts.no_pads or opts.all_full then
+		return true
+	end
+	if opts.waitable_pad then
+		return false
+	end
+	return true
 end
 
 function AiWatch.should_reboot(h, now, ctx)
@@ -232,6 +304,12 @@ function AiWatch.should_reboot(h, now, ctx)
 	end
 	local forever = AiWatch.forever_busy(h, now)
 	if ctx.in_load_grace and not forever then
+		return false
+	end
+	if h.queued_for_pad then
+		return false
+	end
+	if AiWatch.pad_wait(h, now) and not forever then
 		return false
 	end
 	if (h.busy_until or 0) > now and not forever then
@@ -266,7 +344,7 @@ function AiWatch.tick(h, now, ctx)
 		h.watch_snap = snap
 	end
 	local forever = AiWatch.forever_busy(h, now)
-	if (ctx.in_load_grace or ((h.busy_until or 0) > now)) and not forever then
+	if h.queued_for_pad or ((ctx.in_load_grace or AiWatch.pad_wait(h, now)) and not forever) then
 		h.last_progress_tick = now
 		return "wait"
 	end
