@@ -442,7 +442,12 @@ cncharvester = {
 				player_driver = player_driver,
 				pause_yield = player_driver and self:pause_yields(),
 			})
-			AiWatch.toast(self, reason, AiWatch.reason_fields(self, now, {goal = self.state}))
+			-- Long reason strings + log() are DEBUG_REASON only (UPS).
+			if AiWatch.DEBUG_REASON then
+				AiWatch.toast(self, reason, AiWatch.reason_fields(self, now, {goal = self.state}))
+			else
+				AiWatch.toast(self, reason)
+			end
 		end
 		return ok
 	end,
@@ -452,9 +457,15 @@ cncharvester = {
 			return
 		end
 		local now = game and game.tick or 0
+		-- due() first: do not get_driver / snapshot inventory on off-beats.
+		if not AiWatch.due(self, now) then
+			return
+		end
 		local ctx = {
 			in_load_grace = AutoDrive.in_load_grace and AutoDrive.in_load_grace() or false,
 			pause_yield = AutoDrive.player_is_driver(self.vehicle) and self:pause_yields(),
+			pos = self.vehicle and self.vehicle.position,
+			budget = true,
 		}
 		if AiWatch.tick(self, now, ctx) == "reboot" then
 			self:RebootAI("watchdog")

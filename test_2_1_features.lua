@@ -1271,7 +1271,11 @@ expect(ghost.rah_migration.rev == RahMigrate.REV, "rah_migration rev is stamped"
 expect(RahMigrate.clean_storage(ghost, {tank_empty = {[2] = true}}) == false, "second pass is a no-op")
 expect(ghost.cncharvesters[2].state == RahMigrate.STATE.FindingRefuelRefinery, "no-op pass does not re-stamp state")
 dofile("aiwatch.lua")
-expect(AiWatch.CHECK_INTERVAL == 30, "watchdog is tick-throttled")
+expect(AiWatch.CHECK_INTERVAL == 90, "watchdog is tick-throttled (1.5 s stagger)")
+expect(AiWatch.MAX_EVALS_PER_TICK == 3, "full AiWatch evals are capped per tick")
+expect(AiWatch.DEBUG_REASON == false, "reboot reason log is compile-gated off")
+expect(AiWatch.HOP_RANGE_CAP == 16, "hop search radius is UPS-capped at 16")
+expect(AiWatch.HOP_PRECISION == 1, "hop searches tile centers at precision 1")
 expect(AiWatch.COOLDOWN_TICKS == 3600, "reboot cooldown is 60 s")
 expect(AiWatch.TIMEOUT[AiWatch.STATE.FindingOre] == 5400, "FindingOre timeout is 90 s")
 expect(AiWatch.TIMEOUT[AiWatch.STATE.MovingToLocation] == 5400, "MovingToLocation timeout is 90 s")
@@ -1392,6 +1396,7 @@ local wait_h = {
 	vehicle = {unit_number = 0},
 }
 expect(AiWatch.due(wait_h, 90) == true, "unit 0 is due on tick 90")
+expect(AiWatch.due(wait_h, 91) == false, "unit 0 is not due off the stagger")
 expect(AiWatch.tick(wait_h, 90, {}) == "wait", "active busy_until freezes the watchdog")
 expect(wait_h.last_progress_tick == 90, "busy grace refreshes last_progress")
 local idle_h = {
@@ -1427,9 +1432,26 @@ expect(AiWatch.should_reboot({
 }, 99999, {}) == false, "queued_for_pad skips reboot without busy_until")
 qh.vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}}
 qh.watch_snap = {state = AiWatch.STATE.FindingRefinery, x = 0, y = 0, trunk = 10, tank = 0, path_id = nil, reserved = false, scoops = 0, queued = 55}
-expect(AiWatch.due(qh, 120) == true, "queued unit 0 is due on tick 120")
-expect(AiWatch.tick(qh, 120, {trunk = 10, tank = 0, pos = {x = 0, y = 0}}) == "wait", "queued heartbeat treats no-move as wait")
-expect(qh.last_progress_tick == 120, "queued wait refreshes last_progress")
+expect(AiWatch.due(qh, 180) == true, "queued unit 0 is due on tick 180")
+expect(AiWatch.tick(qh, 180, {trunk = 10, tank = 0, pos = {x = 0, y = 0}}) == "wait", "queued heartbeat treats no-move as wait")
+expect(qh.last_progress_tick == 180, "queued wait refreshes last_progress")
+do
+	local q_inv = {
+		auto_enabled = true,
+		queued_for_pad = 55,
+		state = AiWatch.STATE.FindingRefinery,
+		last_progress_tick = 0,
+		vehicle = {
+			unit_number = 0,
+			valid = true,
+			position = {x = 0, y = 0},
+			get_inventory = function()
+				error("inventory must not run on queued wait")
+			end,
+		},
+	}
+	expect(AiWatch.tick(q_inv, 90, {}) == "wait", "queued wait skips inventory counts")
+end
 local rebq = {
 	auto_enabled = true,
 	queued_for_pad = 55,
@@ -1561,6 +1583,23 @@ local path_wait = {
 expect(AiWatch.due(path_wait, 90) == true, "path-busy unit 0 is due on tick 90")
 expect(AiWatch.tick(path_wait, 90, {pos = {x = 0, y = 0}}) == "wait", "in-flight path_id heartbeat is wait")
 expect(path_wait.last_progress_tick == 90, "path-busy wait refreshes last_progress")
+do
+	local path_inv = {
+		auto_enabled = true,
+		state = AiWatch.STATE.MovingToLocation,
+		last_progress_tick = 0,
+		path_id = 9,
+		vehicle = {
+			unit_number = 0,
+			valid = true,
+			position = {x = 0, y = 0},
+			get_inventory = function()
+				error("inventory must not run on path-busy wait")
+			end,
+		},
+	}
+	expect(AiWatch.tick(path_inv, 90, {}) == "wait", "path-busy wait skips inventory counts")
+end
 local ore_wait = {
 	auto_enabled = true,
 	state = AiWatch.STATE.FindingOre,
@@ -1575,11 +1614,46 @@ local crawl = {
 	watch_snap = {state = AiWatch.STATE.MiningOre, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
 	vehicle = {unit_number = 0, valid = true, position = {x = 0.3, y = 0}},
 }
-expect(AiWatch.tick(crawl, 30, {pos = {x = 0.3, y = 0}}) == "ok", "sub-threshold crawl is not yet a reboot")
+expect(AiWatch.tick(crawl, 90, {pos = {x = 0.3, y = 0}}) == "ok", "sub-threshold crawl is not yet a reboot")
 expect(crawl.last_progress_tick == 0, "sub-threshold crawl does not stamp last_progress")
 expect(crawl.watch_snap.x == 0, "no-progress does not clobber the last-progress snap")
-expect(AiWatch.tick(crawl, 60, {pos = {x = 0.6, y = 0}}) == "ok", "accumulated 0.6 tile crawl is ok")
-expect(crawl.last_progress_tick == 60, "accumulated move stamps last_progress")
+expect(AiWatch.tick(crawl, 180, {pos = {x = 0.6, y = 0}}) == "ok", "accumulated 0.6 tile crawl is ok")
+expect(crawl.last_progress_tick == 180, "accumulated move stamps last_progress")
+do
+	local dump_prog = {
+		auto_enabled = true,
+		state = AiWatch.STATE.DroppingOre,
+		last_progress_tick = 0,
+		watch_snap = {state = AiWatch.STATE.DroppingOre, x = 0, y = 0, trunk = 10, tank = 0, path_id = nil, reserved = false, scoops = 0},
+		vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+	}
+	expect(AiWatch.tick(dump_prog, 1800, {pos = {x = 0, y = 0}, trunk = 7, tank = 0}) == "ok", "trunk delta at timeout is progress not reboot")
+	expect(dump_prog.last_progress_tick == 1800, "inventory delta stamps last_progress")
+	AiWatch._budget_tick = nil
+	AiWatch._budget_left = nil
+	expect(AiWatch.claim_eval(5001) == true, "claim_eval allows the first full eval")
+	local claimed = 1
+	for _ = 2, AiWatch.MAX_EVALS_PER_TICK do
+		if AiWatch.claim_eval(5001) then
+			claimed = claimed + 1
+		end
+	end
+	expect(claimed == AiWatch.MAX_EVALS_PER_TICK, "claim_eval grants the per-tick cap")
+	expect(AiWatch.claim_eval(5001) == false, "claim_eval denies over the per-tick cap")
+	expect(AiWatch.claim_eval(5002) == true, "claim_eval resets on a new tick")
+	local budget_h = {
+		auto_enabled = true,
+		state = AiWatch.STATE.FindingRefinery,
+		last_progress_tick = 0,
+		watch_snap = {state = AiWatch.STATE.FindingRefinery, x = 0, y = 0, trunk = 0, tank = 0, path_id = nil, reserved = false, scoops = 0},
+		vehicle = {unit_number = 0, valid = true, position = {x = 0, y = 0}},
+	}
+	AiWatch._budget_tick = 3600
+	AiWatch._budget_left = 0
+	expect(AiWatch.tick(budget_h, 3600, {budget = true, pos = {x = 0, y = 0}}) == "skip", "over-budget full eval is deferred")
+	AiWatch._budget_tick = nil
+	AiWatch._budget_left = nil
+end
 local reason_h = {
 	state = AiWatch.STATE.MovingToLocation,
 	last_progress_tick = 100,
@@ -1605,12 +1679,14 @@ expect(reason_line:find("queued=", 1, true) ~= nil, "format_reason includes queu
 expect(reason_line:find("path_busy=", 1, true) ~= nil, "format_reason includes path_busy")
 expect(reason_line:find("busy=", 1, true) ~= nil, "format_reason includes busy_until")
 expect(AiWatch.toast(reason_h, "watchdog", fields):find("path_id=44", 1, true) ~= nil, "toast line includes path_id for Deck/log")
+expect(AiWatch.toast(reason_h, "watchdog"):find("s=1", 1, true) ~= nil, "production toast is a short streak string")
+expect(AiWatch.toast(reason_h, "watchdog"):find("path_id=", 1, true) == nil, "production toast omits the long reason blob")
 expect(AiWatch.hop_range(1) == 0, "attempt 1 hop range is 0 (clear only)")
 expect(AiWatch.hop_range(2) == 8, "attempt 2 hop range is 8")
 expect(AiWatch.hop_range(3) == 16, "attempt 3 hop range is 16")
-expect(AiWatch.hop_range(4) == 32, "attempt 4 hop range is 32")
-expect(AiWatch.hop_range(5) == 64, "attempt 5 hop range is 64")
-expect(AiWatch.hop_range(9) == 64, "hop range hard-caps at 64")
+expect(AiWatch.hop_range(4) == 16, "attempt 4 hop range stays at the 16 cap")
+expect(AiWatch.hop_range(5) == 16, "attempt 5 hop range stays at the 16 cap")
+expect(AiWatch.hop_range(9) == 16, "hop range hard-caps at 16")
 local hop1 = {auto_enabled = true, reboot_streak = 1, vehicle = {name = "cncharvester", valid = true, teleport = function() return true end}}
 expect(AiWatch.may_teleport(hop1, 100, {}) == false, "attempt 1 does not teleport")
 expect(AiWatch.may_teleport({reboot_streak = 2, queued_for_pad = 55}, 100, {}) == false, "queued_for_pad never teleports")
@@ -1646,7 +1722,7 @@ expect(AiWatch.try_hop(hop_h, 200, {}) == true, "attempt 2 hops to a non-collidi
 expect(hop_calls.find.name == "cncharvester", "hop searches by vehicle.name")
 expect(hop_calls.find.center.x == 10 and hop_calls.find.center.y == 20, "hop searches goal_or_here")
 expect(hop_calls.find.range == 8, "hop uses streak range")
-expect(hop_calls.find.prec == 0.5, "hop precision is 0.5")
+expect(hop_calls.find.prec == 1, "hop precision is 1 tile")
 expect(hop_calls.find.tile == true, "hop forces tile center")
 expect(hop_calls[1].x == 12 and hop_calls[1].y == 20, "hop teleports to the found tile")
 expect(hop_h.path_id == nil, "hop clears pathfinder goal id")
@@ -1670,7 +1746,7 @@ local no_pos = {
 	},
 }
 expect(AiWatch.try_hop(no_pos, 10, {}) == false, "no non-colliding tile means no hop")
-expect(no_pos.reboot_hop_until == nil, "failed hop does not stamp cooldown")
+expect(no_pos.reboot_hop_until == 10 + AiWatch.HOP_COOLDOWN, "failed hop stamps cooldown so the search does not repeat")
 local streak_h = {auto_enabled = true, filled = true, state = 2}
 expect(AiWatch.apply_reboot(streak_h, 10, {filled = true}) == true, "apply_reboot increments streak")
 expect(streak_h.reboot_streak == 1, "first true reboot is streak 1")
@@ -1683,7 +1759,10 @@ expect(keep_streak.reboot_streak == 3, "clear_transients keeps streak int")
 expect(keep_streak.reboot_hop_until == 99, "clear_transients keeps hop cooldown int")
 expect(io.open("harvester.lua"):read("*a"):find("if self.queued_for_pad then", 1, true) ~= nil, "RebootAI refuses queued waiters")
 expect(io.open("harvester.lua"):read("*a"):find("AiWatch.try_hop", 1, true) ~= nil, "RebootAI may hop on true streaks")
+expect(io.open("harvester.lua"):read("*a"):find("if not AiWatch.due(self, now) then", 1, true) ~= nil, "WatchAI due-gates before get_driver")
 expect(io.open("harvester.lua"):read("*a"):find("pause_yield = AutoDrive.player_is_driver", 1, true) ~= nil, "WatchAI passes pause_yield")
+expect(io.open("harvester.lua"):read("*a"):find("budget = true", 1, true) ~= nil, "WatchAI passes the per-tick eval budget")
+expect(io.open("harvester.lua"):read("*a"):find("AiWatch.DEBUG_REASON", 1, true) ~= nil, "RebootAI toast is compile-gated")
 expect(io.open("control.lua"):read("*a"):find("reboot_streak = h.reboot_streak", 1, true) ~= nil, "harvester_ai reports reboot_streak")
 expect(io.open("control.lua"):read("*a"):find("path_busy = AiWatch.path_busy", 1, true) ~= nil, "harvester_ai reports path_busy")
 expect(io.open("locale/en/all.cfg"):read("*a"):find("ai-rebooted=Harvester AI rebooted (__1__). __2__", 1, true) ~= nil, "Deck reboot print includes reason fields")

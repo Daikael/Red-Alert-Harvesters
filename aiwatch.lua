@@ -9,13 +9,23 @@
 -- busy_until / load grace / pad queue / idle FindingOre|FindingRefuel freeze
 -- the timer. A huge leftover busy_until is treated as stuck, not immunity.
 -- queued_for_pad is a refinery unit_number (id) on the harvester record.
--- Movement progress is measured from the last-progress snap (not per 30-tick
--- sample), so a crawl below MOVE_TILES per heartbeat still counts.
+-- Movement progress is measured from the last-progress snap (not per sample),
+-- so a crawl below MOVE_TILES per heartbeat still counts.
+--
+-- UPS: cheap skip classes (queued / path / search / busy) run before any
+-- inventory or find. Position-only snaps first; trunk/tank counts only when
+-- a truck is at timeout. Full evals are staggered and capped per tick.
+-- Hop search is attempt 2+ only, tile precision, range capped at 16.
 
 AiWatch = AiWatch or {}
 
--- Once per this many ticks, staggered by unit_number.
-AiWatch.CHECK_INTERVAL = 30
+-- Compile-gate for long reboot reason strings + log(). Off in tester zips.
+AiWatch.DEBUG_REASON = false
+
+-- Once per this many ticks, staggered by unit_number. 90 ≈ 1.5 s @ 60 UPS.
+AiWatch.CHECK_INTERVAL = 90
+-- Hard cap: full (position / timeout) evals per game tick across all trucks.
+AiWatch.MAX_EVALS_PER_TICK = 3
 -- After a reboot, do not reboot again until this elapses (~60 s).
 AiWatch.COOLDOWN_TICKS = 3600
 -- One game.print across all trucks in this window (~5 s).
@@ -27,9 +37,10 @@ AiWatch.DEFAULT_TIMEOUT = 3600
 -- Match AutoDrive.PAD_RECHECK_TICKS. Waiters idle this long between scans.
 AiWatch.PAD_RECHECK_TICKS = 30
 -- Emergency hop on true reboot streaks (attempt 2+). Physical path stays default.
+-- Cap 16 / precision 1: a 64-tile 0.5-precision search is a frame spike.
 AiWatch.HOP_RANGE_BASE = 8
-AiWatch.HOP_RANGE_CAP = 64
-AiWatch.HOP_PRECISION = 0.5
+AiWatch.HOP_RANGE_CAP = 16
+AiWatch.HOP_PRECISION = 1
 AiWatch.HOP_COOLDOWN = 3600
 
 -- Keep in sync with harvester.lua `States`.
@@ -77,6 +88,25 @@ function AiWatch.due(h, tick)
 	end
 	local interval = AiWatch.CHECK_INTERVAL
 	return (tick % interval) == (id % interval)
+end
+
+-- Per-tick budget for full snapshots. Cheap waits do not consume it.
+-- WatchAI passes ctx.budget; Lua tests call tick() without it.
+function AiWatch.begin_tick(now)
+	now = now or 0
+	if AiWatch._budget_tick ~= now then
+		AiWatch._budget_tick = now
+		AiWatch._budget_left = AiWatch.MAX_EVALS_PER_TICK
+	end
+end
+
+function AiWatch.claim_eval(now)
+	AiWatch.begin_tick(now)
+	if (AiWatch._budget_left or 0) <= 0 then
+		return false
+	end
+	AiWatch._budget_left = AiWatch._budget_left - 1
+	return true
 end
 
 function AiWatch.auto_on(h)
@@ -132,7 +162,9 @@ function AiWatch.snapshot(h, opts)
 	end
 	local trunk = opts.trunk
 	local tank = opts.tank
-	if h and (trunk == nil or tank == nil) then
+	-- Inventory get_item_count is a Factorio API hit. Default is position-only
+	-- plus cheap lua fields; counts() only when opts.counts (timeout confirm).
+	if opts.counts and h and (trunk == nil or tank == nil) then
 		local tr, ta = AiWatch.counts(h)
 		if trunk == nil then
 			trunk = tr
@@ -140,6 +172,12 @@ function AiWatch.snapshot(h, opts)
 		if tank == nil then
 			tank = ta
 		end
+	end
+	if trunk == nil then
+		trunk = (h and h.watch_snap and h.watch_snap.trunk) or 0
+	end
+	if tank == nil then
+		tank = (h and h.watch_snap and h.watch_snap.tank) or 0
 	end
 	return {
 		state = h and h.state,
@@ -598,16 +636,43 @@ function AiWatch.tick(h, now, ctx)
 	if ctx.pause_yield then
 		return "skip"
 	end
-	local snap = AiWatch.snapshot(h, ctx)
+	-- Cheap skip classes: lua fields only. No inventory, no find, no path walk.
+	local forever = AiWatch.forever_busy(h, now)
+	if AiWatch.legit_wait(h, now, ctx) and not forever then
+		h.last_progress_tick = now
+		return "wait"
+	end
+	-- Full eval (position snap, maybe inventory at timeout). WatchAI budgets this.
+	if ctx.budget and not AiWatch.claim_eval(now) then
+		return "skip"
+	end
+	local snap = AiWatch.snapshot(h, {
+		pos = ctx.pos,
+		trunk = ctx.trunk,
+		tank = ctx.tank,
+		counts = false,
+	})
 	if not h.watch_snap then
 		AiWatch.note_progress(h, now, snap)
 	elseif AiWatch.progressed(h.watch_snap, snap) then
 		AiWatch.note_progress(h, now, snap, true)
 	end
-	local forever = AiWatch.forever_busy(h, now)
-	if AiWatch.legit_wait(h, now, ctx) and not forever then
-		h.last_progress_tick = now
-		return "wait"
+	-- Trunk/tank only when this sample would otherwise trip the timeout.
+	-- Dumping / refueling sit still; scoops/path/position already counted above.
+	if h.watch_snap and not AiWatch.progressed(h.watch_snap, snap) then
+		local last = h.last_progress_tick
+		if last ~= nil and (now - last) >= AiWatch.timeout_for(h.state) then
+			local need_counts = (ctx.trunk == nil and ctx.tank == nil)
+			snap = AiWatch.snapshot(h, {
+				pos = ctx.pos,
+				trunk = ctx.trunk,
+				tank = ctx.tank,
+				counts = need_counts,
+			})
+			if AiWatch.progressed(h.watch_snap, snap) then
+				AiWatch.note_progress(h, now, snap, true)
+			end
+		end
 	end
 	if AiWatch.should_reboot(h, now, ctx) then
 		return "reboot"
@@ -747,6 +812,9 @@ function AiWatch.try_hop(h, now, opts)
 		return false
 	end
 	local range = AiWatch.hop_range(h.reboot_streak)
+	-- Stamp cooldown before the search returns so a miss cannot re-scan
+	-- on the next reboot (find_non_colliding_position is the spike).
+	h.reboot_hop_until = (now or 0) + AiWatch.HOP_COOLDOWN
 	local pos = surface.find_non_colliding_position(
 		v.name,
 		center,
@@ -766,7 +834,6 @@ function AiWatch.try_hop(h, now, opts)
 	h.path_index = 1
 	h.path_blockers = nil
 	h.targetPosition = nil
-	h.reboot_hop_until = (now or 0) + AiWatch.HOP_COOLDOWN
 	return true
 end
 
@@ -800,10 +867,19 @@ function AiWatch.toast(h, reason, fields)
 	if h and h.vehicle and h.vehicle.unit_number then
 		id = tostring(h.vehicle.unit_number)
 	end
-	fields = fields or AiWatch.reason_fields(h, now, {goal = h and h.state})
-	local detail = AiWatch.format_reason(fields)
-	local line = "Red-Alert-Harvester: RebootAI " .. id .. " " .. tostring(reason or "watchdog") .. " " .. detail
-	if log then
+	local detail
+	if AiWatch.DEBUG_REASON or fields then
+		fields = fields or AiWatch.reason_fields(h, now, {goal = h and h.state})
+		detail = AiWatch.format_reason(fields)
+	else
+		detail = "s=" .. tostring(h and (h.reboot_streak or 0) or 0)
+	end
+	local line = "Red-Alert-Harvester: RebootAI " .. id .. " " .. tostring(reason or "watchdog")
+	if detail ~= "" then
+		line = line .. " " .. detail
+	end
+	-- log() is always present in Factorio and writes the script log. Gate it.
+	if AiWatch.DEBUG_REASON and log then
 		log(line)
 	end
 	if not (game and game.print) then
