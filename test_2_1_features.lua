@@ -788,6 +788,17 @@ expect(drive_src:find("function AutoDrive.demote_driver_to_passenger", 1, true) 
 expect(drive_src:find("vehicle.set_driver(nil)", 1, true) ~= nil, "demote clears the driver seat")
 expect(drive_src:find("vehicle.set_passenger", 1, true) ~= nil, "demote uses set_passenger")
 expect(drive_src:find("player.driving = false", 1, true) == nil, "no player.driving ground dump")
+expect(drive_src:find('name = "character"', 1, true) == nil, "autodrive never create_entity a character")
+expect(drive_src:find('name = "car"', 1, true) == nil, "autodrive never create_entity a vanilla car")
+expect(drive_src:find("function AutoDrive.place_blocker", 1, true) ~= nil, "path blockers are reused in place")
+expect(drive_src:find("function AutoDrive.sweep_orphan_characters", 1, true) ~= nil, "unconnected characters are swept")
+expect(drive_src:find("PATH_BLOCKER_MAX = 16", 1, true) ~= nil, "blocker count per request is capped")
+expect(drive_src:find("raise_built = false", 1, true) ~= nil, "script dummies do not raise built")
+expect(drive_src:find("function AutoDrive.debug_census", 1, true) ~= nil, "entity census is local to tracked trucks")
+expect(io.open("control.lua"):read("*a"):find("entity_census", 1, true) ~= nil, "remote exposes entity_census")
+expect(io.open("modulebay.lua"):read("*a"):find("raise_built = false", 1, true) ~= nil, "hitch create does not raise built")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find('type = "simple-entity"', 1, true) ~= nil, "path-blocker is a simple-entity not a car")
+expect(io.open("prototypes/entities/harv_entity.lua"):read("*a"):find("placeable-off-grid", 1, true) ~= nil, "path-blocker is off-grid")
 local hv_src = assert(io.open("harvester.lua"):read("*a"))
 expect(hv_src:find('settings.startup["harvester-auto-by-default"]', 1, true) ~= nil, "new trucks read harvester-auto-by-default")
 expect(hv_src:find("auto_enabled = auto_by_default()", 1, true) ~= nil, "new trucks take auto_enabled from the startup setting")
@@ -1021,6 +1032,46 @@ local demote_veh = {
 expect(AutoDrive.demote_driver_to_passenger(demote_veh) == "passenger", "demote returns passenger")
 expect(demote_driver == nil, "driver seat empty after demote")
 expect(demote_passenger ~= nil, "passenger seat filled after demote")
+do
+	local seq = {}
+	local seq_driver, seq_passenger
+	local seq_player = {object_name = "LuaPlayer", valid = true}
+	seq_player.character = {object_name = "LuaEntity", valid = true, type = "character", player = seq_player}
+	seq_driver = seq_player
+	local seq_veh = {
+		valid = true,
+		prototype = {allow_passengers = true},
+		get_driver = function() return seq_driver end,
+		get_passenger = function() return seq_passenger end,
+		set_driver = function(v)
+			seq[#seq + 1] = "driver"
+			seq_driver = v
+		end,
+		set_passenger = function(v)
+			seq[#seq + 1] = "passenger"
+			seq_passenger = v
+		end,
+	}
+	expect(AutoDrive.demote_driver_to_passenger(seq_veh) == "passenger", "no-eject demote still returns passenger")
+	expect(seq[1] == "passenger", "demote moves to passenger before ejecting the driver")
+	local kept_char = {valid = true, type = "character", player = {valid = true}}
+	local stray_char = {valid = true, type = "character"}
+	kept_char.destroy = function() kept_char.valid = false end
+	stray_char.destroy = function() stray_char.valid = false end
+	local sweep_veh = {
+		valid = true,
+		position = {x = 0, y = 0},
+		surface = {
+			valid = true,
+			find_entities_filtered = function()
+				return {kept_char, stray_char}
+			end,
+		},
+	}
+	expect(AutoDrive.sweep_orphan_characters(sweep_veh) == 1, "sweep destroys unconnected characters")
+	expect(stray_char.valid == false, "orphan character is destroyed")
+	expect(kept_char.valid == true, "player-owned character is kept")
+end
 local ground_driver = {object_name = "LuaPlayer", valid = true}
 local ground_veh = {
 	valid = true,
@@ -1190,6 +1241,53 @@ expect(storage.autodrive_purge_destroyed == 10, "purge reports how many leftover
 local dbg = AutoDrive.debug_purge()
 expect(dbg.purge == false and dbg.destroyed == 10, "debug_purge reports finished cleanup")
 expect(dbg.peer_layer == true, "peer layer returns after cleanup")
+do
+	local created_n, teleport_n = 0, 0
+	local function mk_dummy(pos)
+		created_n = created_n + 1
+		local ent = {valid = true, position = {x = pos.x, y = pos.y}}
+		ent.teleport = function(p)
+			teleport_n = teleport_n + 1
+			ent.position = {x = p.x, y = p.y}
+		end
+		ent.destroy = function()
+			ent.valid = false
+		end
+		return ent
+	end
+	local reuse_surf = {
+		valid = true,
+		create_entity = function(spec)
+			expect(spec.name == AutoDrive.PATH_BLOCKER, "blocker create uses the dummy prototype")
+			expect(spec.raise_built == false, "blocker create does not raise built")
+			return mk_dummy(spec.position)
+		end,
+	}
+	local reuse_a = {valid = true, unit_number = 21, surface = reuse_surf, position = {x = 0, y = 0}}
+	local reuse_b = {valid = true, unit_number = 22, surface = reuse_surf, position = {x = 12, y = 0}}
+	storage = {
+		cncharvesters = {
+			[21] = {vehicle = reuse_a},
+			[22] = {vehicle = reuse_b, going_home = false},
+		},
+		autodrive_load_tick = 0,
+	}
+	game = {tick = 100000}
+	AutoDrive.spawn_path_blockers(reuse_a, {x = 80, y = 0})
+	expect(created_n == 1, "first path request creates one dummy")
+	expect(teleport_n == 0, "first request has nothing to teleport")
+	reuse_b.position = {x = 14, y = 0}
+	AutoDrive.spawn_path_blockers(reuse_a, {x = 80, y = 0})
+	expect(created_n == 1, "second request reuses the dummy")
+	expect(teleport_n == 1, "reuse teleports the dummy onto the sibling")
+	local census = AutoDrive.debug_census()
+	expect(census.cars == 2, "census counts tracked trucks")
+	expect(census.path_blockers == 1, "census counts live dummies")
+	AutoDrive.clear_path_blockers(reuse_a)
+	expect(storage.cncharvesters[21].path_blockers == nil, "finish drops the dummy list")
+	expect(AutoDrive.PATH_BLOCKER_MAX == 16, "dummy cap is 16 per request")
+	storage.cncharvesters[1] = { vehicle = { valid = true }, reservedRefinery = true }
+end
 storage.refineries = { [9] = { reserved = true, reserved_by = 1, entity = { valid = true } } }
 AutoDrive.begin_load_recovery()
 expect(storage.autodrive_purge == true, "begin_load_recovery starts a purge")

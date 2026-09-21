@@ -113,6 +113,7 @@ local function create_helper(surface, name, position, force)
 		position = position,
 		force = force,
 		create_build_effect_smoke = false,
+		raise_built = false,
 	}
 	harden(ent)
 	return ent
@@ -191,6 +192,7 @@ function ModuleBay.create(vehicle)
 		position = position,
 		force = force,
 		create_build_effect_smoke = false,
+		raise_built = false,
 	}
 	-- Do not pass vehicle quality: quality_affects_module_slots is off, and
 	-- creating the bay at higher quality must not add extra slots. Baseline

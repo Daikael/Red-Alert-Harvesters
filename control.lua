@@ -18,6 +18,7 @@ require "specialOres"
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed_full')))
 -- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','path_blockers')))
+-- /c game.print(serpent.line(remote.call('Red-Alert-Harvester','entity_census')))
 remote.add_interface("Red-Alert-Harvester", {
 	chunkindex_stats = function()
 		return ChunkIndex.debug_stats()
@@ -81,6 +82,9 @@ remote.add_interface("Red-Alert-Harvester", {
 	-- map-wide here (that find CTDs a pad-storm save).
 	path_blockers = function()
 		return AutoDrive.debug_purge()
+	end,
+	entity_census = function()
+		return AutoDrive.debug_census()
 	end,
 })
 
@@ -477,7 +481,7 @@ local function drive_harvest(player, vehicle)
 	end
 end
 
--- Hybrid pool, slave-miner feed, and hitch teleport run every tick.
+	-- Hybrid pool, slave-miner feed, and hitch teleport run every tick.
 script.on_nth_tick(1, function()
 	ensure_storage()
 	migrate_after_load()
