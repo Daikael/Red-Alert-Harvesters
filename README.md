@@ -84,6 +84,7 @@ On Windows: copy the repo into a folder literally named `Red-Alert-Harvester_2.2
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','chunkindex_reseed', true)))
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','harvester_ai')))
 /c game.print(serpent.line(remote.call('Red-Alert-Harvester','path_blockers')))
+/c game.print(serpent.line(remote.call('Red-Alert-Harvester','entity_census')))
 ```
 
 **Alt+I** (or the shortcut-bar **Chunk index overlay** button) toggles a pollution-style **map/minimap** overlay (not the world surface): **all** indexed charted chunks on the viewed surface. Green Tib, **orange** Tib-border+ore, yellow harvester / empty Tib-border, red ore, **dim** purple empty scanned, blank unscanned/fog. The chunk being scanned this tick blinks cyan. If the overlay looks striped, those blanks are still unindexed. Default reseed is **missing-only** (no automatic full-map re-chew). Full refresh is `chunkindex_reseed` + `true` or `chunkindex_reseed_full`. Scanner is **1 chunk / 10 ticks** (~1.85 h for 40k generated). Auto-drive assigns the **nearest indexed** patch (no 256-tile cap). Off destroys the overlay render objects.

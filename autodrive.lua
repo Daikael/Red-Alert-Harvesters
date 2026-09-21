@@ -90,6 +90,12 @@ AutoDrive.LOAD_GRACE_TICKS = 60
 -- Batched orphan dummy cleanup after grace (never a tick-0 map-wide find).
 AutoDrive.PURGE_PER_TICK = 8
 AutoDrive.PURGE_RADIUS = 32
+-- Cap dummy count per request. A fleet of N trucks must not leave N dummies
+-- on every sibling forever (create/destroy churn and entity-update UPS).
+AutoDrive.PATH_BLOCKER_MAX = 16
+-- Unconnected character entities from seat-swap leaks. Never player-owned.
+AutoDrive.CHAR_PURGE_RADIUS = 8
+AutoDrive.CHAR_PURGE_MAX = 4
 -- Treat two goals as the same so StartDrive will not re-request_path.
 AutoDrive.GOAL_SAME_TILES = 0.5
 -- Peer pin: reverse ~1.5 s (~4–8 tiles) if the rear is clear, then repath.
@@ -416,10 +422,67 @@ local function occupant_as_rider(obj)
 	return nil, nil
 end
 
+-- Unconnected type=character leftovers from seat swaps. A connected
+-- player.character is never destroyed (ground demote / walking nearby).
+function AutoDrive.sweep_orphan_characters(vehicle, radius, limit)
+	if not (vehicle and vehicle.valid) then
+		return 0
+	end
+	local surface = vehicle.surface
+	if not (surface and surface.valid and surface.find_entities_filtered) then
+		return 0
+	end
+	local found = surface.find_entities_filtered{
+		type = "character",
+		position = vehicle.position,
+		radius = radius or AutoDrive.CHAR_PURGE_RADIUS,
+		limit = limit or AutoDrive.CHAR_PURGE_MAX,
+	} or {}
+	local n = 0
+	for i = 1, #found do
+		local ent = found[i]
+		if ent and ent.valid and ent.type == "character" and not occupant_is_player(ent) then
+			local ok = pcall(function()
+				ent.destroy()
+			end)
+			if ok then
+				n = n + 1
+			end
+		end
+	end
+	return n
+end
+
+local function passenger_is_player(vehicle)
+	return occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger))
+end
+
+local function seat_move_to_passenger(vehicle, rider)
+	if not rider then
+		return false
+	end
+	pcall(function()
+		vehicle.set_passenger(rider)
+	end)
+	if passenger_is_player(vehicle) then
+		if AutoDrive.player_is_driver(vehicle) then
+			pcall(function()
+				vehicle.set_driver(nil)
+			end)
+		end
+		return not AutoDrive.player_is_driver(vehicle)
+	end
+	return false
+end
+
 -- Factorio gives the driver seat priority over scripted riding_state.
 -- Demote the player to passenger so they stay aboard but cannot steer.
 -- Never assign player.driving to false (that dumps them on the ground).
--- Returns "passenger", "ground", or false.
+-- Never create_entity a character: set_driver(nil) first ejects the existing
+-- character onto the ground, and a later set_passenger(player) can spawn a
+-- second one while the first stays as an unconnected world entity (UPS death).
+-- Move to passenger first; only then clear the driver seat. Returns
+-- "passenger", "ground", or false.
 function AutoDrive.demote_driver_to_passenger(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return false
@@ -439,37 +502,35 @@ function AutoDrive.demote_driver_to_passenger(vehicle)
 	if ok_proto and proto and proto.allow_passengers == false then
 		allow_passengers = false
 	end
-	-- Empty the driver seat so AI riding_state can win. Prefer passenger
-	-- immediately after; ground only if this car cannot take a passenger.
-	pcall(function()
-		vehicle.set_driver(nil)
-	end)
+	local result = "ground"
 	if allow_passengers then
-		local rider = character or player
-		pcall(function()
-			vehicle.set_passenger(rider)
-		end)
-		if occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger)) then
-			if AutoDrive.player_is_driver(vehicle) then
-				pcall(function()
-					vehicle.set_driver(nil)
-				end)
+		-- Same character entity. Do not hand LuaPlayer to set_passenger after
+		-- an eject — that is the duplicate-character spawn.
+		local rider = character or driver
+		if seat_move_to_passenger(vehicle, rider) then
+			result = "passenger"
+		elseif seat_move_to_passenger(vehicle, player) then
+			result = "passenger"
+		else
+			-- Last resort: empty driver, then put the SAME character back.
+			pcall(function()
+				vehicle.set_driver(nil)
+			end)
+			local after = character
+			if not (after and after.valid) then
+				after = player.character
 			end
-			return "passenger"
-		end
-		pcall(function()
-			vehicle.set_passenger(player)
-		end)
-		if occupant_is_player(seat_occupant(vehicle, vehicle.get_passenger)) then
-			if AutoDrive.player_is_driver(vehicle) then
-				pcall(function()
-					vehicle.set_driver(nil)
-				end)
+			if seat_move_to_passenger(vehicle, after) or seat_move_to_passenger(vehicle, player) then
+				result = "passenger"
 			end
-			return "passenger"
 		end
+	else
+		pcall(function()
+			vehicle.set_driver(nil)
+		end)
 	end
-	return "ground"
+	AutoDrive.sweep_orphan_characters(vehicle)
+	return result
 end
 
 function AutoDrive.player_driving(vehicle)
@@ -666,6 +727,36 @@ function AutoDrive.debug_purge()
 	}
 end
 
+-- Radius-limited. Do not count_entities map-wide (pad-storm CTD).
+function AutoDrive.debug_census()
+	local cars, blockers, hitch = 0, 0, 0
+	for _, h in pairs(storage and storage.cncharvesters or {}) do
+		local v = h.vehicle
+		if v and v.valid then
+			cars = cars + 1
+			local list = h.path_blockers
+			if list then
+				for i = 1, #list do
+					if list[i] and list[i].valid then
+						blockers = blockers + 1
+					end
+				end
+			end
+		end
+	end
+	for _, rec in pairs(storage and storage.module_bays or {}) do
+		if rec.bay and rec.bay.valid then
+			hitch = hitch + 1
+		end
+	end
+	return {
+		cars = cars,
+		path_blockers = blockers,
+		hitch_bays = hitch,
+		purge = AutoDrive.debug_purge(),
+	}
+end
+
 -- Drop Lua refs only. Do not find+destroy (a toxic save can have thousands
 -- of leftover dummies; that find/destroy on tick 0 hard-kills 2.0.77).
 function AutoDrive.forget_blocker_lists()
@@ -716,6 +807,8 @@ function AutoDrive.tick_purge_blockers()
 		storage.autodrive_purge_cursor = cursor + 1
 		return 0
 	end
+	-- Seat-swap leftovers: type=character with no connected player.
+	AutoDrive.sweep_orphan_characters(ent, AutoDrive.PURGE_RADIUS, AutoDrive.CHAR_PURGE_MAX)
 	local found = surface.find_entities_filtered{
 		name = AutoDrive.PATH_BLOCKER,
 		position = ent.position,
@@ -813,11 +906,61 @@ function AutoDrive.peer_needs_blocker(vehicle, other, goal)
 	return false
 end
 
+local function valid_blocker_list(list)
+	local out = {}
+	if not list then
+		return out
+	end
+	for i = 1, #list do
+		local ent = list[i]
+		if ent and ent.valid then
+			out[#out + 1] = ent
+		end
+	end
+	return out
+end
+
+-- Teleport an existing dummy onto the sibling. Create only when the pool
+-- is short. Never type=car, never a character. raise_built is off so
+-- script_raised_built does not run On_Built per dummy.
+function AutoDrive.place_blocker(surface, pos, existing)
+	if existing and existing.valid then
+		local cur = existing.position
+		if cur and pos and cur.x == pos.x and cur.y == pos.y then
+			return existing, false
+		end
+		local ok = pcall(function()
+			existing.teleport(pos)
+		end)
+		if ok and existing.valid then
+			return existing, false
+		end
+		pcall(function()
+			existing.destroy()
+		end)
+	end
+	if not (surface and surface.create_entity and pos) then
+		return nil, false
+	end
+	local ok, ent = pcall(function()
+		return surface.create_entity{
+			name = AutoDrive.PATH_BLOCKER,
+			position = pos,
+			force = "neutral",
+			create_build_effect_smoke = false,
+			raise_built = false,
+		}
+	end)
+	if ok and ent and ent.valid then
+		return ent, true
+	end
+	return nil, false
+end
+
 function AutoDrive.spawn_path_blockers(vehicle, goal)
 	if AutoDrive.in_load_grace() or not AutoDrive.peer_layer_enabled() then
 		return
 	end
-	AutoDrive.clear_path_blockers(vehicle)
 	if not (vehicle and vehicle.valid) then
 		return
 	end
@@ -829,26 +972,36 @@ function AutoDrive.spawn_path_blockers(vehicle, goal)
 	if not (surface and surface.valid) then
 		return
 	end
+	-- Reuse this truck's dummy list. Do not destroy-all + recreate on every
+	-- request_path (that is N cars/dummies per truck per repath).
+	local pool = valid_blocker_list(rec.path_blockers)
+	local pool_i = 0
 	local list = {}
 	AutoDrive.each_peer(vehicle, function(_, other)
+		if #list >= AutoDrive.PATH_BLOCKER_MAX then
+			return
+		end
 		if not AutoDrive.peer_needs_blocker(vehicle, other, goal) then
 			return
 		end
-		local pos = other.position
-		local ok, ent = pcall(function()
-			return surface.create_entity{
-				name = AutoDrive.PATH_BLOCKER,
-				position = pos,
-				force = "neutral",
-				create_build_effect_smoke = false,
-			}
-		end)
-		if ok and ent and ent.valid then
+		pool_i = pool_i + 1
+		local ent = AutoDrive.place_blocker(surface, other.position, pool[pool_i])
+		if ent then
 			list[#list + 1] = ent
 		end
 	end)
+	for i = pool_i + 1, #pool do
+		local extra = pool[i]
+		if extra and extra.valid then
+			pcall(function()
+				extra.destroy()
+			end)
+		end
+	end
 	if #list > 0 then
 		rec.path_blockers = list
+	else
+		rec.path_blockers = nil
 	end
 end
 
