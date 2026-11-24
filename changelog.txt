@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.19
+Date: 2026-11-24
+  Info:
+    - Pack version 2.1.19. Hotfix on the Factorio 2.1 line (portal pack 2.1.17, git branch 2.1.17). Zip/folder name is Red-Alert-Harvester_2.1.19. factorio_version stays 2.1. Base dependency is 2.1.20, because ItemPrototype.fuel_categories does not exist before that. 2.1.18 remains the separate Factorio 2.0 backdate. Do not merge this 2.1 line to master.
+  Bugfixes:
+    - Factorio 2.1.20 replaced ItemPrototype.fuel_category with fuel_categories (array) and errors if the old field is set. cncharvester-hybrid-charge now sets fuel_categories = {"cncharvester-hybrid"}.
+    - Data-stage scan: the car burner already uses fuel_categories. No equipment prototype and no other item sets fuel_category. No other 2.1.20-2.1.25 data-stage removals apply (utility zoom constants, FluidBox temperatures, pipe sprite variations, proxy-container circuit connectors). Runtime does not read LuaItemPrototype.fuel_category or LuaPlayer.spectator.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.17
 Date: 2026-09-06
   Info:

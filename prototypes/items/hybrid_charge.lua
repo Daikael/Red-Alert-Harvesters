@@ -25,7 +25,8 @@ data:extend({
 		hidden_in_factoriopedia = true,
 		stack_size = 1,
 		fuel_value = "80MJ",
-		fuel_category = "cncharvester-hybrid",
+		-- 2.1.20+: ItemPrototype.fuel_category is a startup error. The array is required.
+		fuel_categories = {"cncharvester-hybrid"},
 		flags = {"hide-from-bonus-gui", "hide-from-fuel-tooltip", "not-stackable"}
 	}
 })
